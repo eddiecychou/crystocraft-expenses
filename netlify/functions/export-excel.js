@@ -5,8 +5,8 @@ export const handler = async (event) => {
     return { statusCode: 405, body: 'Method Not Allowed' }
   }
 
-  const FIREBASE_API_KEY = process.env.FIREBASE_API_KEY
-  const PROJECT_ID = process.env.FIREBASE_PROJECT_ID
+  const FIREBASE_API_KEY = process.env.VITE_FIREBASE_API_KEY
+  const PROJECT_ID = process.env.VITE_FIREBASE_PROJECT_ID
 
   try {
     const { idToken } = JSON.parse(event.body)
