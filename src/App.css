@@ -349,3 +349,55 @@ body {
   font-size: 14px;
   margin-bottom: 16px;
 }
+
+/* ── Mobile ── */
+@media (max-width: 640px) {
+  .sidebar {
+    width: 100%;
+    flex-direction: row;
+    padding: 0;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 100;
+    border-top: 1px solid #2d2d4e;
+  }
+
+  .logo { display: none; }
+
+  .sidebar a {
+    flex: 1;
+    text-align: center;
+    padding: 10px 4px;
+    font-size: 11px;
+  }
+
+  .logout-btn {
+    flex: 0 0 auto;
+    width: auto;
+    padding: 10px 14px;
+    font-size: 11px;
+    margin-top: 0;
+    border-left: 1px solid #2d2d4e;
+  }
+
+  .main-content {
+    padding: 16px;
+    padding-bottom: 68px;
+  }
+
+  .stat-row { flex-direction: column; }
+
+  .result-grid { grid-template-columns: 1fr 1fr; }
+
+  .login-card {
+    width: calc(100% - 32px);
+    padding: 28px 20px;
+  }
+
+  .page h2 { font-size: 18px; margin-bottom: 16px; }
+
+  .action-row { flex-direction: column; }
+  .action-row .btn-primary, .action-row .btn-ghost { width: 100%; text-align: center; }
+}
