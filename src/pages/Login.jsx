@@ -27,7 +27,7 @@ export default function Login() {
   return (
     <div className="login-page">
       <div className="login-card">
-        <h1>Crystocraft Expenses</h1>
+        <h1>Expense Organiser</h1>
         <form onSubmit={handleSubmit}>
           <input
             type="email"

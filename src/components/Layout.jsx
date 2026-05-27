@@ -13,7 +13,7 @@ export default function Layout() {
   return (
     <div className="app-layout">
       <nav className="sidebar">
-        <div className="logo">Crystocraft<br />Expenses</div>
+        <div className="logo">Expense<br />Organiser</div>
         <NavLink to="/" end>Dashboard</NavLink>
         <NavLink to="/upload">Upload</NavLink>
         <NavLink to="/expenses">Expenses</NavLink>
