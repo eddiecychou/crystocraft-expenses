@@ -3,8 +3,8 @@
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   font-size: 14px;
-  color: #1a1a2e;
-  background: #f5f7fa;
+  color: #1a3a28;
+  background: #f2f7f3;
 }
 
 /* ── Layout ── */
@@ -15,7 +15,7 @@ body {
 
 .sidebar {
   width: 200px;
-  background: #1a1a2e;
+  background: #1a3a28;
   display: flex;
   flex-direction: column;
   padding: 24px 0;
@@ -28,7 +28,7 @@ body {
   font-weight: 700;
   line-height: 1.4;
   padding: 0 20px 24px;
-  border-bottom: 1px solid #2d2d4e;
+  border-bottom: 1px solid #2a5c3f;
 }
 
 .sidebar a {
@@ -39,8 +39,8 @@ body {
   transition: background 0.15s, color 0.15s;
 }
 
-.sidebar a:hover { background: #2d2d4e; color: #fff; }
-.sidebar a.active { background: #2d2d4e; color: #fff; font-weight: 600; }
+.sidebar a:hover { background: #2a5c3f; color: #fff; }
+.sidebar a.active { background: #2a5c3f; color: #fff; font-weight: 600; }
 
 .logout-btn {
   margin-top: auto;
@@ -67,7 +67,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #f5f7fa;
+  background: #f2f7f3;
 }
 
 .login-card {
@@ -81,7 +81,7 @@ body {
 .login-card h1 {
   font-size: 20px;
   margin-bottom: 28px;
-  color: #1a1a2e;
+  color: #1a3a28;
 }
 
 .login-card form { display: flex; flex-direction: column; gap: 12px; }
@@ -94,22 +94,22 @@ body {
 }
 
 .login-card input { border: 1px solid #e2e8f0; outline: none; }
-.login-card input:focus { border-color: #667eea; }
+.login-card input:focus { border-color: #38845a; }
 
 .login-card button {
-  background: #667eea;
+  background: #38845a;
   color: #fff;
   border: none;
   cursor: pointer;
   font-weight: 600;
   margin-top: 4px;
 }
-.login-card button:hover { background: #5a6fd8; }
+.login-card button:hover { background: #2d6e4a; }
 .login-card button:disabled { opacity: 0.6; cursor: not-allowed; }
 
 /* ── Page ── */
 .page { max-width: 900px; }
-.page h2 { font-size: 22px; margin-bottom: 24px; color: #1a1a2e; }
+.page h2 { font-size: 22px; margin-bottom: 24px; color: #1a3a28; }
 .page h3 { font-size: 16px; margin-bottom: 16px; color: #2d3748; }
 
 .loading { color: #718096; padding: 48px; text-align: center; }
@@ -142,7 +142,7 @@ body {
   box-shadow: 0 1px 4px rgba(0,0,0,0.06);
 }
 .stat-label { color: #718096; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
-.stat-value { font-size: 24px; font-weight: 700; color: #1a1a2e; }
+.stat-value { font-size: 24px; font-weight: 700; color: #1a3a28; }
 
 /* ── Expense rows (dashboard) ── */
 .expense-row {
@@ -162,7 +162,7 @@ body {
   display: flex;
   justify-content: space-between;
   padding: 6px 0;
-  border-bottom: 1px solid #f5f7fa;
+  border-bottom: 1px solid #f2f7f3;
   color: #4a5568;
 }
 .category-row:last-child { border-bottom: none; }
@@ -173,14 +173,14 @@ body {
   padding: 2px 8px;
   border-radius: 12px;
   font-size: 12px;
-  background: #ebf4ff;
-  color: #3182ce;
+  background: #e4f2e9;
+  color: #276840;
   font-weight: 500;
 }
 
 /* ── Buttons ── */
 .btn-primary {
-  background: #667eea;
+  background: #38845a;
   color: #fff;
   border: none;
   border-radius: 6px;
@@ -191,7 +191,7 @@ body {
   text-decoration: none;
   display: inline-block;
 }
-.btn-primary:hover { background: #5a6fd8; }
+.btn-primary:hover { background: #2d6e4a; }
 .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
 
 .btn-ghost {
@@ -233,7 +233,7 @@ body {
   transition: border-color 0.15s, background 0.15s;
   margin-bottom: 20px;
 }
-.dropzone:hover { border-color: #667eea; background: #f0f4ff; }
+.dropzone:hover { border-color: #38845a; background: #ecf7ef; }
 .dropzone-icon { font-size: 40px; margin-bottom: 12px; }
 .dropzone p { color: #4a5568; margin-bottom: 4px; }
 .hint { color: #a0aec0; font-size: 12px; }
@@ -285,12 +285,12 @@ body {
   border: 1px solid #e2e8f0;
   border-radius: 6px;
   font-size: 14px;
-  color: #1a1a2e;
+  color: #1a3a28;
   background: #fff;
 }
 .result-grid input:focus, .result-grid select:focus {
   outline: none;
-  border-color: #667eea;
+  border-color: #38845a;
 }
 
 /* ── Expense table ── */
@@ -305,7 +305,7 @@ body {
   box-shadow: 0 1px 4px rgba(0,0,0,0.06);
 }
 .expense-table th {
-  background: #f8f9fb;
+  background: #f3f8f4;
   padding: 10px 14px;
   text-align: left;
   font-size: 12px;
@@ -377,7 +377,7 @@ body {
   border: 1px solid #e2e8f0;
   border-radius: 6px;
   font-size: 13px;
-  color: #1a1a2e;
+  color: #1a3a28;
 }
 
 .date-sep { color: #a0aec0; }
@@ -392,7 +392,7 @@ body {
   border-top: 2px solid #e2e8f0;
   margin-top: 6px;
   font-weight: 700;
-  color: #1a1a2e;
+  color: #1a3a28;
   font-size: 14px;
 }
 
@@ -407,7 +407,7 @@ body {
     left: 0;
     right: 0;
     z-index: 100;
-    border-top: 1px solid #2d2d4e;
+    border-top: 1px solid #2a5c3f;
   }
 
   .logo { display: none; }
@@ -425,7 +425,7 @@ body {
     padding: 16px 18px;
     font-size: 13px;
     margin-top: 0;
-    border-left: 1px solid #2d2d4e;
+    border-left: 1px solid #2a5c3f;
   }
 
   .main-content {
