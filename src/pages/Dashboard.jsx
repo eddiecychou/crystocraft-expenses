@@ -93,18 +93,6 @@ export default function Dashboard() {
               <div className="stat-label">Entries</div>
               <div className="stat-value">{expenses.length}</div>
             </div>
-            {Object.entries(totals).map(([currency, amount]) => (
-              <div key={currency} className="stat-card">
-                <div className="stat-label">Total ({currency})</div>
-                <div className="stat-value">{currency} {amount.toFixed(2)}</div>
-              </div>
-            ))}
-            {Object.keys(totals).length === 0 && (
-              <div className="stat-card">
-                <div className="stat-label">Total</div>
-                <div className="stat-value">—</div>
-              </div>
-            )}
           </div>
 
           {byCategory.length > 0 && (
