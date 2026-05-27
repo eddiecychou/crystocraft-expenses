@@ -31,15 +31,16 @@ export default function Upload() {
     for (const file of files) {
       try {
         const base64 = await toBase64(file)
+        const mimeType = file.type || (file.name.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg')
         const res = await fetch('/api/process-receipt', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ fileData: base64, mimeType: file.type }),
+          body: JSON.stringify({ fileData: base64, mimeType }),
         })
         const data = await res.json()
         out.push({ ...data, fileName: file.name })
-      } catch {
-        out.push({ fileName: file.name, error: 'Failed to process' })
+      } catch (err) {
+        out.push({ fileName: file.name, error: err.message || 'Failed to process' })
       }
     }
     setResults(out)
