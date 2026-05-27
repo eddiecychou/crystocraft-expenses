@@ -381,6 +381,7 @@ body {
 }
 
 input[type="date"] { text-align: left; }
+input[type="date"]::-webkit-date-and-time-value { text-align: left; }
 
 .date-sep { color: #a0aec0; }
 
