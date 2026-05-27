@@ -1,81 +1,152 @@
 import { useState, useEffect } from 'react'
-import { collection, query, where, orderBy, limit, getDocs } from 'firebase/firestore'
+import { collection, query, where, orderBy, getDocs } from 'firebase/firestore'
 import { db, auth } from '../firebase'
 import { Link } from 'react-router-dom'
 
 const CATEGORIES = ['Travel', 'Meals', 'Office', 'Software', 'Utilities', 'Other']
 
+function isoDate(d) { return d.toISOString().slice(0, 10) }
+
+function firstOfMonth() {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
+}
+
 export default function Dashboard() {
   const [expenses, setExpenses] = useState([])
   const [loading, setLoading] = useState(true)
+  const [from, setFrom] = useState(firstOfMonth)
+  const [to, setTo] = useState(() => isoDate(new Date()))
 
   useEffect(() => {
     async function load() {
-      const q = query(
-        collection(db, 'expenses'),
-        where('userId', '==', auth.currentUser.uid),
-        orderBy('createdAt', 'desc'),
-        limit(10)
-      )
+      setLoading(true)
+      const uid = auth.currentUser.uid
+      let q
+      if (from && to) {
+        q = query(collection(db, 'expenses'), where('userId', '==', uid), where('date', '>=', from), where('date', '<=', to), orderBy('date', 'desc'))
+      } else if (from) {
+        q = query(collection(db, 'expenses'), where('userId', '==', uid), where('date', '>=', from), orderBy('date', 'desc'))
+      } else if (to) {
+        q = query(collection(db, 'expenses'), where('userId', '==', uid), where('date', '<=', to), orderBy('date', 'desc'))
+      } else {
+        q = query(collection(db, 'expenses'), where('userId', '==', uid), orderBy('date', 'desc'))
+      }
       const snap = await getDocs(q)
       setExpenses(snap.docs.map(d => ({ id: d.id, ...d.data() })))
       setLoading(false)
     }
     load()
-  }, [])
+  }, [from, to])
 
-  const total = expenses.reduce((sum, e) => sum + (e.amount || 0), 0)
-  const defaultCurrency = expenses[0]?.currency || 'HKD'
+  function setPreset(preset) {
+    const now = new Date()
+    if (preset === 'this-month') {
+      setFrom(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`)
+      setTo(isoDate(now))
+    } else if (preset === 'last-month') {
+      const y = now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear()
+      const m = now.getMonth() === 0 ? 12 : now.getMonth()
+      setFrom(`${y}-${String(m).padStart(2, '0')}-01`)
+      setTo(isoDate(new Date(now.getFullYear(), now.getMonth(), 0)))
+    } else if (preset === 'this-year') {
+      setFrom(`${now.getFullYear()}-01-01`)
+      setTo(isoDate(now))
+    } else {
+      setFrom('')
+      setTo('')
+    }
+  }
+
+  const totals = {}
+  expenses.forEach(e => {
+    const c = e.currency || 'HKD'
+    totals[c] = (totals[c] || 0) + (e.amount || 0)
+  })
+
   const byCategory = CATEGORIES
     .map(cat => ({ cat, total: expenses.filter(e => e.category === cat).reduce((s, e) => s + (e.amount || 0), 0) }))
     .filter(c => c.total > 0)
-
-  if (loading) return <div className="loading">Loading…</div>
 
   return (
     <div className="page">
       <h2>Dashboard</h2>
 
-      <div className="stat-row">
-        <div className="stat-card">
-          <div className="stat-label">Recent entries</div>
-          <div className="stat-value">{expenses.length}</div>
+      <div className="filter-row">
+        <div className="date-range">
+          <input type="date" value={from} onChange={e => setFrom(e.target.value)} />
+          <span className="date-sep">–</span>
+          <input type="date" value={to} onChange={e => setTo(e.target.value)} />
         </div>
-        <div className="stat-card">
-          <div className="stat-label">Total (last 10)</div>
-          <div className="stat-value">{defaultCurrency} {total.toFixed(2)}</div>
+        <div className="preset-btns">
+          <button onClick={() => setPreset('this-month')} className="btn-small btn-ghost">This Month</button>
+          <button onClick={() => setPreset('last-month')} className="btn-small btn-ghost">Last Month</button>
+          <button onClick={() => setPreset('this-year')} className="btn-small btn-ghost">This Year</button>
+          <button onClick={() => setPreset('all')} className="btn-small btn-ghost">All</button>
         </div>
       </div>
 
-      {byCategory.length > 0 && (
-        <div className="card">
-          <h3>By Category</h3>
-          {byCategory.map(c => (
-            <div key={c.cat} className="category-row">
-              <span>{c.cat}</span>
-              <span>{c.total.toFixed(2)}</span>
+      {loading ? <div className="loading">Loading…</div> : (
+        <>
+          <div className="stat-row">
+            <div className="stat-card">
+              <div className="stat-label">Entries</div>
+              <div className="stat-value">{expenses.length}</div>
             </div>
-          ))}
-        </div>
+            {Object.entries(totals).map(([currency, amount]) => (
+              <div key={currency} className="stat-card">
+                <div className="stat-label">Total ({currency})</div>
+                <div className="stat-value">{currency} {amount.toFixed(2)}</div>
+              </div>
+            ))}
+            {Object.keys(totals).length === 0 && (
+              <div className="stat-card">
+                <div className="stat-label">Total</div>
+                <div className="stat-value">—</div>
+              </div>
+            )}
+          </div>
+
+          {byCategory.length > 0 && (
+            <div className="card">
+              <h3>By Category</h3>
+              {byCategory.map(c => (
+                <div key={c.cat} className="category-row">
+                  <span>{c.cat}</span>
+                  <span>{c.total.toFixed(2)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="card">
+            <div className="card-header">
+              <h3>Expenses</h3>
+              <Link to="/upload" className="btn-primary">+ Upload Receipt</Link>
+            </div>
+            {expenses.length === 0
+              ? <p className="empty">No expenses for this period. <Link to="/upload">Upload a receipt.</Link></p>
+              : (
+                <>
+                  {expenses.map(e => (
+                    <div key={e.id} className="expense-row">
+                      <span className="date">{e.date}</span>
+                      <span className="vendor">{e.vendor}</span>
+                      <span className="amount">{e.currency} {e.amount?.toFixed(2)}</span>
+                      <span className="badge">{e.category}</span>
+                    </div>
+                  ))}
+                  <div className="expense-total-row">
+                    {Object.entries(totals).map(([currency, amount]) => (
+                      <span key={currency}>{currency} {amount.toFixed(2)}</span>
+                    ))}
+                  </div>
+                </>
+              )
+            }
+          </div>
+        </>
       )}
-
-      <div className="card">
-        <div className="card-header">
-          <h3>Recent Expenses</h3>
-          <Link to="/upload" className="btn-primary">+ Upload Receipt</Link>
-        </div>
-        {expenses.length === 0
-          ? <p className="empty">No expenses yet. <Link to="/upload">Upload your first receipt.</Link></p>
-          : expenses.map(e => (
-            <div key={e.id} className="expense-row">
-              <span className="date">{e.date}</span>
-              <span className="vendor">{e.vendor}</span>
-              <span className="amount">{e.currency} {e.amount?.toFixed(2)}</span>
-              <span className="badge">{e.category}</span>
-            </div>
-          ))
-        }
-      </div>
     </div>
   )
 }
