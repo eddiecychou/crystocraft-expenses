@@ -176,7 +176,7 @@ export default function Upload() {
                   <div className="result-grid">
                     <label>
                       Date
-                      <input value={r.date || ''} onChange={e => update(i, 'date', e.target.value)} placeholder="YYYY-MM-DD" />
+                      <input type="date" value={r.date || ''} onChange={e => update(i, 'date', e.target.value)} />
                     </label>
                     <label>
                       Vendor
