@@ -1,0 +1,19 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+
+[[edge_functions]]
+  function = "process-receipt"
+  path = "/api/process-receipt"
+
+[[redirects]]
+  from = "/api/export-excel"
+  to = "/.netlify/functions/export-excel"
+  status = 200

@@ -1,0 +1,188 @@
+import { useState, useRef } from 'react'
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore'
+import { db, auth } from '../firebase'
+
+const CATEGORIES = ['Travel', 'Meals', 'Office', 'Software', 'Utilities', 'Other']
+const CURRENCIES = ['HKD', 'RMB', 'USD', 'Other']
+
+export default function Upload() {
+  const [files, setFiles] = useState([])
+  const [processing, setProcessing] = useState(false)
+  const [results, setResults] = useState([])
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const fileRef = useRef()
+
+  function handleDrop(e) {
+    e.preventDefault()
+    const dropped = Array.from(e.dataTransfer.files).filter(validFile)
+    if (dropped.length) { setFiles(dropped); setResults([]); setSaved(false) }
+  }
+
+  function handleChange(e) {
+    setFiles(Array.from(e.target.files))
+    setResults([])
+    setSaved(false)
+  }
+
+  async function processFiles() {
+    setProcessing(true)
+    const out = []
+    for (const file of files) {
+      try {
+        const base64 = await toBase64(file)
+        const res = await fetch('/api/process-receipt', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fileData: base64, mimeType: file.type }),
+        })
+        const data = await res.json()
+        out.push({ ...data, fileName: file.name })
+      } catch {
+        out.push({ fileName: file.name, error: 'Failed to process' })
+      }
+    }
+    setResults(out)
+    setProcessing(false)
+  }
+
+  function update(i, field, value) {
+    setResults(prev => prev.map((r, idx) => idx === i ? { ...r, [field]: value } : r))
+  }
+
+  async function saveAll() {
+    setSaving(true)
+    const uid = auth.currentUser.uid
+    const email = auth.currentUser.email
+    for (const r of results) {
+      if (r.error) continue
+      await addDoc(collection(db, 'expenses'), {
+        userId: uid,
+        userEmail: email,
+        date: r.date || '',
+        vendor: r.vendor || '',
+        amount: parseFloat(r.amount) || 0,
+        currency: r.currency || 'HKD',
+        category: r.category || 'Other',
+        notes: r.notes || '',
+        createdAt: serverTimestamp(),
+      })
+    }
+    setSaving(false)
+    setSaved(true)
+    setFiles([])
+    setResults([])
+  }
+
+  if (saved) return (
+    <div className="page">
+      <div className="success-msg">Expenses saved successfully!</div>
+      <button onClick={() => setSaved(false)} className="btn-primary">Upload More</button>
+    </div>
+  )
+
+  return (
+    <div className="page">
+      <h2>Upload Receipts</h2>
+
+      {results.length === 0 && (
+        <>
+          <div
+            className="dropzone"
+            onDrop={handleDrop}
+            onDragOver={e => e.preventDefault()}
+            onClick={() => fileRef.current.click()}
+          >
+            <div className="dropzone-icon">📄</div>
+            <p>Drag & drop receipts here, or click to select</p>
+            <p className="hint">JPEG · PNG · PDF · Multiple files OK</p>
+            <input
+              ref={fileRef}
+              type="file"
+              multiple
+              accept="image/*,.pdf"
+              onChange={handleChange}
+              hidden
+            />
+          </div>
+
+          {files.length > 0 && (
+            <div className="file-list">
+              <p>{files.length} file(s) selected:</p>
+              <ul>{files.map(f => <li key={f.name}>{f.name}</li>)}</ul>
+              <button onClick={processFiles} disabled={processing} className="btn-primary">
+                {processing ? 'Extracting data…' : 'Extract Data with AI'}
+              </button>
+            </div>
+          )}
+        </>
+      )}
+
+      {results.length > 0 && (
+        <div>
+          <h3>Review Extracted Data</h3>
+          <p className="hint">Check and correct any fields before saving.</p>
+          {results.map((r, i) => (
+            <div key={i} className="result-card">
+              <div className="result-filename">{r.fileName}</div>
+              {r.error
+                ? <div className="error-msg">Could not extract: {r.error}</div>
+                : (
+                  <div className="result-grid">
+                    <label>
+                      Date
+                      <input value={r.date || ''} onChange={e => update(i, 'date', e.target.value)} placeholder="YYYY-MM-DD" />
+                    </label>
+                    <label>
+                      Vendor
+                      <input value={r.vendor || ''} onChange={e => update(i, 'vendor', e.target.value)} />
+                    </label>
+                    <label>
+                      Amount
+                      <input type="number" step="0.01" value={r.amount || ''} onChange={e => update(i, 'amount', e.target.value)} />
+                    </label>
+                    <label>
+                      Currency
+                      <select value={r.currency || 'HKD'} onChange={e => update(i, 'currency', e.target.value)}>
+                        {CURRENCIES.map(c => <option key={c}>{c}</option>)}
+                      </select>
+                    </label>
+                    <label>
+                      Category
+                      <select value={r.category || 'Other'} onChange={e => update(i, 'category', e.target.value)}>
+                        {CATEGORIES.map(c => <option key={c}>{c}</option>)}
+                      </select>
+                    </label>
+                    <label className="full-width">
+                      Notes
+                      <input value={r.notes || ''} onChange={e => update(i, 'notes', e.target.value)} />
+                    </label>
+                  </div>
+                )
+              }
+            </div>
+          ))}
+          <div className="action-row">
+            <button onClick={saveAll} disabled={saving} className="btn-primary">
+              {saving ? 'Saving…' : 'Save All Expenses'}
+            </button>
+            <button onClick={() => { setResults([]); setFiles([]) }} className="btn-ghost">Cancel</button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function validFile(f) {
+  return f.type.startsWith('image/') || f.type === 'application/pdf'
+}
+
+function toBase64(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader()
+    r.onload = () => resolve(r.result.split(',')[1])
+    r.onerror = reject
+    r.readAsDataURL(file)
+  })
+}
