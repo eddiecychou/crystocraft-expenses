@@ -380,6 +380,8 @@ body {
   color: #1a3a28;
 }
 
+input[type="date"] { text-align: left; }
+
 .date-sep { color: #a0aec0; }
 
 .preset-btns { display: flex; gap: 6px; flex-wrap: wrap; }
