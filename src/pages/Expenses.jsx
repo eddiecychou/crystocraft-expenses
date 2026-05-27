@@ -66,9 +66,9 @@ export default function Expenses() {
                   <tr key={e.id}>
                     {editId === e.id ? (
                       <>
-                        <td><input value={editData.date} onChange={ev => setEditData(p => ({ ...p, date: ev.target.value }))} /></td>
-                        <td><input value={editData.vendor} onChange={ev => setEditData(p => ({ ...p, vendor: ev.target.value }))} /></td>
-                        <td><input type="number" value={editData.amount} onChange={ev => setEditData(p => ({ ...p, amount: ev.target.value }))} /></td>
+                        <td><input type="date" value={editData.date || ''} onChange={ev => setEditData(p => ({ ...p, date: ev.target.value }))} /></td>
+                        <td><input value={editData.vendor || ''} onChange={ev => setEditData(p => ({ ...p, vendor: ev.target.value }))} /></td>
+                        <td><input type="number" min="0" step="0.01" value={editData.amount || ''} onChange={ev => setEditData(p => ({ ...p, amount: ev.target.value }))} /></td>
                         <td>
                           <select value={editData.currency} onChange={ev => setEditData(p => ({ ...p, currency: ev.target.value }))}>
                             {CURRENCIES.map(c => <option key={c}>{c}</option>)}
