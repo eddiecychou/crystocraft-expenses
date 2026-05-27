@@ -31,8 +31,19 @@ export default function Upload() {
     for (const file of files) {
       try {
         const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
-        const base64 = isPdf ? await toBase64(file) : await compressImage(file)
-        const mimeType = isPdf ? 'application/pdf' : 'image/jpeg'
+        let base64, mimeType
+        if (isPdf) {
+          base64 = await toBase64(file)
+          mimeType = 'application/pdf'
+        } else {
+          try {
+            base64 = await compressImage(file)
+            mimeType = 'image/jpeg'
+          } catch {
+            base64 = await toBase64(file)
+            mimeType = file.type || 'image/jpeg'
+          }
+        }
         const res = await fetch('/api/process-receipt', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
