@@ -3,7 +3,7 @@ import { collection, addDoc, serverTimestamp } from 'firebase/firestore'
 import { db, auth } from '../firebase'
 
 const CATEGORIES = ['Travel', 'Meals', 'Office', 'Software', 'Utilities', 'Other']
-const CURRENCIES = ['HKD', 'RMB', 'USD', 'Other']
+const CURRENCIES = ['HKD', 'RMB', 'USD', 'EUR', 'JPY', 'AUD', 'GBP', 'SGD', 'CAD', 'KRW', 'Other']
 
 export default function Upload() {
   const [fileItems, setFileItems] = useState([])

@@ -20,11 +20,11 @@ export default async function handler(req) {
   "date": "YYYY-MM-DD or null",
   "vendor": "merchant name or null",
   "amount": number or null,
-  "currency": "HKD or RMB or USD or null",
+  "currency": "HKD or RMB or USD or EUR or JPY or AUD or GBP or SGD or CAD or KRW or Other or null",
   "category": "one of: Travel, Meals, Office, Software, Utilities, Other",
   "notes": "brief description of purchase or null"
 }
-Currency detection: HK$ or HKD = HKD, ¥ or RMB or CNY or 人民币 = RMB, $ = USD. Default to HKD if unclear.`
+Currency detection: HK$ or HKD = HKD, ¥ or RMB or CNY or 人民币 = RMB, $ or USD = USD, € or EUR = EUR, JP¥ or JPY = JPY, A$ or AUD = AUD, £ or GBP = GBP, S$ or SGD = SGD, C$ or CAD = CAD, ₩ or KRW = KRW. Default to HKD if unclear.`
 
     const MODELS = ['gemini-2.5-flash', 'gemini-2.5-pro']
     let text = ''

@@ -3,7 +3,7 @@ import { collection, query, where, orderBy, getDocs, doc, updateDoc, deleteDoc }
 import { db, auth } from '../firebase'
 
 const CATEGORIES = ['Travel', 'Meals', 'Office', 'Software', 'Utilities', 'Other']
-const CURRENCIES = ['HKD', 'RMB', 'USD', 'Other']
+const CURRENCIES = ['HKD', 'RMB', 'USD', 'EUR', 'JPY', 'AUD', 'GBP', 'SGD', 'CAD', 'KRW', 'Other']
 
 export default function Expenses() {
   const [expenses, setExpenses] = useState([])
