@@ -454,4 +454,16 @@ input[type="date"] { text-align: left; }
   .date-range input[type="date"] { flex: 1; min-width: 0; font-size: 14px; padding: 8px 10px; }
   .preset-btns { justify-content: space-between; }
   .preset-btns .btn-small { flex: 1; text-align: center; }
+
+  .expense-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-rows: auto auto;
+    gap: 2px 8px;
+    align-items: center;
+  }
+  .expense-row .vendor { grid-column: 1; grid-row: 1; }
+  .expense-row .amount { grid-column: 2; grid-row: 1; }
+  .expense-row .date  { grid-column: 1; grid-row: 2; width: auto; font-size: 12px; }
+  .expense-row .badge { grid-column: 2; grid-row: 2; }
 }
