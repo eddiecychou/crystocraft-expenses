@@ -63,9 +63,12 @@ Currency detection: HK$ or HKD = HKD, ¥ or RMB or CNY or 人民币 = RMB, $ = U
     if (!text) return json({ error: `AI extraction failed. ${errors.join(' | ')}` }, 502)
 
     const match = text.match(/\{[\s\S]*\}/)
-    if (!match) return json({ error: 'Could not parse AI response' }, 502)
+    if (match) {
+      try { return json(JSON.parse(match[0])) } catch {}
+    }
 
-    return json(JSON.parse(match[0]))
+    // Parsing failed — return blank form so user can fill in manually
+    return json({ date: null, vendor: null, amount: null, currency: 'HKD', category: 'Other', notes: 'AI could not parse — please fill in manually' })
   } catch (err) {
     return json({ error: err.message || 'Processing failed' }, 500)
   }
