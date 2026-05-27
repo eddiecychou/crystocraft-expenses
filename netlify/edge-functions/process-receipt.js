@@ -26,10 +26,10 @@ export default async function handler(req) {
 }
 Currency detection: HK$ or HKD = HKD, ¥ or RMB or CNY or 人民币 = RMB, $ = USD. Default to HKD if unclear.`
 
-    const MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash']
+    const MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.0-flash-lite']
     let text = ''
+    const errors = []
 
-    let lastError = ''
     for (const model of MODELS) {
       const res = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`,
@@ -50,16 +50,17 @@ Currency detection: HK$ or HKD = HKD, ¥ or RMB or CNY or 人民币 = RMB, $ = U
       )
       const data = await res.json()
       if (!res.ok) {
-        lastError = `${model}: ${data.error?.message || res.status}`
+        errors.push(`${model}: ${data.error?.message || res.status}`)
         continue
       }
       const parts = data.candidates?.[0]?.content?.parts || []
       const part = parts.find(p => p.text && !p.thought) || parts[parts.length - 1]
       text = part?.text || ''
       if (text) break
+      errors.push(`${model}: empty response`)
     }
 
-    if (!text) return json({ error: `AI extraction failed. ${lastError}` }, 502)
+    if (!text) return json({ error: `AI extraction failed. ${errors.join(' | ')}` }, 502)
 
     const match = text.match(/\{[\s\S]*\}/)
     if (!match) return json({ error: 'Could not parse AI response' }, 502)
