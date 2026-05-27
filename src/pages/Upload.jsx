@@ -78,6 +78,11 @@ export default function Upload() {
     setProcessing(false)
   }
 
+  function addManual() {
+    const today = new Date().toISOString().slice(0, 10)
+    setResults(prev => [...prev, { fileName: 'Manual Entry', date: today, vendor: '', amount: '', currency: 'HKD', category: 'Other', notes: '' }])
+  }
+
   function update(i, field, value) {
     setResults(prev => prev.map((r, idx) => idx === i ? { ...r, [field]: value } : r))
   }
@@ -138,6 +143,10 @@ export default function Upload() {
               onChange={handleChange}
               hidden
             />
+          </div>
+
+          <div style={{ textAlign: 'center', margin: '-8px 0 20px' }}>
+            <button onClick={addManual} className="btn-ghost">+ Add Manually</button>
           </div>
 
           {loading && <p className="hint">Reading files…</p>}
@@ -211,6 +220,7 @@ export default function Upload() {
             <button onClick={saveAll} disabled={saving} className="btn-primary">
               {saving ? 'Saving…' : 'Save All Expenses'}
             </button>
+            <button onClick={addManual} className="btn-ghost">+ Add Another</button>
             <button onClick={() => { setResults([]); setFileItems([]) }} className="btn-ghost">Cancel</button>
           </div>
         </div>
