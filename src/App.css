@@ -446,4 +446,10 @@ body {
 
   .action-row { flex-direction: column; }
   .action-row .btn-primary, .action-row .btn-ghost { width: 100%; text-align: center; }
+
+  .filter-row { flex-direction: column; align-items: stretch; gap: 10px; }
+  .date-range { justify-content: space-between; }
+  .date-range input[type="date"] { flex: 1; min-width: 0; font-size: 14px; padding: 8px 10px; }
+  .preset-btns { justify-content: space-between; }
+  .preset-btns .btn-small { flex: 1; text-align: center; }
 }
