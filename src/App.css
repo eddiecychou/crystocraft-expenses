@@ -321,6 +321,9 @@ body {
 }
 .expense-table tr:last-child td { border-bottom: none; }
 .expense-table tbody tr:hover { background: #fafbfc; }
+.expense-table th:nth-child(6),
+.expense-table td:nth-child(6) { min-width: 180px; }
+
 .expense-table input, .expense-table select {
   padding: 4px 8px;
   border: 1px solid #cbd5e0;
