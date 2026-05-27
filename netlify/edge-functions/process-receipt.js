@@ -26,29 +26,38 @@ export default async function handler(req) {
 }
 Currency detection: HK$ or HKD = HKD, ¥ or RMB or CNY or 人民币 = RMB, $ = USD. Default to HKD if unclear.`
 
-    const MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-2.0-flash-lite']
+    const MODELS = ['gemini-2.5-flash', 'gemini-2.5-pro']
     let text = ''
     const errors = []
 
     for (const model of MODELS) {
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{
-              role: 'user',
-              parts: [
-                { inlineData: { mimeType, data: fileData } },
-                { text: prompt },
-              ],
-            }],
-            generationConfig: { temperature: 0.1, maxOutputTokens: 512 },
-          }),
+      let res, data
+      for (let attempt = 0; attempt <= 1; attempt++) {
+        res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{
+                role: 'user',
+                parts: [
+                  { inlineData: { mimeType, data: fileData } },
+                  { text: prompt },
+                ],
+              }],
+              generationConfig: { temperature: 0.1, maxOutputTokens: 512 },
+            }),
+          }
+        )
+        data = await res.json()
+        const isHighDemand = !res.ok && (data.error?.message || '').includes('high demand')
+        if (isHighDemand && attempt === 0) {
+          await new Promise(r => setTimeout(r, 3000))
+          continue
         }
-      )
-      const data = await res.json()
+        break
+      }
       if (!res.ok) {
         errors.push(`${model}: ${data.error?.message || res.status}`)
         continue
