@@ -17,3 +17,8 @@
   from = "/api/export-excel"
   to = "/.netlify/functions/export-excel"
   status = 200
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
