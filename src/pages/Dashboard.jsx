@@ -65,8 +65,15 @@ export default function Dashboard() {
   })
 
   const byCategory = CATEGORIES
-    .map(cat => ({ cat, total: expenses.filter(e => e.category === cat).reduce((s, e) => s + (e.amount || 0), 0) }))
-    .filter(c => c.total > 0)
+    .map(cat => {
+      const totals = {}
+      expenses.filter(e => e.category === cat).forEach(e => {
+        const c = e.currency || 'HKD'
+        totals[c] = (totals[c] || 0) + (e.amount || 0)
+      })
+      return { cat, totals }
+    })
+    .filter(c => Object.keys(c.totals).length > 0)
 
   return (
     <div className="page">
@@ -101,7 +108,7 @@ export default function Dashboard() {
               {byCategory.map(c => (
                 <div key={c.cat} className="category-row">
                   <span>{c.cat}</span>
-                  <span>{c.total.toFixed(2)}</span>
+                  <span>{Object.entries(c.totals).map(([cur, amt]) => `${cur} ${amt.toFixed(2)}`).join('  |  ')}</span>
                 </div>
               ))}
             </div>
