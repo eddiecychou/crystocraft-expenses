@@ -6,31 +6,21 @@ const CATEGORIES = ['Travel', 'Meals', 'Office', 'Software', 'Utilities', 'Other
 const CURRENCIES = ['HKD', 'RMB', 'USD', 'Other']
 
 export default function Upload() {
-  const [files, setFiles] = useState([])
+  const [fileItems, setFileItems] = useState([])
+  const [loading, setLoading] = useState(false)
   const [processing, setProcessing] = useState(false)
   const [results, setResults] = useState([])
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const fileRef = useRef()
 
-  function handleDrop(e) {
-    e.preventDefault()
-    const dropped = Array.from(e.dataTransfer.files).filter(validFile)
-    if (dropped.length) { setFiles(dropped); setResults([]); setSaved(false) }
-  }
-
-  function handleChange(e) {
-    setFiles(Array.from(e.target.files))
-    setResults([])
-    setSaved(false)
-  }
-
-  async function processFiles() {
-    setProcessing(true)
-    const out = []
-    for (const file of files) {
+  async function readFiles(rawFiles) {
+    setLoading(true)
+    setFileItems([])
+    const items = []
+    for (const file of rawFiles) {
+      const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
       try {
-        const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
         let base64, mimeType
         if (isPdf) {
           base64 = await toBase64(file)
@@ -44,15 +34,44 @@ export default function Upload() {
             mimeType = file.type || 'image/jpeg'
           }
         }
+        items.push({ name: file.name, base64, mimeType })
+      } catch (err) {
+        const msg = err.name === 'NotFoundError'
+          ? 'File not available locally — if stored in iCloud, open it in Preview first to download it'
+          : (err.message || 'Could not read file')
+        items.push({ name: file.name, error: msg })
+      }
+    }
+    setFileItems(items)
+    setLoading(false)
+  }
+
+  function handleDrop(e) {
+    e.preventDefault()
+    const dropped = Array.from(e.dataTransfer.files).filter(validFile)
+    if (dropped.length) { readFiles(dropped); setResults([]); setSaved(false) }
+  }
+
+  function handleChange(e) {
+    const selected = Array.from(e.target.files).filter(validFile)
+    if (selected.length) { readFiles(selected); setResults([]); setSaved(false) }
+  }
+
+  async function processFiles() {
+    setProcessing(true)
+    const out = []
+    for (const item of fileItems) {
+      if (item.error) { out.push({ fileName: item.name, error: item.error }); continue }
+      try {
         const res = await fetch('/api/process-receipt', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ fileData: base64, mimeType }),
+          body: JSON.stringify({ fileData: item.base64, mimeType: item.mimeType }),
         })
         const data = await res.json()
-        out.push({ ...data, fileName: file.name })
+        out.push({ ...data, fileName: item.name })
       } catch (err) {
-        out.push({ fileName: file.name, error: err.message || 'Failed to process' })
+        out.push({ fileName: item.name, error: err.message || 'Failed to process' })
       }
     }
     setResults(out)
@@ -83,7 +102,7 @@ export default function Upload() {
     }
     setSaving(false)
     setSaved(true)
-    setFiles([])
+    setFileItems([])
     setResults([])
   }
 
@@ -93,6 +112,8 @@ export default function Upload() {
       <button onClick={() => setSaved(false)} className="btn-primary">Upload More</button>
     </div>
   )
+
+  const hasReadable = fileItems.some(f => !f.error)
 
   return (
     <div className="page">
@@ -119,13 +140,24 @@ export default function Upload() {
             />
           </div>
 
-          {files.length > 0 && (
+          {loading && <p className="hint">Reading files…</p>}
+
+          {fileItems.length > 0 && !loading && (
             <div className="file-list">
-              <p>{files.length} file(s) selected:</p>
-              <ul>{files.map(f => <li key={f.name}>{f.name}</li>)}</ul>
-              <button onClick={processFiles} disabled={processing} className="btn-primary">
-                {processing ? 'Extracting data…' : 'Extract Data with AI'}
-              </button>
+              <p>{fileItems.length} file(s) selected:</p>
+              <ul>
+                {fileItems.map(f => (
+                  <li key={f.name}>
+                    {f.name}
+                    {f.error && <div className="error-msg">{f.error}</div>}
+                  </li>
+                ))}
+              </ul>
+              {hasReadable && (
+                <button onClick={processFiles} disabled={processing} className="btn-primary">
+                  {processing ? 'Extracting data…' : 'Extract Data with AI'}
+                </button>
+              )}
             </div>
           )}
         </>
@@ -179,7 +211,7 @@ export default function Upload() {
             <button onClick={saveAll} disabled={saving} className="btn-primary">
               {saving ? 'Saving…' : 'Save All Expenses'}
             </button>
-            <button onClick={() => { setResults([]); setFiles([]) }} className="btn-ghost">Cancel</button>
+            <button onClick={() => { setResults([]); setFileItems([]) }} className="btn-ghost">Cancel</button>
           </div>
         </div>
       )}
