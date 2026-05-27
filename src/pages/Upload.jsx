@@ -191,17 +191,21 @@ function validFile(f) {
   return f.type.startsWith('image/') || f.type === 'application/pdf'
 }
 
-function toBase64(file) {
-  return new Promise((resolve, reject) => {
-    const r = new FileReader()
-    r.onload = () => resolve(r.result.split(',')[1])
-    r.onerror = reject
-    r.readAsDataURL(file)
-  })
+async function toBase64(file) {
+  const buf = await file.arrayBuffer()
+  return bufToBase64(buf)
 }
 
-// Resize image to max 1600px and compress to JPEG quality 0.85
-// Keeps receipt text readable while staying under Netlify's 6MB body limit
+function bufToBase64(buffer) {
+  const bytes = new Uint8Array(buffer)
+  let binary = ''
+  const CHUNK = 8192
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK))
+  }
+  return btoa(binary)
+}
+
 async function compressImage(file) {
   const bitmap = await createImageBitmap(file)
   const MAX = 1600
@@ -213,10 +217,5 @@ async function compressImage(file) {
   const canvas = new OffscreenCanvas(width, height)
   canvas.getContext('2d').drawImage(bitmap, 0, 0, width, height)
   const blob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.85 })
-  return new Promise((resolve, reject) => {
-    const r = new FileReader()
-    r.onload = () => resolve(r.result.split(',')[1])
-    r.onerror = reject
-    r.readAsDataURL(blob)
-  })
+  return bufToBase64(await blob.arrayBuffer())
 }
