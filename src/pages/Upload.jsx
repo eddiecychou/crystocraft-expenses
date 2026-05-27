@@ -30,8 +30,9 @@ export default function Upload() {
     const out = []
     for (const file of files) {
       try {
-        const base64 = await toBase64(file)
-        const mimeType = file.type || (file.name.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg')
+        const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
+        const base64 = isPdf ? await toBase64(file) : await compressImage(file)
+        const mimeType = isPdf ? 'application/pdf' : 'image/jpeg'
         const res = await fetch('/api/process-receipt', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -185,5 +186,30 @@ function toBase64(file) {
     r.onload = () => resolve(r.result.split(',')[1])
     r.onerror = reject
     r.readAsDataURL(file)
+  })
+}
+
+// Resize image to max 1600px and compress to JPEG quality 0.85
+// Keeps receipt text readable while staying under Netlify's 6MB body limit
+function compressImage(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    const url = URL.createObjectURL(file)
+    img.onload = () => {
+      URL.revokeObjectURL(url)
+      const MAX = 1600
+      let { width, height } = img
+      if (width > MAX || height > MAX) {
+        if (width > height) { height = Math.round(height * MAX / width); width = MAX }
+        else { width = Math.round(width * MAX / height); height = MAX }
+      }
+      const canvas = document.createElement('canvas')
+      canvas.width = width
+      canvas.height = height
+      canvas.getContext('2d').drawImage(img, 0, 0, width, height)
+      resolve(canvas.toDataURL('image/jpeg', 0.85).split(',')[1])
+    }
+    img.onerror = reject
+    img.src = url
   })
 }
