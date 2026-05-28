@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { collection, query, where, orderBy, getDocs, doc, updateDoc, deleteDoc } from 'firebase/firestore'
-import { db, auth } from '../firebase'
+import { db, auth, storage } from '../firebase'
+import { ref, getBytes } from 'firebase/storage'
 import { uploadReceiptImage, deleteReceiptImage, MAX_IMAGES } from '../receiptStorage'
 import { CATEGORIES, CURRENCIES } from '../constants'
 
@@ -180,9 +181,8 @@ export default function Expenses() {
           const suffix = e.images.length > 1 ? `_${i + 1}` : ''
           const filePath = `${ym}/${e.category}/${base}${suffix}.${ext}`
           try {
-            const resp = await fetch(img.url)
-            if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
-            zip.file(filePath, await resp.arrayBuffer())
+            const bytes = await getBytes(ref(storage, img.path))
+            zip.file(filePath, bytes)
             added++
           } catch (err) {
             failures.push(`${e.vendor} (${e.date}): ${err.message}`)
