@@ -1,25 +1,43 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { collection, query, where, orderBy, getDocs, doc, updateDoc, deleteDoc } from 'firebase/firestore'
 import { db, auth } from '../firebase'
+import { uploadReceiptImage, deleteReceiptImage, MAX_IMAGES } from '../receiptStorage'
 
 const CATEGORIES = ['Travel', 'Meals', 'Office', 'Software', 'Utilities', 'Other']
 const CURRENCIES = ['HKD', 'RMB', 'USD', 'EUR', 'JPY', 'AUD', 'GBP', 'SGD', 'CAD', 'KRW', 'Other']
 
-function Lightbox({ images, onClose }) {
+function Lightbox({ expenseId, images, onClose, onAdd, onDelete, uploading }) {
+  const canAdd = images.length < MAX_IMAGES
   return (
     <div className="lightbox-overlay" onClick={onClose}>
       <div className="lightbox-box" onClick={e => e.stopPropagation()}>
         <button className="lightbox-close" onClick={onClose}>✕</button>
-        <h3 className="lightbox-title">Receipt{images.length > 1 ? 's' : ''}</h3>
+        <h3 className="lightbox-title">
+          Receipts ({images.length}/{MAX_IMAGES})
+        </h3>
+
+        {images.length === 0 && (
+          <p className="hint" style={{ marginBottom: 16 }}>No images attached yet.</p>
+        )}
+
         {images.map((img, i) => (
           <div key={i} className="lightbox-item">
             {img.name?.toLowerCase().endsWith('.pdf')
               ? <a href={img.url} target="_blank" rel="noreferrer" className="btn-primary">Open PDF ↗</a>
               : <img src={img.url} alt={img.name} className="lightbox-img" />
             }
-            <div className="lightbox-name">{img.name}</div>
+            <div className="lightbox-item-footer">
+              <span className="lightbox-name">{img.name}</span>
+              <button onClick={() => onDelete(img)} className="btn-small btn-danger">Delete</button>
+            </div>
           </div>
         ))}
+
+        {canAdd && (
+          <button onClick={onAdd} disabled={uploading} className="btn-ghost" style={{ width: '100%', marginTop: 8 }}>
+            {uploading ? 'Uploading…' : '+ Add Photo'}
+          </button>
+        )}
       </div>
     </div>
   )
@@ -30,7 +48,9 @@ export default function Expenses() {
   const [loading, setLoading] = useState(true)
   const [editId, setEditId] = useState(null)
   const [editData, setEditData] = useState({})
-  const [viewImages, setViewImages] = useState(null)
+  const [viewImages, setViewImages] = useState(null) // { expenseId, images }
+  const [uploading, setUploading] = useState(false)
+  const fileInputRef = useRef()
 
   async function load() {
     const q = query(
@@ -61,11 +81,44 @@ export default function Expenses() {
     load()
   }
 
+  function openLightbox(e) {
+    setViewImages({ expenseId: e.id, images: e.images || [] })
+  }
+
+  async function handleAddImage(e) {
+    const file = e.target.files[0]
+    e.target.value = ''
+    if (!file || !viewImages) return
+    const uid = auth.currentUser.uid
+    const { expenseId, images } = viewImages
+    if (images.length >= MAX_IMAGES) return
+    setUploading(true)
+    try {
+      const img = await uploadReceiptImage(file, uid, expenseId, images.length)
+      const newImages = [...images, img]
+      await updateDoc(doc(db, 'expenses', expenseId), { images: newImages })
+      setViewImages({ expenseId, images: newImages })
+      load()
+    } catch (err) {
+      alert('Upload failed: ' + err.message)
+    }
+    setUploading(false)
+  }
+
+  async function handleDeleteImage(img) {
+    if (!confirm('Delete this receipt image?')) return
+    const { expenseId, images } = viewImages
+    try { await deleteReceiptImage(img.path) } catch {}
+    const newImages = images.filter(i => i.path !== img.path)
+    await updateDoc(doc(db, 'expenses', expenseId), { images: newImages })
+    setViewImages({ expenseId, images: newImages })
+    load()
+  }
+
   function startEdit(e) { setEditId(e.id); setEditData({ ...e }) }
   function upd(field, value) { setEditData(p => ({ ...p, [field]: value })) }
 
   if (loading) return <div className="loading">Loading…</div>
-
   if (expenses.length === 0) return (
     <div className="page"><h2>All Expenses</h2><p className="empty">No expenses yet.</p></div>
   )
@@ -74,7 +127,19 @@ export default function Expenses() {
     <div className="page">
       <h2>All Expenses</h2>
 
-      {viewImages && <Lightbox images={viewImages} onClose={() => setViewImages(null)} />}
+      {/* Hidden file input for adding images */}
+      <input ref={fileInputRef} type="file" accept="image/*,.pdf" hidden onChange={handleAddImage} />
+
+      {viewImages && (
+        <Lightbox
+          expenseId={viewImages.expenseId}
+          images={viewImages.images}
+          onClose={() => setViewImages(null)}
+          onAdd={() => fileInputRef.current.click()}
+          onDelete={handleDeleteImage}
+          uploading={uploading}
+        />
+      )}
 
       {/* Desktop table */}
       <div className="table-wrap desktop-only">
@@ -107,11 +172,9 @@ export default function Expenses() {
                     <td>{e.currency}</td><td><span className="badge">{e.category}</span></td>
                     <td>{e.notes}</td>
                     <td>
-                      {e.images?.length > 0 && (
-                        <button onClick={() => setViewImages(e.images)} className="btn-small" title="View receipt">
-                          📎 {e.images.length}
-                        </button>
-                      )}
+                      <button onClick={() => openLightbox(e)} className="btn-small" title="Manage receipts">
+                        📎 {e.images?.length || 0}
+                      </button>
                       <button onClick={() => startEdit(e)} className="btn-small">Edit</button>
                       <button onClick={() => deleteExpense(e.id)} className="btn-small btn-danger">Delete</button>
                     </td>
@@ -154,9 +217,9 @@ export default function Expenses() {
                 </div>
                 {e.notes && <div className="mob-card-notes">{e.notes}</div>}
                 <div className="mob-card-actions">
-                  {e.images?.length > 0 && (
-                    <button onClick={() => setViewImages(e.images)} className="btn-small">📎 {e.images.length}</button>
-                  )}
+                  <button onClick={() => openLightbox(e)} className="btn-small">
+                    📎 {e.images?.length || 0}
+                  </button>
                   <button onClick={() => startEdit(e)} className="btn-small">Edit</button>
                   <button onClick={() => deleteExpense(e.id)} className="btn-small btn-danger">Delete</button>
                 </div>
