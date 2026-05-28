@@ -154,7 +154,7 @@ export default function Expenses() {
       </div>
 
       {/* Hidden file input for adding images */}
-      <input ref={fileInputRef} type="file" accept="image/*,.pdf" hidden onChange={handleAddImage} />
+      <input ref={fileInputRef} type="file" accept="image/*,.heic,.heif,.pdf" hidden onChange={handleAddImage} />
 
       {viewImages && (
         <Lightbox

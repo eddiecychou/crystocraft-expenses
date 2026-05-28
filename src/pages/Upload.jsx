@@ -163,12 +163,12 @@ export default function Upload() {
           >
             <div className="dropzone-icon">📄</div>
             <p>Drag & drop receipts here, or click to select</p>
-            <p className="hint">JPEG · PNG · PDF · Multiple files OK</p>
+            <p className="hint">JPEG · PNG · HEIC · PDF · Multiple files OK</p>
             <input
               ref={fileRef}
               type="file"
               multiple
-              accept="image/*,.pdf"
+              accept="image/*,.heic,.heif,.pdf"
               onChange={handleChange}
               hidden
             />
@@ -259,7 +259,9 @@ export default function Upload() {
 }
 
 function validFile(f) {
+  const ext = f.name.split('.').pop().toLowerCase()
   return f.type.startsWith('image/') || f.type === 'application/pdf'
+    || ['heic', 'heif'].includes(ext)
 }
 
 async function toBase64(file) {
