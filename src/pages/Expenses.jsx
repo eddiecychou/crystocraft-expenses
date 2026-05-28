@@ -53,6 +53,8 @@ export default function Expenses() {
   const [filterFrom, setFilterFrom] = useState('')
   const [filterTo, setFilterTo] = useState('')
   const [filterCategory, setFilterCategory] = useState('')
+  const [exportingXls, setExportingXls] = useState(false)
+  const [exportingZip, setExportingZip] = useState(false)
 
   async function load() {
     const q = query(
@@ -120,9 +122,88 @@ export default function Expenses() {
   function startEdit(e) { setEditId(e.id); setEditData({ ...e }) }
   function upd(field, value) { setEditData(p => ({ ...p, [field]: value })) }
 
+  async function exportExcel(rows) {
+    setExportingXls(true)
+    try {
+      const ExcelJS = (await import('exceljs')).default
+      const wb = new ExcelJS.Workbook()
+      const ws = wb.addWorksheet('Expense Records')
+      ws.columns = [
+        { header: 'Date',     key: 'date',     width: 13 },
+        { header: 'Vendor',   key: 'vendor',   width: 26 },
+        { header: 'Amount',   key: 'amount',   width: 12 },
+        { header: 'Currency', key: 'currency', width: 10 },
+        { header: 'Category', key: 'category', width: 14 },
+        { header: 'Notes',    key: 'notes',    width: 32 },
+        { header: 'Receipts', key: 'receipts', width: 50 },
+      ]
+      const hdr = ws.getRow(1)
+      hdr.font = { bold: true, color: { argb: 'FFFFFFFF' } }
+      hdr.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1A5C38' } }
+
+      for (const e of rows) {
+        const urls = (e.images || []).map(img => img.url).join('\n')
+        ws.addRow({ date: e.date, vendor: e.vendor, amount: e.amount, currency: e.currency, category: e.category, notes: e.notes || '', receipts: urls })
+      }
+
+      // Per-currency totals
+      const totals = {}
+      for (const e of rows) totals[e.currency] = (totals[e.currency] || 0) + (e.amount || 0)
+      ws.addRow({})
+      for (const [cur, total] of Object.entries(totals)) {
+        const row = ws.addRow({ vendor: 'TOTAL', currency: cur, amount: parseFloat(total.toFixed(2)) })
+        row.font = { bold: true }
+      }
+
+      const buf = await wb.xlsx.writeBuffer()
+      triggerDownload(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), `expense_records_${today()}.xlsx`)
+    } catch (err) { alert('Export failed: ' + err.message) }
+    setExportingXls(false)
+  }
+
+  async function exportZip(rows) {
+    const withImages = rows.filter(e => e.images?.length > 0)
+    if (withImages.length === 0) { alert('No receipt images in the current selection.'); return }
+    setExportingZip(true)
+    try {
+      const JSZip = (await import('jszip')).default
+      const zip = new JSZip()
+      for (const e of withImages) {
+        const ym = e.date ? e.date.slice(0, 7) : 'unknown'
+        const base = `${e.date}_${sanitizeVendor(e.vendor)}_${(e.amount || 0).toFixed(2)}_${e.currency}`
+        for (let i = 0; i < e.images.length; i++) {
+          const img = e.images[i]
+          const ext = img.path?.split('.').pop() || (img.name?.toLowerCase().endsWith('.pdf') ? 'pdf' : 'jpg')
+          const suffix = e.images.length > 1 ? `_${i + 1}` : ''
+          const path = `${ym}/${e.category}/${base}${suffix}.${ext}`
+          try {
+            const resp = await fetch(img.url)
+            zip.file(path, await resp.blob())
+          } catch { /* skip unreadable images */ }
+        }
+      }
+      const blob = await zip.generateAsync({ type: 'blob' })
+      triggerDownload(blob, `receipts_${today()}.zip`)
+    } catch (err) { alert('Export failed: ' + err.message) }
+    setExportingZip(false)
+  }
+
+  function sanitizeVendor(v) {
+    return (v || 'unknown').replace(/ /g, '_').replace(/[/\\:*?"<>|]/g, '').trim() || 'unknown'
+  }
+
+  function today() { return new Date().toISOString().slice(0, 10) }
+
+  function triggerDownload(blob, filename) {
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url; a.download = filename; a.click()
+    URL.revokeObjectURL(url)
+  }
+
   if (loading) return <div className="loading">Loading…</div>
   if (expenses.length === 0) return (
-    <div className="page"><h2>All Expenses</h2><p className="empty">No expenses yet.</p></div>
+    <div className="page"><h2>Expense Records</h2><p className="empty">No expenses yet.</p></div>
   )
 
   const filtered = expenses.filter(e => {
@@ -134,7 +215,7 @@ export default function Expenses() {
 
   return (
     <div className="page">
-      <h2>All Expenses</h2>
+      <h2>Expense Records</h2>
 
       <div className="filter-row">
         <div className="date-range">
@@ -150,6 +231,18 @@ export default function Expenses() {
           <button className="btn-small btn-ghost" onClick={() => { setFilterFrom(''); setFilterTo(''); setFilterCategory('') }}>Clear</button>
         )}
       </div>
+
+      {filtered.length > 0 && (
+        <div className="export-row">
+          <button onClick={() => exportExcel(filtered)} disabled={exportingXls || exportingZip} className="btn-small btn-ghost">
+            {exportingXls ? 'Exporting…' : '⬇ Excel'}
+          </button>
+          <button onClick={() => exportZip(filtered)} disabled={exportingZip || exportingXls} className="btn-small btn-ghost">
+            {exportingZip ? 'Zipping…' : '⬇ Receipt ZIP'}
+          </button>
+          <span className="hint">{filtered.length} record{filtered.length !== 1 ? 's' : ''}</span>
+        </div>
+      )}
 
       {/* Hidden file input for adding images */}
       <input ref={fileInputRef} type="file" accept="image/*,.heic,.heif,.pdf" hidden onChange={handleAddImage} />

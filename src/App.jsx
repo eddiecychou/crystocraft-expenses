@@ -4,7 +4,6 @@ import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import Upload from './pages/Upload'
 import Expenses from './pages/Expenses'
-import Export from './pages/Export'
 import Layout from './components/Layout'
 
 function ProtectedRoute({ children }) {
@@ -30,7 +29,6 @@ export default function App() {
           <Route index element={<Dashboard />} />
           <Route path="upload" element={<Upload />} />
           <Route path="expenses" element={<Expenses />} />
-          <Route path="export" element={<Export />} />
         </Route>
       </Routes>
     </BrowserRouter>

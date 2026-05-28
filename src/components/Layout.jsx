@@ -16,8 +16,7 @@ export default function Layout() {
         <div className="logo">Expense<br />Organiser</div>
         <NavLink to="/" end>Dashboard</NavLink>
         <NavLink to="/upload">Upload</NavLink>
-        <NavLink to="/expenses">Expenses</NavLink>
-        <NavLink to="/export">Export</NavLink>
+        <NavLink to="/expenses">Records</NavLink>
         <button onClick={handleLogout} className="logout-btn">Logout</button>
       </nav>
       <main className="main-content">
