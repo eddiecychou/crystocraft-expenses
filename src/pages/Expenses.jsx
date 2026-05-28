@@ -58,6 +58,7 @@ export default function Expenses() {
   const [filterCategory, setFilterCategory] = useState('')
   const [exportingXls, setExportingXls] = useState(false)
   const [exportingZip, setExportingZip] = useState(false)
+  const [zipProgress, setZipProgress] = useState('')
 
   async function load() {
     const q = query(
@@ -166,44 +167,57 @@ export default function Expenses() {
   async function exportZip(rows) {
     const withImages = rows.filter(e => e.images?.length > 0)
     if (withImages.length === 0) { alert('No receipt images in the current selection.'); return }
+
+    // Build flat task list first
+    const tasks = []
+    for (const e of withImages) {
+      const ym = e.date ? e.date.slice(0, 7) : 'unknown'
+      const base = `${e.date}_${sanitizeVendor(e.vendor)}_${(e.amount || 0).toFixed(2)}_${e.currency}`
+      for (let i = 0; i < e.images.length; i++) {
+        const img = e.images[i]
+        const ext = img.path?.split('.').pop() || (img.name?.toLowerCase().endsWith('.pdf') ? 'pdf' : 'jpg')
+        const suffix = e.images.length > 1 ? `_${i + 1}` : ''
+        tasks.push({ filePath: `${ym}/${e.category}/${base}${suffix}.${ext}`, img, label: `${e.vendor} (${e.date})` })
+      }
+    }
+
     setExportingZip(true)
+    setZipProgress(`0 / ${tasks.length}`)
     try {
       const zip = new JSZip()
       let added = 0
       const failures = []
+      const BATCH = 6
 
-      for (const e of withImages) {
-        const ym = e.date ? e.date.slice(0, 7) : 'unknown'
-        const base = `${e.date}_${sanitizeVendor(e.vendor)}_${(e.amount || 0).toFixed(2)}_${e.currency}`
-        for (let i = 0; i < e.images.length; i++) {
-          const img = e.images[i]
-          const ext = img.path?.split('.').pop() || (img.name?.toLowerCase().endsWith('.pdf') ? 'pdf' : 'jpg')
-          const suffix = e.images.length > 1 ? `_${i + 1}` : ''
-          const filePath = `${ym}/${e.category}/${base}${suffix}.${ext}`
-          try {
-            const bytes = await getBytes(ref(storage, img.path))
-            zip.file(filePath, bytes)
+      for (let i = 0; i < tasks.length; i += BATCH) {
+        const batch = tasks.slice(i, i + BATCH)
+        const results = await Promise.allSettled(
+          batch.map(({ img }) => getBytes(ref(storage, img.path)))
+        )
+        results.forEach((result, j) => {
+          if (result.status === 'fulfilled') {
+            zip.file(batch[j].filePath, result.value)
             added++
-          } catch (err) {
-            failures.push(`${e.vendor} (${e.date}): ${err.message}`)
+          } else {
+            failures.push(`${batch[j].label}: ${result.reason?.message}`)
           }
-        }
+        })
+        setZipProgress(`${Math.min(i + BATCH, tasks.length)} / ${tasks.length}`)
       }
 
       if (added === 0) {
         alert('Could not download any receipt images.\n\n' + failures.join('\n'))
-        setExportingZip(false)
+        setExportingZip(false); setZipProgress('')
         return
       }
+      if (failures.length > 0) console.warn('Skipped images:', failures)
 
-      if (failures.length > 0) {
-        console.warn('Some images could not be downloaded:', failures)
-      }
-
+      setZipProgress('Compressing…')
       const blob = await zip.generateAsync({ type: 'blob' })
       triggerDownload(blob, `receipts_${today()}.zip`)
     } catch (err) { alert('Export failed: ' + err.message) }
     setExportingZip(false)
+    setZipProgress('')
   }
 
   function sanitizeVendor(v) {
@@ -256,7 +270,7 @@ export default function Expenses() {
             {exportingXls ? 'Exporting…' : '⬇ Excel'}
           </button>
           <button onClick={() => exportZip(filtered)} disabled={exportingZip || exportingXls} className="btn-small btn-ghost">
-            {exportingZip ? 'Zipping…' : '⬇ Receipt ZIP'}
+            {zipProgress ? `⬇ ${zipProgress}` : exportingZip ? 'Compressing…' : '⬇ Receipt ZIP'}
           </button>
           <span className="hint">{filtered.length} record{filtered.length !== 1 ? 's' : ''}</span>
         </div>
