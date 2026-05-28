@@ -3,7 +3,7 @@ import { collection, query, where, orderBy, getDocs } from 'firebase/firestore'
 import { db, auth } from '../firebase'
 import { Link } from 'react-router-dom'
 
-const CATEGORIES = ['Travel', 'Meals', 'Office', 'Software', 'Utilities', 'Development', 'Other']
+import { CATEGORIES } from '../constants'
 
 function isoDate(d) { return d.toISOString().slice(0, 10) }
 

@@ -2,9 +2,7 @@ import { useState, useRef } from 'react'
 import { collection, addDoc, updateDoc, doc, serverTimestamp } from 'firebase/firestore'
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { db, auth, storage } from '../firebase'
-
-const CATEGORIES = ['Travel', 'Meals', 'Office', 'Software', 'Utilities', 'Development', 'Other']
-const CURRENCIES = ['HKD', 'RMB', 'USD', 'EUR', 'JPY', 'AUD', 'GBP', 'SGD', 'CAD', 'KRW', 'Other']
+import { CATEGORIES, CURRENCIES } from '../constants'
 
 export default function Upload() {
   const [fileItems, setFileItems] = useState([])

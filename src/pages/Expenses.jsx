@@ -2,9 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { collection, query, where, orderBy, getDocs, doc, updateDoc, deleteDoc } from 'firebase/firestore'
 import { db, auth } from '../firebase'
 import { uploadReceiptImage, deleteReceiptImage, MAX_IMAGES } from '../receiptStorage'
-
-const CATEGORIES = ['Travel', 'Meals', 'Office', 'Software', 'Utilities', 'Development', 'Other']
-const CURRENCIES = ['HKD', 'RMB', 'USD', 'EUR', 'JPY', 'AUD', 'GBP', 'SGD', 'CAD', 'KRW', 'Other']
+import { CATEGORIES, CURRENCIES } from '../constants'
 
 function Lightbox({ expenseId, images, onClose, onAdd, onDelete, uploading }) {
   const canAdd = images.length < MAX_IMAGES
