@@ -38,6 +38,7 @@ function Lightbox({ expenseId, images, onClose, onAdd, onDelete, uploading }) {
             {uploading ? 'Uploading…' : '+ Add Photo'}
           </button>
         )}
+        <button onClick={onClose} className="btn-primary" style={{ width: '100%', marginTop: 8 }}>Done</button>
       </div>
     </div>
   )
