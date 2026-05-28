@@ -168,6 +168,9 @@ export default function Expenses() {
     try {
       const JSZip = (await import('jszip')).default
       const zip = new JSZip()
+      let added = 0
+      const failures = []
+
       for (const e of withImages) {
         const ym = e.date ? e.date.slice(0, 7) : 'unknown'
         const base = `${e.date}_${sanitizeVendor(e.vendor)}_${(e.amount || 0).toFixed(2)}_${e.currency}`
@@ -175,13 +178,28 @@ export default function Expenses() {
           const img = e.images[i]
           const ext = img.path?.split('.').pop() || (img.name?.toLowerCase().endsWith('.pdf') ? 'pdf' : 'jpg')
           const suffix = e.images.length > 1 ? `_${i + 1}` : ''
-          const path = `${ym}/${e.category}/${base}${suffix}.${ext}`
+          const filePath = `${ym}/${e.category}/${base}${suffix}.${ext}`
           try {
             const resp = await fetch(img.url)
-            zip.file(path, await resp.blob())
-          } catch { /* skip unreadable images */ }
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+            zip.file(filePath, await resp.arrayBuffer())
+            added++
+          } catch (err) {
+            failures.push(`${e.vendor} (${e.date}): ${err.message}`)
+          }
         }
       }
+
+      if (added === 0) {
+        alert('Could not download any receipt images.\n\n' + failures.join('\n'))
+        setExportingZip(false)
+        return
+      }
+
+      if (failures.length > 0) {
+        console.warn('Some images could not be downloaded:', failures)
+      }
+
       const blob = await zip.generateAsync({ type: 'blob' })
       triggerDownload(blob, `receipts_${today()}.zip`)
     } catch (err) { alert('Export failed: ' + err.message) }
