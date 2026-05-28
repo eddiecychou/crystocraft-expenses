@@ -52,6 +52,9 @@ export default function Expenses() {
   const [viewImages, setViewImages] = useState(null) // { expenseId, images }
   const [uploading, setUploading] = useState(false)
   const fileInputRef = useRef()
+  const [filterFrom, setFilterFrom] = useState('')
+  const [filterTo, setFilterTo] = useState('')
+  const [filterCategory, setFilterCategory] = useState('')
 
   async function load() {
     const q = query(
@@ -124,9 +127,31 @@ export default function Expenses() {
     <div className="page"><h2>All Expenses</h2><p className="empty">No expenses yet.</p></div>
   )
 
+  const filtered = expenses.filter(e => {
+    if (filterFrom && e.date < filterFrom) return false
+    if (filterTo && e.date > filterTo) return false
+    if (filterCategory && e.category !== filterCategory) return false
+    return true
+  })
+
   return (
     <div className="page">
       <h2>All Expenses</h2>
+
+      <div className="filter-row">
+        <div className="date-range">
+          <input type="date" value={filterFrom} onChange={ev => setFilterFrom(ev.target.value)} placeholder="From" />
+          <span style={{ padding: '0 4px', color: '#718096' }}>–</span>
+          <input type="date" value={filterTo} onChange={ev => setFilterTo(ev.target.value)} placeholder="To" />
+        </div>
+        <select value={filterCategory} onChange={ev => setFilterCategory(ev.target.value)} style={{ padding: '8px 10px', borderRadius: 6, border: '1px solid #c6e0c0', fontSize: 14 }}>
+          <option value="">All Categories</option>
+          {CATEGORIES.map(c => <option key={c}>{c}</option>)}
+        </select>
+        {(filterFrom || filterTo || filterCategory) && (
+          <button className="btn-small btn-ghost" onClick={() => { setFilterFrom(''); setFilterTo(''); setFilterCategory('') }}>Clear</button>
+        )}
+      </div>
 
       {/* Hidden file input for adding images */}
       <input ref={fileInputRef} type="file" accept="image/*,.pdf" hidden onChange={handleAddImage} />
@@ -142,6 +167,10 @@ export default function Expenses() {
         />
       )}
 
+      {filtered.length === 0 && (
+        <p className="empty">No expenses match your filters.</p>
+      )}
+
       {/* Desktop table */}
       <div className="table-wrap desktop-only">
         <table className="expense-table">
@@ -152,7 +181,7 @@ export default function Expenses() {
             </tr>
           </thead>
           <tbody>
-            {expenses.map(e => (
+            {filtered.map(e => (
               <tr key={e.id}>
                 {editId === e.id ? (
                   <>
@@ -189,7 +218,7 @@ export default function Expenses() {
 
       {/* Mobile cards */}
       <div className="mobile-only">
-        {expenses.map(e => (
+        {filtered.map(e => (
           <div key={e.id} className="expense-mob-card">
             {editId === e.id ? (
               <>
