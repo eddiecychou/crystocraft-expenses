@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { collection, query, where, orderBy, getDocs, doc, updateDoc, deleteDoc } from 'firebase/firestore'
-import { db, auth, storage } from '../firebase'
-import { ref, getBytes } from 'firebase/storage'
+import { db, auth } from '../firebase'
 import JSZip from 'jszip'
 import ExcelJS from 'exceljs'
 import { uploadReceiptImage, deleteReceiptImage, MAX_IMAGES } from '../receiptStorage'
@@ -197,7 +196,12 @@ export default function Expenses() {
         const results = await Promise.allSettled(
           batch.map(({ img }) => {
             const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 20000))
-            return Promise.race([getBytes(ref(storage, img.path)), timeout])
+            const download = fetch('/api/download-receipt', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ url: img.url }),
+            }).then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.arrayBuffer() })
+            return Promise.race([download, timeout])
           })
         )
         results.forEach((result, j) => {
