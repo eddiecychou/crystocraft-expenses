@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from 'react'
 import { collection, query, where, orderBy, getDocs, doc, updateDoc, deleteDoc } from 'firebase/firestore'
 import { db, auth, storage } from '../firebase'
 import { ref, getBytes } from 'firebase/storage'
+import JSZip from 'jszip'
+import ExcelJS from 'exceljs'
 import { uploadReceiptImage, deleteReceiptImage, MAX_IMAGES } from '../receiptStorage'
 import { CATEGORIES, CURRENCIES } from '../constants'
 
@@ -126,7 +128,6 @@ export default function Expenses() {
   async function exportExcel(rows) {
     setExportingXls(true)
     try {
-      const ExcelJS = (await import('exceljs')).default
       const wb = new ExcelJS.Workbook()
       const ws = wb.addWorksheet('Expense Records')
       ws.columns = [
@@ -167,7 +168,6 @@ export default function Expenses() {
     if (withImages.length === 0) { alert('No receipt images in the current selection.'); return }
     setExportingZip(true)
     try {
-      const JSZip = (await import('jszip')).default
       const zip = new JSZip()
       let added = 0
       const failures = []
