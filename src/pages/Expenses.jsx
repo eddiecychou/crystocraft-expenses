@@ -3,7 +3,7 @@ import { collection, query, where, orderBy, getDocs, doc, updateDoc, deleteDoc }
 import { db, auth } from '../firebase'
 import { uploadReceiptImage, deleteReceiptImage, MAX_IMAGES } from '../receiptStorage'
 
-const CATEGORIES = ['Travel', 'Meals', 'Office', 'Software', 'Utilities', 'Other']
+const CATEGORIES = ['Travel', 'Meals', 'Office', 'Software', 'Utilities', 'Development', 'Other']
 const CURRENCIES = ['HKD', 'RMB', 'USD', 'EUR', 'JPY', 'AUD', 'GBP', 'SGD', 'CAD', 'KRW', 'Other']
 
 function Lightbox({ expenseId, images, onClose, onAdd, onDelete, uploading }) {

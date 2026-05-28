@@ -184,7 +184,8 @@ body {
 .badge-office    { background: #dce8f5; color: #2a5280; }
 .badge-software  { background: #ebe6f5; color: #5a3a8a; }
 .badge-utilities { background: #f5edd4; color: #7a5410; }
-.badge-other     { background: #e8e8e8; color: #555555; }
+.badge-development { background: #d4ead4; color: #1a5c2a; }
+.badge-other       { background: #e8e8e8; color: #555555; }
 
 /* ── Buttons ── */
 .btn-primary {
