@@ -13,6 +13,8 @@ export default function Upload() {
   const [saved, setSaved] = useState(false)
   const fileRef = useRef()
   const scanMoreRef = useRef()
+  const attachRef = useRef()
+  const attachIdxRef = useRef(null)
 
   async function readFiles(rawFiles) {
     setLoading(true)
@@ -91,6 +93,32 @@ export default function Upload() {
     setResults(prev => prev.filter((_, idx) => idx !== i))
   }
 
+  function openAttach(i) {
+    attachIdxRef.current = i
+    attachRef.current.click()
+  }
+
+  async function handleAttach(e) {
+    const file = e.target.files[0]
+    e.target.value = ''
+    if (!file || attachIdxRef.current === null) return
+    const i = attachIdxRef.current
+    const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
+    try {
+      let base64, mimeType
+      if (isPdf) {
+        base64 = await toBase64(file)
+        mimeType = 'application/pdf'
+      } else {
+        try { base64 = await compressImage(file); mimeType = 'image/jpeg' }
+        catch { base64 = await toBase64(file); mimeType = file.type || 'image/jpeg' }
+      }
+      update(i, 'fileItem', { name: file.name, base64, mimeType })
+    } catch (err) {
+      alert('Could not read file: ' + err.message)
+    }
+  }
+
   async function handleScanMore(e) {
     const files = Array.from(e.target.files).filter(validFile)
     e.target.value = ''
@@ -154,8 +182,8 @@ export default function Upload() {
         createdAt: serverTimestamp(),
       })
 
-      // Upload image if this came from a scanned file
-      const fileItem = fileItems.find(f => f.name === r.fileName)
+      // Upload image — prefer manually attached, fall back to scanned fileItem
+      const fileItem = r.fileItem || fileItems.find(f => f.name === r.fileName)
       if (fileItem && !fileItem.error) {
         try {
           const ext = fileItem.mimeType === 'application/pdf' ? 'pdf' : 'jpg'
@@ -258,36 +286,49 @@ export default function Upload() {
               {r.error
                 ? <div className="error-msg">Could not extract: {r.error}</div>
                 : (
-                  <div className="result-grid">
-                    <label>
-                      Date
-                      <input type="date" value={r.date || ''} onChange={e => update(i, 'date', e.target.value)} />
-                    </label>
-                    <label>
-                      Vendor
-                      <input value={r.vendor || ''} onChange={e => update(i, 'vendor', e.target.value)} />
-                    </label>
-                    <label>
-                      Amount
-                      <input type="number" step="0.01" value={r.amount || ''} onChange={e => update(i, 'amount', e.target.value)} />
-                    </label>
-                    <label>
-                      Currency
-                      <select value={r.currency || 'HKD'} onChange={e => update(i, 'currency', e.target.value)}>
-                        {CURRENCIES.map(c => <option key={c}>{c}</option>)}
-                      </select>
-                    </label>
-                    <label>
-                      Category
-                      <select value={r.category || 'Other'} onChange={e => update(i, 'category', e.target.value)}>
-                        {CATEGORIES.map(c => <option key={c}>{c}</option>)}
-                      </select>
-                    </label>
-                    <label className="full-width">
-                      Notes
-                      <input value={r.notes || ''} onChange={e => update(i, 'notes', e.target.value)} />
-                    </label>
-                  </div>
+                  <>
+                    <div className="result-grid">
+                      <label>
+                        Date
+                        <input type="date" value={r.date || ''} onChange={e => update(i, 'date', e.target.value)} />
+                      </label>
+                      <label>
+                        Vendor
+                        <input value={r.vendor || ''} onChange={e => update(i, 'vendor', e.target.value)} />
+                      </label>
+                      <label>
+                        Amount
+                        <input type="number" step="0.01" value={r.amount || ''} onChange={e => update(i, 'amount', e.target.value)} />
+                      </label>
+                      <label>
+                        Currency
+                        <select value={r.currency || 'HKD'} onChange={e => update(i, 'currency', e.target.value)}>
+                          {CURRENCIES.map(c => <option key={c}>{c}</option>)}
+                        </select>
+                      </label>
+                      <label>
+                        Category
+                        <select value={r.category || 'Other'} onChange={e => update(i, 'category', e.target.value)}>
+                          {CATEGORIES.map(c => <option key={c}>{c}</option>)}
+                        </select>
+                      </label>
+                      <label className="full-width">
+                        Notes
+                        <input value={r.notes || ''} onChange={e => update(i, 'notes', e.target.value)} />
+                      </label>
+                    </div>
+                    <div className="attach-row">
+                      {r.fileItem
+                        ? <>
+                            <span className="hint">📎 {r.fileItem.name}</span>
+                            <button onClick={() => update(i, 'fileItem', null)} className="btn-small btn-ghost">Remove image</button>
+                          </>
+                        : !fileItems.find(f => f.name === r.fileName) && (
+                            <button onClick={() => openAttach(i)} className="btn-ghost btn-small">📎 Attach Image</button>
+                          )
+                      }
+                    </div>
+                  </>
                 )
               }
             </div>
@@ -303,6 +344,7 @@ export default function Upload() {
             <button onClick={() => { setResults([]); setFileItems([]) }} className="btn-ghost">Cancel</button>
           </div>
           <input ref={scanMoreRef} type="file" multiple accept="image/*,.heic,.heif,.pdf" hidden onChange={handleScanMore} />
+          <input ref={attachRef} type="file" accept="image/*,.heic,.heif,.pdf" hidden onChange={handleAttach} />
         </div>
       )}
     </div>
