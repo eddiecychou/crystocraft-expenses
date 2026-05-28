@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react'
-import { collection, addDoc, serverTimestamp } from 'firebase/firestore'
-import { db, auth } from '../firebase'
+import { collection, addDoc, updateDoc, doc, serverTimestamp } from 'firebase/firestore'
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
+import { db, auth, storage } from '../firebase'
 
 const CATEGORIES = ['Travel', 'Meals', 'Office', 'Software', 'Utilities', 'Other']
 const CURRENCIES = ['HKD', 'RMB', 'USD', 'EUR', 'JPY', 'AUD', 'GBP', 'SGD', 'CAD', 'KRW', 'Other']
@@ -91,9 +92,12 @@ export default function Upload() {
     setSaving(true)
     const uid = auth.currentUser.uid
     const email = auth.currentUser.email
+
     for (const r of results) {
       if (r.error) continue
-      await addDoc(collection(db, 'expenses'), {
+
+      // Save expense first to get the Firestore document ID
+      const docRef = await addDoc(collection(db, 'expenses'), {
         userId: uid,
         userEmail: email,
         date: r.date || '',
@@ -102,9 +106,33 @@ export default function Upload() {
         currency: r.currency || 'HKD',
         category: r.category || 'Other',
         notes: r.notes || '',
+        images: [],
         createdAt: serverTimestamp(),
       })
+
+      // Upload image if this came from a scanned file
+      const fileItem = fileItems.find(f => f.name === r.fileName)
+      if (fileItem && !fileItem.error) {
+        try {
+          const ext = fileItem.mimeType === 'application/pdf' ? 'pdf' : 'jpg'
+          const path = `receipts/${uid}/${docRef.id}/image0.${ext}`
+          const bytes = atob(fileItem.base64)
+          const arr = new Uint8Array(bytes.length)
+          for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i)
+          const blob = new Blob([arr], { type: fileItem.mimeType })
+          const storageRef = ref(storage, path)
+          await uploadBytes(storageRef, blob, { contentType: fileItem.mimeType })
+          const url = await getDownloadURL(storageRef)
+          await updateDoc(doc(db, 'expenses', docRef.id), {
+            images: [{ url, path, name: fileItem.name }],
+          })
+        } catch (err) {
+          console.error('Image upload failed for', r.fileName, err)
+          // Don't block saving if image upload fails
+        }
+      }
     }
+
     setSaving(false)
     setSaved(true)
     setFileItems([])
