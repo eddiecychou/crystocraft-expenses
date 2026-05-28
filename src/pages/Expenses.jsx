@@ -168,18 +168,21 @@ export default function Expenses() {
     const withImages = rows.filter(e => e.images?.length > 0)
     if (withImages.length === 0) { alert('No receipt images in the current selection.'); return }
 
-    // Build flat task list first
+    // Build flat task list, skip any image missing a storage path
     const tasks = []
     for (const e of withImages) {
       const ym = e.date ? e.date.slice(0, 7) : 'unknown'
       const base = `${e.date}_${sanitizeVendor(e.vendor)}_${(e.amount || 0).toFixed(2)}_${e.currency}`
       for (let i = 0; i < e.images.length; i++) {
         const img = e.images[i]
-        const ext = img.path?.split('.').pop() || (img.name?.toLowerCase().endsWith('.pdf') ? 'pdf' : 'jpg')
+        if (!img.path) continue // older record with no path stored — skip
+        const ext = img.path.split('.').pop() || 'jpg'
         const suffix = e.images.length > 1 ? `_${i + 1}` : ''
         tasks.push({ filePath: `${ym}/${e.category}/${base}${suffix}.${ext}`, img, label: `${e.vendor} (${e.date})` })
       }
     }
+
+    if (tasks.length === 0) { alert('No downloadable receipt images found (storage path missing).'); return }
 
     setExportingZip(true)
     setZipProgress(`0 / ${tasks.length}`)
@@ -192,7 +195,10 @@ export default function Expenses() {
       for (let i = 0; i < tasks.length; i += BATCH) {
         const batch = tasks.slice(i, i + BATCH)
         const results = await Promise.allSettled(
-          batch.map(({ img }) => getBytes(ref(storage, img.path)))
+          batch.map(({ img }) => {
+            const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 20000))
+            return Promise.race([getBytes(ref(storage, img.path)), timeout])
+          })
         )
         results.forEach((result, j) => {
           if (result.status === 'fulfilled') {
@@ -229,8 +235,12 @@ export default function Expenses() {
   function triggerDownload(blob, filename) {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
-    a.href = url; a.download = filename; a.click()
-    URL.revokeObjectURL(url)
+    a.href = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
 
   if (loading) return <div className="loading">Loading…</div>
