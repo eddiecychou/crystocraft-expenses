@@ -12,6 +12,7 @@ export default function Upload() {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const fileRef = useRef()
+  const scanMoreRef = useRef()
 
   async function readFiles(rawFiles) {
     setLoading(true)
@@ -88,6 +89,47 @@ export default function Upload() {
 
   function remove(i) {
     setResults(prev => prev.filter((_, idx) => idx !== i))
+  }
+
+  async function handleScanMore(e) {
+    const files = Array.from(e.target.files).filter(validFile)
+    e.target.value = ''
+    if (!files.length) return
+    setProcessing(true)
+    for (const file of files) {
+      const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
+      let item
+      try {
+        let base64, mimeType
+        if (isPdf) {
+          base64 = await toBase64(file)
+          mimeType = 'application/pdf'
+        } else {
+          try { base64 = await compressImage(file); mimeType = 'image/jpeg' }
+          catch { base64 = await toBase64(file); mimeType = file.type || 'image/jpeg' }
+        }
+        item = { name: file.name, base64, mimeType }
+      } catch (err) {
+        const msg = err.name === 'NotFoundError'
+          ? 'File not available locally — if stored in iCloud, open it in Preview first to download it'
+          : (err.message || 'Could not read file')
+        setResults(prev => [...prev, { fileName: file.name, error: msg }])
+        continue
+      }
+      try {
+        const res = await fetch('/api/process-receipt', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fileData: item.base64, mimeType: item.mimeType }),
+        })
+        const data = await res.json()
+        setFileItems(prev => [...prev, item])
+        setResults(prev => [...prev, { ...data, fileName: item.name }])
+      } catch (err) {
+        setResults(prev => [...prev, { fileName: file.name, error: err.message || 'Failed to process' }])
+      }
+    }
+    setProcessing(false)
   }
 
   async function saveAll() {
@@ -251,12 +293,16 @@ export default function Upload() {
             </div>
           ))}
           <div className="action-row">
-            <button onClick={saveAll} disabled={saving} className="btn-primary">
+            <button onClick={saveAll} disabled={saving || processing} className="btn-primary">
               {saving ? 'Saving…' : 'Save All Expenses'}
             </button>
-            <button onClick={addManual} className="btn-ghost">+ Add Another</button>
+            <button onClick={() => scanMoreRef.current.click()} disabled={processing} className="btn-ghost">
+              {processing ? 'Scanning…' : '+ Scan More'}
+            </button>
+            <button onClick={addManual} disabled={processing} className="btn-ghost">+ Add Manually</button>
             <button onClick={() => { setResults([]); setFileItems([]) }} className="btn-ghost">Cancel</button>
           </div>
+          <input ref={scanMoreRef} type="file" multiple accept="image/*,.heic,.heif,.pdf" hidden onChange={handleScanMore} />
         </div>
       )}
     </div>
