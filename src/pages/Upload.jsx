@@ -163,7 +163,7 @@ export default function Upload() {
           >
             <div className="dropzone-icon">📄</div>
             <p>Drag & drop receipts here, or click to select</p>
-            <p className="hint">JPEG · PNG · HEIC · PDF · Multiple files OK</p>
+            <p className="hint">JPEG · PNG · WebP · HEIC · GIF · BMP · TIFF · PDF · Multiple files OK</p>
             <input
               ref={fileRef}
               type="file"
