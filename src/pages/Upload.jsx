@@ -134,6 +134,7 @@ export default function Upload() {
     }
 
     setSaving(false)
+    window.scrollTo(0, 0)
     setSaved(true)
     setFileItems([])
     setResults([])
