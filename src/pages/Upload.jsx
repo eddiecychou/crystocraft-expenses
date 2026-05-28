@@ -86,6 +86,10 @@ export default function Upload() {
     setResults(prev => prev.map((r, idx) => idx === i ? { ...r, [field]: value } : r))
   }
 
+  function remove(i) {
+    setResults(prev => prev.filter((_, idx) => idx !== i))
+  }
+
   async function saveAll() {
     setSaving(true)
     const uid = auth.currentUser.uid
@@ -205,7 +209,10 @@ export default function Upload() {
           <p className="hint">Check and correct any fields before saving.</p>
           {results.map((r, i) => (
             <div key={i} className="result-card">
-              <div className="result-filename">{r.fileName}</div>
+              <div className="result-card-header">
+                <span className="result-filename">{r.fileName}</span>
+                <button onClick={() => remove(i)} className="btn-small btn-danger">Remove</button>
+              </div>
               {r.error
                 ? <div className="error-msg">Could not extract: {r.error}</div>
                 : (

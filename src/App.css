@@ -265,12 +265,17 @@ body {
   margin-bottom: 16px;
   box-shadow: 0 1px 4px rgba(0,0,0,0.06);
 }
+.result-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #e8f5e9;
+}
 .result-filename {
   font-weight: 600;
   color: #2d3748;
-  margin-bottom: 16px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid #f0f0f0;
 }
 
 .result-grid {
