@@ -5,11 +5,32 @@ import { db, auth } from '../firebase'
 const CATEGORIES = ['Travel', 'Meals', 'Office', 'Software', 'Utilities', 'Other']
 const CURRENCIES = ['HKD', 'RMB', 'USD', 'EUR', 'JPY', 'AUD', 'GBP', 'SGD', 'CAD', 'KRW', 'Other']
 
+function Lightbox({ images, onClose }) {
+  return (
+    <div className="lightbox-overlay" onClick={onClose}>
+      <div className="lightbox-box" onClick={e => e.stopPropagation()}>
+        <button className="lightbox-close" onClick={onClose}>✕</button>
+        <h3 className="lightbox-title">Receipt{images.length > 1 ? 's' : ''}</h3>
+        {images.map((img, i) => (
+          <div key={i} className="lightbox-item">
+            {img.name?.toLowerCase().endsWith('.pdf')
+              ? <a href={img.url} target="_blank" rel="noreferrer" className="btn-primary">Open PDF ↗</a>
+              : <img src={img.url} alt={img.name} className="lightbox-img" />
+            }
+            <div className="lightbox-name">{img.name}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 export default function Expenses() {
   const [expenses, setExpenses] = useState([])
   const [loading, setLoading] = useState(true)
   const [editId, setEditId] = useState(null)
   const [editData, setEditData] = useState({})
+  const [viewImages, setViewImages] = useState(null)
 
   async function load() {
     const q = query(
@@ -53,6 +74,8 @@ export default function Expenses() {
     <div className="page">
       <h2>All Expenses</h2>
 
+      {viewImages && <Lightbox images={viewImages} onClose={() => setViewImages(null)} />}
+
       {/* Desktop table */}
       <div className="table-wrap desktop-only">
         <table className="expense-table">
@@ -84,6 +107,11 @@ export default function Expenses() {
                     <td>{e.currency}</td><td><span className="badge">{e.category}</span></td>
                     <td>{e.notes}</td>
                     <td>
+                      {e.images?.length > 0 && (
+                        <button onClick={() => setViewImages(e.images)} className="btn-small" title="View receipt">
+                          📎 {e.images.length}
+                        </button>
+                      )}
                       <button onClick={() => startEdit(e)} className="btn-small">Edit</button>
                       <button onClick={() => deleteExpense(e.id)} className="btn-small btn-danger">Delete</button>
                     </td>
@@ -126,6 +154,9 @@ export default function Expenses() {
                 </div>
                 {e.notes && <div className="mob-card-notes">{e.notes}</div>}
                 <div className="mob-card-actions">
+                  {e.images?.length > 0 && (
+                    <button onClick={() => setViewImages(e.images)} className="btn-small">📎 {e.images.length}</button>
+                  )}
                   <button onClick={() => startEdit(e)} className="btn-small">Edit</button>
                   <button onClick={() => deleteExpense(e.id)} className="btn-small btn-danger">Delete</button>
                 </div>
