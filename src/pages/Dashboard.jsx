@@ -128,7 +128,7 @@ export default function Dashboard() {
                       <span className="date">{e.date}</span>
                       <span className="vendor">{e.vendor}</span>
                       <span className="amount">{e.currency} {e.amount?.toFixed(2)}</span>
-                      <span className="badge">{e.category}</span>
+                      <span className={`badge badge-${e.category.toLowerCase()}`}>{e.category}</span>
                     </div>
                   ))}
                   <div className="expense-total-row">

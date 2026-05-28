@@ -178,6 +178,14 @@ body {
   font-weight: 500;
 }
 
+/* ── Category badge colours ── */
+.badge-travel    { background: #d4f0ec; color: #1a7a6a; }
+.badge-meals     { background: #f0f4d4; color: #5a7010; }
+.badge-office    { background: #dce8f5; color: #2a5280; }
+.badge-software  { background: #ebe6f5; color: #5a3a8a; }
+.badge-utilities { background: #f5edd4; color: #7a5410; }
+.badge-other     { background: #e8e8e8; color: #555555; }
+
 /* ── Buttons ── */
 .btn-primary {
   background: #38845a;
