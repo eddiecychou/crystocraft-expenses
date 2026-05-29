@@ -76,11 +76,16 @@ export function ProjectProvider({ children }) {
 
   const activeProject = projects.find(p => p.id === activeProjectId) || projects[0] || null
 
+  function updateProject(id, changes) {
+    setProjects(prev => prev.map(p => p.id === id ? { ...p, ...changes } : p))
+  }
+
   return (
     <ProjectContext.Provider value={{
       projects,
       activeProject,
       selectProject: persistActiveId,
+      updateProject,
       reloadProjects: () => auth.currentUser && loadProjects(auth.currentUser.uid),
       loading,
     }}>

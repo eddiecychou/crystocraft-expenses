@@ -2,9 +2,10 @@ import { useState } from 'react'
 import { collection, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore'
 import { db, auth } from '../firebase'
 import { useProject, PROJECT_COLORS, COLOR_KEYS } from '../contexts/ProjectContext'
+import ProjectBanner from '../components/ProjectBanner'
 
 export default function Settings() {
-  const { projects, activeProject, selectProject, reloadProjects } = useProject()
+  const { projects, activeProject, selectProject, updateProject, reloadProjects } = useProject()
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState('')
   const [newColor, setNewColor] = useState('green')
@@ -30,7 +31,7 @@ export default function Settings() {
     if (!editName.trim()) return
     setSaving(true)
     await updateDoc(doc(db, 'projects', editId), { name: editName.trim(), color: editColor })
-    await reloadProjects()
+    updateProject(editId, { name: editName.trim(), color: editColor })
     setEditId(null); setSaving(false)
   }
 
@@ -48,6 +49,7 @@ export default function Settings() {
 
   return (
     <div className="page">
+      <ProjectBanner />
       <h2>Settings</h2>
 
       <div className="settings-section">
