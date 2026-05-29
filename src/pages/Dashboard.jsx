@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { collection, query, where, orderBy, getDocs } from 'firebase/firestore'
+import { collection, query, where, getDocs } from 'firebase/firestore'
 import { db } from '../firebase'
 import { Link } from 'react-router-dom'
 import { CATEGORIES } from '../constants'
@@ -27,16 +27,18 @@ export default function Dashboard() {
       const pid = activeProject.id
       let q
       if (from && to) {
-        q = query(collection(db, 'expenses'), where('projectId', '==', pid), where('date', '>=', from), where('date', '<=', to), orderBy('date', 'desc'))
+        q = query(collection(db, 'expenses'), where('projectId', '==', pid), where('date', '>=', from), where('date', '<=', to))
       } else if (from) {
-        q = query(collection(db, 'expenses'), where('projectId', '==', pid), where('date', '>=', from), orderBy('date', 'desc'))
+        q = query(collection(db, 'expenses'), where('projectId', '==', pid), where('date', '>=', from))
       } else if (to) {
-        q = query(collection(db, 'expenses'), where('projectId', '==', pid), where('date', '<=', to), orderBy('date', 'desc'))
+        q = query(collection(db, 'expenses'), where('projectId', '==', pid), where('date', '<=', to))
       } else {
-        q = query(collection(db, 'expenses'), where('projectId', '==', pid), orderBy('date', 'desc'))
+        q = query(collection(db, 'expenses'), where('projectId', '==', pid))
       }
       const snap = await getDocs(q)
-      setExpenses(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      list.sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+      setExpenses(list)
       setLoading(false)
     }
     load()

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { collection, query, where, orderBy, getDocs, doc, updateDoc, deleteDoc } from 'firebase/firestore'
+import { collection, query, where, getDocs, doc, updateDoc, deleteDoc } from 'firebase/firestore'
 import { db, auth } from '../firebase'
 import { useProject } from '../contexts/ProjectContext'
 import ProjectBanner from '../components/ProjectBanner'
@@ -66,11 +66,12 @@ export default function Expenses() {
     if (!activeProject) return
     const q = query(
       collection(db, 'expenses'),
-      where('projectId', '==', activeProject.id),
-      orderBy('date', 'desc')
+      where('projectId', '==', activeProject.id)
     )
     const snap = await getDocs(q)
-    setExpenses(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+    const list = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+    list.sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+    setExpenses(list)
     setLoading(false)
   }
 
