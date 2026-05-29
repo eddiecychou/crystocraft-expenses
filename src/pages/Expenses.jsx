@@ -64,18 +64,20 @@ export default function Expenses() {
 
   async function load() {
     if (!activeProject) return
-    const q = query(
-      collection(db, 'expenses'),
-      where('projectId', '==', activeProject.id)
-    )
-    const snap = await getDocs(q)
-    const list = snap.docs.map(d => ({ id: d.id, ...d.data() }))
-    list.sort((a, b) => (b.date || '').localeCompare(a.date || ''))
-    setExpenses(list)
+    try {
+      const snap = await getDocs(
+        query(collection(db, 'expenses'), where('projectId', '==', activeProject.id))
+      )
+      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      list.sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+      setExpenses(list)
+    } catch (err) {
+      console.error('Expenses load error:', err)
+    }
     setLoading(false)
   }
 
-  useEffect(() => { if (!projectLoading && activeProject) load() }, [activeProject, projectLoading])
+  useEffect(() => { if (!projectLoading && activeProject) load() }, [activeProject?.id, projectLoading])
 
   async function saveEdit() {
     const { id, userId, userEmail, createdAt, ...fields } = editData

@@ -24,25 +24,24 @@ export default function Dashboard() {
     if (projectLoading || !activeProject) return
     async function load() {
       setLoading(true)
-      const pid = activeProject.id
-      let q
-      if (from && to) {
-        q = query(collection(db, 'expenses'), where('projectId', '==', pid), where('date', '>=', from), where('date', '<=', to))
-      } else if (from) {
-        q = query(collection(db, 'expenses'), where('projectId', '==', pid), where('date', '>=', from))
-      } else if (to) {
-        q = query(collection(db, 'expenses'), where('projectId', '==', pid), where('date', '<=', to))
-      } else {
-        q = query(collection(db, 'expenses'), where('projectId', '==', pid))
+      try {
+        // Fetch all expenses for the project; filter dates client-side
+        // to avoid needing composite Firestore indexes
+        const snap = await getDocs(
+          query(collection(db, 'expenses'), where('projectId', '==', activeProject.id))
+        )
+        let list = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+        if (from) list = list.filter(e => e.date >= from)
+        if (to)   list = list.filter(e => e.date <= to)
+        list.sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+        setExpenses(list)
+      } catch (err) {
+        console.error('Dashboard load error:', err)
       }
-      const snap = await getDocs(q)
-      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }))
-      list.sort((a, b) => (b.date || '').localeCompare(a.date || ''))
-      setExpenses(list)
       setLoading(false)
     }
     load()
-  }, [from, to, activeProject, projectLoading])
+  }, [from, to, activeProject?.id, projectLoading])
 
   function setPreset(preset) {
     const now = new Date()
