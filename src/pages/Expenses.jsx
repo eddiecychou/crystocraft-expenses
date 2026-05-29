@@ -47,7 +47,7 @@ function Lightbox({ expenseId, images, onClose, onAdd, onDelete, uploading }) {
 }
 
 export default function Expenses() {
-  const { activeProject, loading: projectLoading } = useProject()
+  const { activeProject, projects, loading: projectLoading } = useProject()
   const [expenses, setExpenses] = useState([])
   const [loading, setLoading] = useState(true)
   const [editId, setEditId] = useState(null)
@@ -66,9 +66,15 @@ export default function Expenses() {
     if (!activeProject) return
     try {
       const snap = await getDocs(
-        query(collection(db, 'expenses'), where('projectId', '==', activeProject.id))
+        query(collection(db, 'expenses'), where('userId', '==', auth.currentUser.uid))
       )
-      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      const defaultProjectId = (projects.find(p => p.name === 'Default') || projects[0])?.id
+      const list = snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .filter(e =>
+          e.projectId === activeProject.id ||
+          (!e.projectId && activeProject.id === defaultProjectId)
+        )
       list.sort((a, b) => (b.date || '').localeCompare(a.date || ''))
       setExpenses(list)
     } catch (err) {

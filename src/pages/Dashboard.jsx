@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { collection, query, where, getDocs } from 'firebase/firestore'
-import { db } from '../firebase'
+import { db, auth } from '../firebase'
 import { Link } from 'react-router-dom'
 import { CATEGORIES } from '../constants'
 import { useProject } from '../contexts/ProjectContext'
@@ -14,7 +14,7 @@ function firstOfMonth() {
 }
 
 export default function Dashboard() {
-  const { activeProject, loading: projectLoading } = useProject()
+  const { activeProject, projects, loading: projectLoading } = useProject()
   const [expenses, setExpenses] = useState([])
   const [loading, setLoading] = useState(true)
   const [from, setFrom] = useState(firstOfMonth)
@@ -25,12 +25,17 @@ export default function Dashboard() {
     async function load() {
       setLoading(true)
       try {
-        // Fetch all expenses for the project; filter dates client-side
-        // to avoid needing composite Firestore indexes
+        // Query by userId (always indexed), filter project client-side
+        // This handles both migrated expenses (have projectId) and legacy ones (no projectId)
         const snap = await getDocs(
-          query(collection(db, 'expenses'), where('projectId', '==', activeProject.id))
+          query(collection(db, 'expenses'), where('userId', '==', auth.currentUser.uid))
         )
         let list = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+        const defaultProjectId = (projects.find(p => p.name === 'Default') || projects[0])?.id
+        list = list.filter(e =>
+          e.projectId === activeProject.id ||
+          (!e.projectId && activeProject.id === defaultProjectId)
+        )
         if (from) list = list.filter(e => e.date >= from)
         if (to)   list = list.filter(e => e.date <= to)
         list.sort((a, b) => (b.date || '').localeCompare(a.date || ''))
