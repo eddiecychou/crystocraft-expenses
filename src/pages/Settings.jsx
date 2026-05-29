@@ -86,7 +86,7 @@ export default function Settings() {
                       {!isActive && (
                         <button onClick={() => selectProject(p.id)} className="btn-small btn-primary">Set Active</button>
                       )}
-                      <button onClick={() => startEdit(p)} className="btn-small">Rename</button>
+                      <button onClick={() => startEdit(p)} className="btn-small">Edit</button>
                       {projects.length > 1 && !isActive && (
                         <button onClick={() => deleteProject(p)} className="btn-small btn-danger">Delete</button>
                       )}
