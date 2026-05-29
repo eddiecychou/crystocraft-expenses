@@ -4,11 +4,11 @@ import { onAuthStateChanged } from 'firebase/auth'
 import { db, auth } from '../firebase'
 
 export const PROJECT_COLORS = {
-  green:  { dot: '#276840', text: '#276840', bg: '#e4f2e9' },
-  blue:   { dot: '#2a6099', text: '#2a5280', bg: '#dce8f5' },
-  amber:  { dot: '#c47a10', text: '#7a5410', bg: '#f5edd4' },
-  purple: { dot: '#7a5aaa', text: '#5a3a8a', bg: '#ebe6f5' },
-  slate:  { dot: '#718096', text: '#4a5568', bg: '#e8eaed' },
+  green:  { dot: '#276840', text: '#276840', bg: '#e4f2e9', dark: '#1a3a28', mid: '#2a5c3f', btn: '#38845a', btnHover: '#2d6e4a' },
+  blue:   { dot: '#2a6099', text: '#2a5280', bg: '#dce8f5', dark: '#0d2a4a', mid: '#1a4a7a', btn: '#2a6099', btnHover: '#1a4070' },
+  amber:  { dot: '#c47a10', text: '#7a5410', bg: '#f5edd4', dark: '#4a2a05', mid: '#9a6010', btn: '#c47a10', btnHover: '#9a6010' },
+  purple: { dot: '#7a5aaa', text: '#5a3a8a', bg: '#ebe6f5', dark: '#2a1050', mid: '#5a3a8a', btn: '#7a5aaa', btnHover: '#5a3a8a' },
+  slate:  { dot: '#718096', text: '#4a5568', bg: '#e8eaed', dark: '#2a3040', mid: '#576070', btn: '#718096', btnHover: '#4a5568' },
 }
 
 export const COLOR_KEYS = Object.keys(PROJECT_COLORS)
