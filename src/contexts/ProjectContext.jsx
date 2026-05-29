@@ -30,24 +30,28 @@ export function ProjectProvider({ children }) {
 
   async function loadProjects(uid) {
     setLoading(true)
-    const snap = await getDocs(query(collection(db, 'projects'), where('userId', '==', uid)))
-    let list = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+    try {
+      const snap = await getDocs(query(collection(db, 'projects'), where('userId', '==', uid)))
+      let list = snap.docs.map(d => ({ id: d.id, ...d.data() }))
 
-    if (list.length === 0) {
-      // First time: create Default project and migrate existing expenses
-      const ref = await addDoc(collection(db, 'projects'), {
-        name: 'Default', userId: uid, color: 'green', createdAt: serverTimestamp(),
-      })
-      await migrateExpenses(uid, ref.id)
-      list = [{ id: ref.id, name: 'Default', userId: uid, color: 'green' }]
-      persistActiveId(ref.id)
-    } else {
-      // Ensure saved activeProjectId is still valid
-      const saved = localStorage.getItem('activeProjectId')
-      if (!saved || !list.find(p => p.id === saved)) persistActiveId(list[0].id)
+      if (list.length === 0) {
+        // First time: create Default project and migrate existing expenses
+        const ref = await addDoc(collection(db, 'projects'), {
+          name: 'Default', userId: uid, color: 'green', createdAt: serverTimestamp(),
+        })
+        await migrateExpenses(uid, ref.id)
+        list = [{ id: ref.id, name: 'Default', userId: uid, color: 'green' }]
+        persistActiveId(ref.id)
+      } else {
+        // Ensure saved activeProjectId is still valid
+        const saved = localStorage.getItem('activeProjectId')
+        if (!saved || !list.find(p => p.id === saved)) persistActiveId(list[0].id)
+      }
+
+      setProjects(list)
+    } catch (err) {
+      console.error('ProjectContext error:', err.message)
     }
-
-    setProjects(list)
     setLoading(false)
   }
 
