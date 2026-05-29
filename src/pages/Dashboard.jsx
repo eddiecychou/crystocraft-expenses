@@ -119,7 +119,7 @@ export default function Dashboard() {
               <h3>By Category</h3>
               {byCategory.map(c => (
                 <div key={c.cat} className="category-row">
-                  <span>{c.cat}</span>
+                  <span className={`badge badge-${c.cat.toLowerCase()}`}>{c.cat}</span>
                   <span>{Object.entries(c.totals).map(([cur, amt]) => `${cur} ${amt.toFixed(2)}`).join('  |  ')}</span>
                 </div>
               ))}
