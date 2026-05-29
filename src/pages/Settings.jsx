@@ -61,7 +61,7 @@ export default function Settings() {
             const c = PROJECT_COLORS[p.color] || PROJECT_COLORS.green
             const isActive = activeProject?.id === p.id
             return (
-              <div key={p.id} className={`project-card${isActive ? ' project-card-active' : ''}`}>
+              <div key={p.id} className="project-card" style={isActive ? { borderColor: c.dot, background: c.bg } : {}}>
                 {editId === p.id ? (
                   <>
                     <input
@@ -82,7 +82,7 @@ export default function Settings() {
                     <div className="project-card-main">
                       <span className="project-dot" style={{ background: c.dot }} />
                       <span className="project-card-name">{p.name}</span>
-                      {isActive && <span className="project-active-badge">Active</span>}
+                      {isActive && <span className="project-active-badge" style={{ background: c.bg, color: c.text }}>Active</span>}
                     </div>
                     <div className="project-card-actions">
                       {!isActive && (

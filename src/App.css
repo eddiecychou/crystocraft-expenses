@@ -546,14 +546,17 @@ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
 
 /* ── Project banner ── */
 .project-banner {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 7px;
-  margin-bottom: 2px;
+  margin-bottom: 8px;
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.3px;
   text-transform: uppercase;
+  padding: 4px 10px;
+  border-radius: 20px;
+  border: 1px solid transparent;
 }
 .project-dot {
   width: 10px; height: 10px;

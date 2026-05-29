@@ -5,7 +5,7 @@ export default function ProjectBanner() {
   if (!activeProject) return null
   const c = PROJECT_COLORS[activeProject.color] || PROJECT_COLORS.green
   return (
-    <div className="project-banner">
+    <div className="project-banner" style={{ background: c.bg, borderColor: c.dot }}>
       <span className="project-dot" style={{ background: c.dot }} />
       <span className="project-banner-name" style={{ color: c.text }}>{activeProject.name}</span>
     </div>
