@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react'
 import { collection, query, where, orderBy, getDocs } from 'firebase/firestore'
-import { db, auth } from '../firebase'
+import { db } from '../firebase'
 import { Link } from 'react-router-dom'
-
 import { CATEGORIES } from '../constants'
+import { useProject } from '../contexts/ProjectContext'
+import ProjectBanner from '../components/ProjectBanner'
 
 function isoDate(d) { return d.toISOString().slice(0, 10) }
 
@@ -13,31 +14,33 @@ function firstOfMonth() {
 }
 
 export default function Dashboard() {
+  const { activeProject, loading: projectLoading } = useProject()
   const [expenses, setExpenses] = useState([])
   const [loading, setLoading] = useState(true)
   const [from, setFrom] = useState(firstOfMonth)
   const [to, setTo] = useState(() => isoDate(new Date()))
 
   useEffect(() => {
+    if (projectLoading || !activeProject) return
     async function load() {
       setLoading(true)
-      const uid = auth.currentUser.uid
+      const pid = activeProject.id
       let q
       if (from && to) {
-        q = query(collection(db, 'expenses'), where('userId', '==', uid), where('date', '>=', from), where('date', '<=', to), orderBy('date', 'desc'))
+        q = query(collection(db, 'expenses'), where('projectId', '==', pid), where('date', '>=', from), where('date', '<=', to), orderBy('date', 'desc'))
       } else if (from) {
-        q = query(collection(db, 'expenses'), where('userId', '==', uid), where('date', '>=', from), orderBy('date', 'desc'))
+        q = query(collection(db, 'expenses'), where('projectId', '==', pid), where('date', '>=', from), orderBy('date', 'desc'))
       } else if (to) {
-        q = query(collection(db, 'expenses'), where('userId', '==', uid), where('date', '<=', to), orderBy('date', 'desc'))
+        q = query(collection(db, 'expenses'), where('projectId', '==', pid), where('date', '<=', to), orderBy('date', 'desc'))
       } else {
-        q = query(collection(db, 'expenses'), where('userId', '==', uid), orderBy('date', 'desc'))
+        q = query(collection(db, 'expenses'), where('projectId', '==', pid), orderBy('date', 'desc'))
       }
       const snap = await getDocs(q)
       setExpenses(snap.docs.map(d => ({ id: d.id, ...d.data() })))
       setLoading(false)
     }
     load()
-  }, [from, to])
+  }, [from, to, activeProject, projectLoading])
 
   function setPreset(preset) {
     const now = new Date()
@@ -75,8 +78,11 @@ export default function Dashboard() {
     })
     .filter(c => Object.keys(c.totals).length > 0)
 
+  if (projectLoading) return <div className="loading">Loading…</div>
+
   return (
     <div className="page">
+      <ProjectBanner />
       <h2>Dashboard</h2>
 
       <div className="filter-row">

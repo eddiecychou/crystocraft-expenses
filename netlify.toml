@@ -13,6 +13,10 @@
   function = "process-receipt"
   path = "/api/process-receipt"
 
+[[edge_functions]]
+  function = "download-receipt"
+  path = "/api/download-receipt"
+
 [[redirects]]
   from = "/api/export-excel"
   to = "/.netlify/functions/export-excel"

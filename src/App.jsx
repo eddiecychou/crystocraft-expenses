@@ -1,9 +1,11 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { useAuthState } from './hooks/useAuthState'
+import { ProjectProvider } from './contexts/ProjectContext'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import Upload from './pages/Upload'
 import Expenses from './pages/Expenses'
+import Settings from './pages/Settings'
 import Layout from './components/Layout'
 
 function ProtectedRoute({ children }) {
@@ -16,6 +18,7 @@ function ProtectedRoute({ children }) {
 export default function App() {
   return (
     <BrowserRouter>
+    <ProjectProvider>
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route
@@ -29,8 +32,10 @@ export default function App() {
           <Route index element={<Dashboard />} />
           <Route path="upload" element={<Upload />} />
           <Route path="expenses" element={<Expenses />} />
+          <Route path="settings" element={<Settings />} />
         </Route>
       </Routes>
+    </ProjectProvider>
     </BrowserRouter>
   )
 }

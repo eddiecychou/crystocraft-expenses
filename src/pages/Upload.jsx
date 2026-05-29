@@ -3,8 +3,11 @@ import { collection, addDoc, updateDoc, doc, serverTimestamp } from 'firebase/fi
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { db, auth, storage } from '../firebase'
 import { CATEGORIES, CURRENCIES } from '../constants'
+import { useProject } from '../contexts/ProjectContext'
+import ProjectBanner from '../components/ProjectBanner'
 
 export default function Upload() {
+  const { activeProject } = useProject()
   const [fileItems, setFileItems] = useState([])
   const [loading, setLoading] = useState(false)
   const [processing, setProcessing] = useState(false)
@@ -172,6 +175,7 @@ export default function Upload() {
       const docRef = await addDoc(collection(db, 'expenses'), {
         userId: uid,
         userEmail: email,
+        projectId: activeProject?.id || '',
         date: r.date || '',
         vendor: r.vendor || '',
         amount: parseFloat(r.amount) || 0,
@@ -223,6 +227,7 @@ export default function Upload() {
 
   return (
     <div className="page">
+      <ProjectBanner />
       <h2>Upload Receipts</h2>
 
       {results.length === 0 && (

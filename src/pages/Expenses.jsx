@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { collection, query, where, orderBy, getDocs, doc, updateDoc, deleteDoc } from 'firebase/firestore'
 import { db, auth } from '../firebase'
+import { useProject } from '../contexts/ProjectContext'
+import ProjectBanner from '../components/ProjectBanner'
 import JSZip from 'jszip'
 import ExcelJS from 'exceljs'
 import { uploadReceiptImage, deleteReceiptImage, MAX_IMAGES } from '../receiptStorage'
@@ -45,6 +47,7 @@ function Lightbox({ expenseId, images, onClose, onAdd, onDelete, uploading }) {
 }
 
 export default function Expenses() {
+  const { activeProject, loading: projectLoading } = useProject()
   const [expenses, setExpenses] = useState([])
   const [loading, setLoading] = useState(true)
   const [editId, setEditId] = useState(null)
@@ -60,9 +63,10 @@ export default function Expenses() {
   const [zipProgress, setZipProgress] = useState('')
 
   async function load() {
+    if (!activeProject) return
     const q = query(
       collection(db, 'expenses'),
-      where('userId', '==', auth.currentUser.uid),
+      where('projectId', '==', activeProject.id),
       orderBy('date', 'desc')
     )
     const snap = await getDocs(q)
@@ -70,7 +74,7 @@ export default function Expenses() {
     setLoading(false)
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { if (!projectLoading && activeProject) load() }, [activeProject, projectLoading])
 
   async function saveEdit() {
     const { id, userId, userEmail, createdAt, ...fields } = editData
@@ -247,9 +251,10 @@ export default function Expenses() {
     setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
 
+  if (projectLoading) return <div className="loading">Loading…</div>
   if (loading) return <div className="loading">Loading…</div>
   if (expenses.length === 0) return (
-    <div className="page"><h2>Expense Records</h2><p className="empty">No expenses yet.</p></div>
+    <div className="page"><ProjectBanner /><h2>Expense Records</h2><p className="empty">No expenses yet.</p></div>
   )
 
   const filtered = expenses.filter(e => {
@@ -261,6 +266,7 @@ export default function Expenses() {
 
   return (
     <div className="page">
+      <ProjectBanner />
       <h2>Expense Records</h2>
 
       <div className="filter-row">
