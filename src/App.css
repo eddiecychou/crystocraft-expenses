@@ -607,7 +607,7 @@ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
   border: 1px dashed #c6e0c0;
   border-radius: 8px; padding: 16px; margin-top: 12px;
 }
-.color-swatches { display: flex; gap: 10px; margin-bottom: 12px; }
+.color-swatches { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
 .color-swatch {
   width: 28px; height: 28px; border-radius: 50%;
   border: 3px solid transparent; cursor: pointer; padding: 0;

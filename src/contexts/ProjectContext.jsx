@@ -9,6 +9,11 @@ export const PROJECT_COLORS = {
   amber:  { dot: '#c47a10', text: '#7a5410', bg: '#f5edd4', dark: '#4a2a05', mid: '#9a6010', btn: '#c47a10', btnHover: '#9a6010' },
   purple: { dot: '#7a5aaa', text: '#5a3a8a', bg: '#ebe6f5', dark: '#2a1050', mid: '#5a3a8a', btn: '#7a5aaa', btnHover: '#5a3a8a' },
   slate:  { dot: '#718096', text: '#4a5568', bg: '#e8eaed', dark: '#2a3040', mid: '#576070', btn: '#718096', btnHover: '#4a5568' },
+  teal:   { dot: '#0d9488', text: '#0f766e', bg: '#ccfbf1', dark: '#0a2e2c', mid: '#0f766e', btn: '#0d9488', btnHover: '#0f766e' },
+  rose:   { dot: '#e11d48', text: '#be123c', bg: '#ffe4e6', dark: '#4c0519', mid: '#9f1239', btn: '#e11d48', btnHover: '#be123c' },
+  orange: { dot: '#ea580c', text: '#c2410c', bg: '#ffedd5', dark: '#3a1a05', mid: '#c2410c', btn: '#ea580c', btnHover: '#c2410c' },
+  indigo: { dot: '#4f46e5', text: '#4338ca', bg: '#e0e7ff', dark: '#1e1b4b', mid: '#3730a3', btn: '#4f46e5', btnHover: '#4338ca' },
+  brown:  { dot: '#7c5c3a', text: '#5c4020', bg: '#f5e8d8', dark: '#3a2010', mid: '#5c4020', btn: '#7c5c3a', btnHover: '#5c4020' },
 }
 
 export const COLOR_KEYS = Object.keys(PROJECT_COLORS)
