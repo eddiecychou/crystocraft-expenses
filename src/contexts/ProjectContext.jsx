@@ -35,11 +35,10 @@ export function ProjectProvider({ children }) {
       let list = snap.docs.map(d => ({ id: d.id, ...d.data() }))
 
       if (list.length === 0) {
-        // First time: create Default project and migrate existing expenses
+        // First time: create Default project
         const ref = await addDoc(collection(db, 'projects'), {
           name: 'Default', userId: uid, color: 'green', createdAt: serverTimestamp(),
         })
-        await migrateExpenses(uid, ref.id)
         list = [{ id: ref.id, name: 'Default', userId: uid, color: 'green' }]
         persistActiveId(ref.id)
       } else {
@@ -47,6 +46,11 @@ export function ProjectProvider({ children }) {
         const saved = localStorage.getItem('activeProjectId')
         if (!saved || !list.find(p => p.id === saved)) persistActiveId(list[0].id)
       }
+
+      // Always migrate any expenses that still have no projectId
+      // (idempotent — skips expenses already migrated)
+      const defaultProject = list.find(p => p.name === 'Default') || list[0]
+      await migrateExpenses(uid, defaultProject.id)
 
       setProjects(list)
     } catch (err) {
