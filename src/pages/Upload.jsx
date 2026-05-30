@@ -5,6 +5,7 @@ import { db, auth, storage } from '../firebase'
 import { CATEGORIES, CURRENCIES } from '../constants'
 import { useProject } from '../contexts/ProjectContext'
 import ProjectBanner from '../components/ProjectBanner'
+import ConfirmDialog from '../components/ConfirmDialog'
 
 export default function Upload() {
   const { activeProject } = useProject()
@@ -15,8 +16,8 @@ export default function Upload() {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [validationErrors, setValidationErrors] = useState({})
+  const [confirmDialog, setConfirmDialog] = useState(null)
   const resultIdRef = useRef(0)
-  const removeThrottleRef = useRef(false)
   const fileRef = useRef()
   const scanMoreRef = useRef()
   const attachRef = useRef()
@@ -69,7 +70,7 @@ export default function Upload() {
     setProcessing(true)
     const out = []
     for (const item of fileItems) {
-      if (item.error) { out.push({ fileName: item.name, error: item.error }); continue }
+      if (item.error) { out.push({ fileName: item.name, error: item.error, _id: ++resultIdRef.current }); continue }
       try {
         const ocr = await preprocessForGemini(item)
         const res = await fetch('/api/process-receipt', {
@@ -109,17 +110,12 @@ export default function Upload() {
   }
 
   function remove(id) {
-    // Throttle to prevent mobile ghost-click cascade: after a card is removed the
-    // cards shift up and the browser fires a residual click at the same coordinates,
-    // which would hit the next card's Remove button.
-    if (removeThrottleRef.current) return
-    removeThrottleRef.current = true
-    setTimeout(() => { removeThrottleRef.current = false }, 500)
-    setResults(prev => prev.filter(r => r._id !== id))
-    setValidationErrors(prev => {
-      const next = { ...prev }
-      delete next[id]
-      return next
+    setConfirmDialog({
+      onConfirm: () => {
+        setResults(prev => prev.filter(r => r._id !== id))
+        setValidationErrors(prev => { const next = { ...prev }; delete next[id]; return next })
+        setConfirmDialog(null)
+      }
     })
   }
 
@@ -171,7 +167,7 @@ export default function Upload() {
         const msg = err.name === 'NotFoundError'
           ? 'File not available locally — if stored in iCloud, open it in Preview first to download it'
           : (err.message || 'Could not read file')
-        setResults(prev => [...prev, { fileName: file.name, error: msg }])
+        setResults(prev => [...prev, { fileName: file.name, error: msg, _id: ++resultIdRef.current }])
         continue
       }
       try {
@@ -185,7 +181,7 @@ export default function Upload() {
         setFileItems(prev => [...prev, item])
         setResults(prev => [...prev, { ...data, fileName: item.name, _id: ++resultIdRef.current }])
       } catch (err) {
-        setResults(prev => [...prev, { fileName: file.name, error: err.message || 'Failed to process' }])
+        setResults(prev => [...prev, { fileName: file.name, error: err.message || 'Failed to process', _id: ++resultIdRef.current }])
       }
     }
     setProcessing(false)
@@ -399,6 +395,14 @@ export default function Upload() {
           </div>
           <input ref={scanMoreRef} type="file" multiple accept="image/*,.heic,.heif,.pdf" hidden onChange={handleScanMore} />
           <input ref={attachRef} type="file" accept="image/*,.heic,.heif,.pdf" hidden onChange={handleAttach} />
+          {confirmDialog && (
+            <ConfirmDialog
+              message="Remove this scan result?"
+              confirmLabel="Remove"
+              onConfirm={confirmDialog.onConfirm}
+              onCancel={() => setConfirmDialog(null)}
+            />
+          )}
         </div>
       )}
     </div>
