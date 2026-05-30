@@ -7,10 +7,11 @@ import Upload from './pages/Upload'
 import Expenses from './pages/Expenses'
 import Settings from './pages/Settings'
 import Layout from './components/Layout'
+import LoadingBar from './components/LoadingBar'
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuthState()
-  if (loading) return <div className="loading">Loading…</div>
+  if (loading) return <div className="page"><LoadingBar label="Loading…" /></div>
   if (!user) return <Navigate to="/login" replace />
   return children
 }
