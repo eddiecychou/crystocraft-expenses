@@ -28,20 +28,16 @@ export function ProjectProvider({ children }) {
   useEffect(() => {
     let projectUnsub = null
 
-    console.time('[perf] auth-ready')
     const authUnsub = onAuthStateChanged(auth, user => {
-      console.timeEnd('[perf] auth-ready')
       // Clean up previous project listener when user changes
       if (projectUnsub) { projectUnsub(); projectUnsub = null }
 
       if (!user) { setProjects([]); setLoading(false); return }
 
       setLoading(true)
-      console.time('[perf] projects-ready')
       projectUnsub = onSnapshot(
         query(collection(db, 'projects'), where('userId', '==', user.uid)),
         async snap => {
-          console.timeEnd('[perf] projects-ready')
           try {
             let list = snap.docs.map(d => ({ id: d.id, ...d.data() }))
 
