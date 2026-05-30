@@ -7,6 +7,7 @@ import JSZip from 'jszip'
 import ExcelJS from 'exceljs'
 import { uploadReceiptImage, deleteReceiptImage, MAX_IMAGES } from '../receiptStorage'
 import { CATEGORIES, CURRENCIES } from '../constants'
+import ConfirmDialog from '../components/ConfirmDialog'
 
 function Lightbox({ expenseId, images, onClose, onAdd, onDelete, uploading }) {
   const canAdd = images.length < MAX_IMAGES
@@ -61,6 +62,11 @@ export default function Expenses() {
   const [exportingXls, setExportingXls] = useState(false)
   const [exportingZip, setExportingZip] = useState(false)
   const [zipProgress, setZipProgress] = useState('')
+  const [confirmDialog, setConfirmDialog] = useState(null) // { message, onConfirm }
+
+  function askConfirm(message, onConfirm) {
+    setConfirmDialog({ message, onConfirm })
+  }
 
   async function load() {
     if (!activeProject) return
@@ -95,10 +101,11 @@ export default function Expenses() {
     load()
   }
 
-  async function deleteExpense(id) {
-    if (!confirm('Delete this expense?')) return
-    await deleteDoc(doc(db, 'expenses', id))
-    load()
+  function deleteExpense(id) {
+    askConfirm('Delete this expense?', async () => {
+      await deleteDoc(doc(db, 'expenses', id))
+      load()
+    })
   }
 
   function openLightbox(e) {
@@ -125,14 +132,15 @@ export default function Expenses() {
     setUploading(false)
   }
 
-  async function handleDeleteImage(img) {
-    if (!confirm('Delete this receipt image?')) return
-    const { expenseId, images } = viewImages
-    try { await deleteReceiptImage(img.path) } catch {}
-    const newImages = images.filter(i => i.path !== img.path)
-    await updateDoc(doc(db, 'expenses', expenseId), { images: newImages })
-    setViewImages({ expenseId, images: newImages })
-    load()
+  function handleDeleteImage(img) {
+    askConfirm('Delete this receipt image?', async () => {
+      const { expenseId, images } = viewImages
+      try { await deleteReceiptImage(img.path) } catch {}
+      const newImages = images.filter(i => i.path !== img.path)
+      await updateDoc(doc(db, 'expenses', expenseId), { images: newImages })
+      setViewImages({ expenseId, images: newImages })
+      load()
+    })
   }
 
   function startEdit(e) { setEditId(e.id); setEditData({ ...e }) }
@@ -316,6 +324,14 @@ export default function Expenses() {
           onAdd={() => fileInputRef.current.click()}
           onDelete={handleDeleteImage}
           uploading={uploading}
+        />
+      )}
+
+      {confirmDialog && (
+        <ConfirmDialog
+          message={confirmDialog.message}
+          onConfirm={() => { confirmDialog.onConfirm(); setConfirmDialog(null) }}
+          onCancel={() => setConfirmDialog(null)}
         />
       )}
 

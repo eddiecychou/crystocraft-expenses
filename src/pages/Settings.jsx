@@ -3,6 +3,7 @@ import { collection, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from '
 import { db, auth } from '../firebase'
 import { useProject, PROJECT_COLORS, COLOR_KEYS } from '../contexts/ProjectContext'
 import ProjectBanner from '../components/ProjectBanner'
+import ConfirmDialog from '../components/ConfirmDialog'
 
 export default function Settings() {
   const { projects, activeProject, selectProject, updateProject, reloadProjects } = useProject()
@@ -13,6 +14,7 @@ export default function Settings() {
   const [editName, setEditName] = useState('')
   const [editColor, setEditColor] = useState('green')
   const [saving, setSaving] = useState(false)
+  const [confirmDialog, setConfirmDialog] = useState(null)
 
   async function createProject() {
     if (!newName.trim()) return
@@ -35,14 +37,18 @@ export default function Settings() {
     setEditId(null); setSaving(false)
   }
 
-  async function deleteProject(p) {
-    if (!confirm(`Delete "${p.name}"? Its expenses will remain but won't appear until reassigned.`)) return
-    await deleteDoc(doc(db, 'projects', p.id))
-    if (activeProject?.id === p.id) {
-      const remaining = projects.filter(x => x.id !== p.id)
-      if (remaining.length) selectProject(remaining[0].id)
-    }
-    await reloadProjects()
+  function deleteProject(p) {
+    setConfirmDialog({
+      message: `Delete "${p.name}"? Its expenses will remain but won't appear until reassigned.`,
+      onConfirm: async () => {
+        await deleteDoc(doc(db, 'projects', p.id))
+        if (activeProject?.id === p.id) {
+          const remaining = projects.filter(x => x.id !== p.id)
+          if (remaining.length) selectProject(remaining[0].id)
+        }
+        await reloadProjects()
+      }
+    })
   }
 
   function startEdit(p) { setEditId(p.id); setEditName(p.name); setEditColor(p.color) }
@@ -119,6 +125,14 @@ export default function Settings() {
           <button onClick={() => setCreating(true)} className="btn-ghost" style={{ marginTop: 12 }}>+ New Project</button>
         )}
       </div>
+
+      {confirmDialog && (
+        <ConfirmDialog
+          message={confirmDialog.message}
+          onConfirm={() => { confirmDialog.onConfirm(); setConfirmDialog(null) }}
+          onCancel={() => setConfirmDialog(null)}
+        />
+      )}
     </div>
   )
 }
