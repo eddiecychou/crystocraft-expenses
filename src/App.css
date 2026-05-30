@@ -450,6 +450,8 @@ body {
 .result-grid input[type="date"] {
   -webkit-appearance: none;
   appearance: none;
+  min-height: 36px;
+  line-height: 1.4;
 }
 
 /* ── Scan progress bar ── */
