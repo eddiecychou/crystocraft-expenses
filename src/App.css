@@ -86,33 +86,81 @@ body {
 }
 
 .login-card h1 {
-  font-size: 20px;
-  margin-bottom: 28px;
+  font-size: 24px;
+  font-weight: 700;
+  margin-bottom: 24px;
   color: var(--t-dark);
 }
 
-.login-card form { display: flex; flex-direction: column; gap: 12px; }
+.login-card form { display: flex; flex-direction: column; gap: 14px; }
 
-.login-card input, .login-card button {
+.login-card input {
   width: 100%;
   padding: 10px 14px;
-  border-radius: 6px;
+  border-radius: 8px;
   font-size: 14px;
+  border: 1px solid #e2e8f0;
+  outline: none;
+  margin-top: 6px;
+  display: block;
 }
-
-.login-card input { border: 1px solid #e2e8f0; outline: none; }
 .login-card input:focus { border-color: var(--t-btn); }
 
-.login-card button {
+.login-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: #2d3748;
+}
+
+.login-submit {
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 600;
   background: var(--t-btn);
   color: #fff;
   border: none;
   cursor: pointer;
-  font-weight: 600;
   margin-top: 4px;
 }
-.login-card button:hover { background: var(--t-btn-hover); }
-.login-card button:disabled { opacity: 0.6; cursor: not-allowed; }
+.login-submit:hover { background: var(--t-btn-hover); }
+.login-submit:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.login-forgot {
+  background: none;
+  border: none;
+  color: var(--t-btn);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 0;
+  text-align: left;
+  width: auto;
+  margin-top: -6px;
+}
+.login-forgot:hover { text-decoration: underline; }
+
+.login-switch {
+  text-align: center;
+  margin-top: 20px;
+  font-size: 13px;
+  color: #718096;
+  border-top: 1px solid #f0f0f0;
+  padding-top: 16px;
+}
+.login-switch button {
+  background: none;
+  border: none;
+  color: var(--t-btn);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+  text-decoration: underline;
+}
+
+.info-msg { color: #276840; font-size: 13px; }
 
 .btn-google {
   width: 100%;
@@ -151,30 +199,6 @@ body {
 
 .error-msg { color: #e53e3e; font-size: 13px; }
 
-.login-tabs {
-  display: flex;
-  border: 1px solid #e2e8f0;
-  border-radius: 6px;
-  overflow: hidden;
-  margin-bottom: 12px;
-}
-.login-tabs button {
-  flex: 1;
-  padding: 8px;
-  border: none;
-  background: #fff;
-  color: #718096;
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  margin: 0;
-  width: auto;
-  border-radius: 0;
-}
-.login-tabs button.active {
-  background: var(--t-btn, #38845a);
-  color: #fff;
-}
 
 /* ── Page ── */
 .page { max-width: 900px; }
