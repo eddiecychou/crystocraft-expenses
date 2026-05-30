@@ -16,6 +16,7 @@ export default function Upload() {
   const [saved, setSaved] = useState(false)
   const [validationErrors, setValidationErrors] = useState({})
   const resultIdRef = useRef(0)
+  const removeThrottleRef = useRef(false)
   const fileRef = useRef()
   const scanMoreRef = useRef()
   const attachRef = useRef()
@@ -108,6 +109,12 @@ export default function Upload() {
   }
 
   function remove(id) {
+    // Throttle to prevent mobile ghost-click cascade: after a card is removed the
+    // cards shift up and the browser fires a residual click at the same coordinates,
+    // which would hit the next card's Remove button.
+    if (removeThrottleRef.current) return
+    removeThrottleRef.current = true
+    setTimeout(() => { removeThrottleRef.current = false }, 500)
     setResults(prev => prev.filter(r => r._id !== id))
     setValidationErrors(prev => {
       const next = { ...prev }
