@@ -53,7 +53,7 @@ The frontend is a pure SPA deployed to Netlify. All API calls stay within the sa
 │   ├── main.jsx                  — app entry point
 │   ├── App.jsx                   — router, auth guard, ProjectProvider wrapper
 │   ├── App.css                   — all styles (single file)
-│   ├── firebase.js               — Firebase app init (auth, db, storage exports)
+│   ├── firebase.js               — Firebase app init with IndexedDB persistence (auth, db, storage exports)
 │   ├── constants.js              — CATEGORIES and CURRENCIES arrays
 │   │
 │   ├── hooks/
@@ -65,7 +65,8 @@ The frontend is a pure SPA deployed to Netlify. All API calls stay within the sa
 │   ├── components/
 │   │   ├── Layout.jsx            — sidebar nav, logout, CSS variable injection
 │   │   ├── ProjectBanner.jsx     — active project name/dot shown on each page
-│   │   └── ConfirmDialog.jsx     — in-app confirmation modal (replaces browser confirm())
+│   │   ├── ConfirmDialog.jsx     — in-app confirmation modal (replaces browser confirm())
+│   │   └── LoadingBar.jsx        — animated progress bar shown during all loading states
 │   │
 │   └── pages/
 │       ├── Login.jsx             — sign in / sign up / forgot password
@@ -255,11 +256,35 @@ All destructive actions (delete expense, delete receipt image, delete project) u
 
 ## Performance
 
-### Expense Data Loading
+### Firestore IndexedDB Persistence
 
-Both Dashboard and Expenses query Firestore once per project switch using `where('userId', '==', uid)` (always indexed, no composite index needed). Project filtering is applied client-side so no additional index is required.
+Firestore is initialised with `persistentLocalCache` and `persistentMultipleTabManager` (Firebase v10 API):
 
-**Dashboard date filters** are applied entirely in memory — changing the date range or preset does not trigger a new Firestore query. All expenses for the active project are fetched once and stored in `allExpenses` state; the rendered `expenses` variable is derived by filtering `allExpenses`.
+```js
+export const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+})
+```
+
+This writes every Firestore snapshot to the browser's IndexedDB. On subsequent page loads the data is served from the local cache immediately, with any server-side changes applied silently in the background. Without this, every refresh performs a full network round-trip regardless of caching headers.
+
+### Real-time Listeners (`onSnapshot`)
+
+All three Firestore queries — projects (in `ProjectContext`), expenses on Dashboard, and expenses on Expenses — use `onSnapshot` instead of `getDocs`. Combined with `persistentLocalCache`, the first `onSnapshot` callback fires instantly from IndexedDB on repeat loads.
+
+`onSnapshot` also auto-pushes any document changes (edits, deletes, new images) back to the component state, so no manual reload calls are needed after mutations. Each listener is properly cleaned up via the `return unsubscribe` pattern inside `useEffect`.
+
+**Dashboard date filters** are applied entirely in memory — changing the date range or preset does not trigger a new query. All expenses for the active project are stored in `allExpenses` state; the rendered `expenses` variable is a filtered derivation.
+
+### Loading State Sequence
+
+Every loading phase shows the same `LoadingBar` animated progress component — there is no plain "Loading…" text at any point:
+
+1. **Auth initialisation** (`ProtectedRoute` in `App.jsx`) — while `useAuthState` resolves the Firebase Auth session from IndexedDB
+2. **Project loading** (`ProjectContext`) — while the projects `onSnapshot` fires for the first time
+3. **Expense loading** (Dashboard / Expenses) — while the expenses `onSnapshot` fires for the first time
+
+On a warm cache (any refresh after the first load), steps 2 and 3 resolve in milliseconds from IndexedDB, making the visible loading time effectively just the auth initialisation step.
 
 ### Migration Guard
 
