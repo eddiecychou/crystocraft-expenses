@@ -326,7 +326,7 @@ export default function Upload() {
               </ul>
               {hasReadable && (
                 <>
-                  <button onClick={processFiles} disabled={processing} className="btn-primary">
+                  <button onClick={() => processFiles()} disabled={processing} className="btn-primary">
                     {processing
                       ? fileItems.length > 1
                         ? `Extracting ${processDone} of ${fileItems.length}…`
