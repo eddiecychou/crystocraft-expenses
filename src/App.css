@@ -447,6 +447,10 @@ body {
   outline: none;
   border-color: var(--t-btn);
 }
+.result-grid input[type="date"] {
+  -webkit-appearance: none;
+  appearance: none;
+}
 
 /* ── Expense table ── */
 .table-wrap { overflow-x: auto; }
