@@ -413,6 +413,11 @@ export default function Upload() {
             <button onClick={addManual} disabled={processing} className="btn-ghost">+ Add Manually</button>
             <button onClick={() => { setResults([]); setFileItems([]) }} className="btn-ghost">Cancel</button>
           </div>
+          {processing && (
+            <div className="scan-progress-bar">
+              <div className="scan-progress-fill" />
+            </div>
+          )}
           <input ref={scanMoreRef} type="file" multiple accept="image/*,.heic,.heif,.pdf" hidden onChange={handleScanMore} />
           <input ref={attachRef} type="file" accept="image/*,.heic,.heif,.pdf" hidden onChange={handleAttach} />
           {confirmDialog && (
