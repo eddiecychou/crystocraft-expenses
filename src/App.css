@@ -391,6 +391,9 @@ body {
 }
 .result-grid label.full-width { grid-column: 1 / -1; }
 .result-grid input, .result-grid select {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   padding: 7px 10px;
   border: 1px solid #e2e8f0;
   border-radius: 6px;
@@ -603,7 +606,7 @@ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
 
   .stat-row { flex-direction: column; }
 
-  .result-grid { grid-template-columns: 1fr 1fr; }
+  .result-grid { grid-template-columns: 1fr; }
 
   .login-page { padding: 24px 16px; }
   .login-card { padding: 28px 20px; }
