@@ -452,6 +452,26 @@ body {
   appearance: none;
 }
 
+/* ── Scan progress bar ── */
+.scan-progress-bar {
+  height: 3px;
+  background: #e2e8f0;
+  border-radius: 3px;
+  overflow: hidden;
+  margin-top: 10px;
+}
+.scan-progress-fill {
+  height: 100%;
+  width: 40%;
+  background: var(--t-btn);
+  border-radius: 3px;
+  animation: scan-slide 1.8s ease-in-out infinite;
+}
+@keyframes scan-slide {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(260%); }
+}
+
 /* ── Expense table ── */
 .table-wrap { overflow-x: auto; }
 

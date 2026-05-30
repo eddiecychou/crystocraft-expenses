@@ -18,7 +18,6 @@ export default function Upload() {
   const [validationErrors, setValidationErrors] = useState({})
   const [confirmDialog, setConfirmDialog] = useState(null)
   const [processDone, setProcessDone] = useState(0)
-  const [processStage, setProcessStage] = useState('')
   const resultIdRef = useRef(0)
   const fileIdRef = useRef(0)
   const fileRef = useRef()
@@ -78,9 +77,7 @@ export default function Upload() {
       setProcessDone(++done)
       if (item.error) { out.push({ fileName: item.name, error: item.error, _id: ++resultIdRef.current }); continue }
       try {
-        setProcessStage('preparing')
         const ocr = await preprocessForGemini(item)
-        setProcessStage('extracting')
         const res = await fetch('/api/process-receipt', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -319,15 +316,20 @@ export default function Upload() {
                 ))}
               </ul>
               {hasReadable && (
-                <button onClick={processFiles} disabled={processing} className="btn-primary">
-                  {processing
-                    ? fileItems.length > 1
-                      ? `Extracting ${processDone} of ${fileItems.length}…`
-                      : processStage === 'preparing'
-                        ? 'Preparing image…'
+                <>
+                  <button onClick={processFiles} disabled={processing} className="btn-primary">
+                    {processing
+                      ? fileItems.length > 1
+                        ? `Extracting ${processDone} of ${fileItems.length}…`
                         : 'Extracting data…'
-                    : 'Extract Data with AI'}
-                </button>
+                      : 'Extract Data with AI'}
+                  </button>
+                  {processing && (
+                    <div className="scan-progress-bar">
+                      <div className="scan-progress-fill" />
+                    </div>
+                  )}
+                </>
               )}
             </div>
           )}
