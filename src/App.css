@@ -414,6 +414,35 @@ body {
 .result-filename {
   font-weight: 600;
   color: #2d3748;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.result-thumb-group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.result-thumb {
+  width: 60px;
+  height: 60px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid #e2e8f0;
+  flex-shrink: 0;
+}
+.result-thumb-pdf {
+  width: 60px;
+  height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #f7f7f7;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  font-size: 26px;
+  flex-shrink: 0;
 }
 
 .result-grid {

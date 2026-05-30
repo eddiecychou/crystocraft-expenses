@@ -348,10 +348,19 @@ export default function Upload() {
         <div>
           <h3>Review Extracted Data</h3>
           <p className="hint">Check and correct any fields before saving.</p>
-          {results.map((r, i) => (
+          {results.map((r, i) => {
+            const thumbItem = r.fileItem || fileItems.find(f => f.name === r.fileName)
+            return (
             <div key={r._id} className="result-card">
               <div className="result-card-header">
-                <span className="result-filename">{r.fileName}</span>
+                <div className="result-thumb-group">
+                  {thumbItem && !thumbItem.error && (
+                    thumbItem.mimeType === 'application/pdf'
+                      ? <div className="result-thumb-pdf">📄</div>
+                      : <img className="result-thumb" src={`data:${thumbItem.mimeType};base64,${thumbItem.base64}`} alt="" />
+                  )}
+                  <span className="result-filename">{r.fileName}</span>
+                </div>
                 <button onClick={() => remove(r._id)} className="btn-small btn-danger">Remove</button>
               </div>
               {r.error
@@ -406,7 +415,7 @@ export default function Upload() {
                 )
               }
             </div>
-          ))}
+          )})}
           <div className="action-row">
             <button onClick={saveAll} disabled={saving || processing} className="btn-primary">
               {saving ? 'Saving…' : 'Save All Expenses'}
