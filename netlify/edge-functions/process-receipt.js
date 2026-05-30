@@ -25,7 +25,7 @@ export default async function handler(req) {
         { inlineData: { mimeType, data: fileData } },
         { text: 'Transcribe every line of text visible on this receipt exactly as printed, top to bottom. Preserve all numbers, currency symbols, and punctuation. Output plain text only, no commentary.' },
       ],
-      { temperature: 0, maxOutputTokens: 1024, thinkingConfig: { thinkingBudget: 0 } },
+      { temperature: 0, maxOutputTokens: 1024 },
       GEMINI_API_KEY
     )
 
