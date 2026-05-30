@@ -71,18 +71,17 @@ body {
 /* ── Login ── */
 .login-page {
   min-height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   background: #f2f7f3;
-  padding: 24px 16px;
+  padding: 48px 16px;
 }
 
 .login-card {
   background: #fff;
   border-radius: 12px;
   padding: 40px;
-  width: 360px;
+  width: 100%;
+  max-width: 400px;
+  margin: 0 auto;
   box-shadow: 0 4px 24px rgba(0,0,0,0.08);
 }
 
@@ -606,11 +605,8 @@ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
 
   .result-grid { grid-template-columns: 1fr 1fr; }
 
-  .login-page { align-items: flex-start; }
-  .login-card {
-    width: 100%;
-    padding: 28px 20px;
-  }
+  .login-page { padding: 24px 16px; }
+  .login-card { padding: 28px 20px; }
 
   .page h2 { font-size: 18px; margin-bottom: 16px; }
 
