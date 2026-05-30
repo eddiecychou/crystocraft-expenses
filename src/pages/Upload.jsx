@@ -33,7 +33,7 @@ export default function Upload() {
         } else {
           try {
             base64 = await compressImage(file)
-            mimeType = 'image/png'
+            mimeType = 'image/jpeg'
           } catch {
             base64 = await toBase64(file)
             mimeType = file.type || 'image/jpeg'
@@ -68,10 +68,11 @@ export default function Upload() {
     for (const item of fileItems) {
       if (item.error) { out.push({ fileName: item.name, error: item.error }); continue }
       try {
+        const ocr = await preprocessForGemini(item)
         const res = await fetch('/api/process-receipt', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ fileData: item.base64, mimeType: item.mimeType }),
+          body: JSON.stringify({ fileData: ocr.base64, mimeType: ocr.mimeType }),
         })
         const data = await res.json()
         out.push({ ...data, fileName: item.name })
@@ -117,7 +118,7 @@ export default function Upload() {
         base64 = await toBase64(file)
         mimeType = 'application/pdf'
       } else {
-        try { base64 = await compressImage(file); mimeType = 'image/png' }
+        try { base64 = await compressImage(file); mimeType = 'image/jpeg' }
         catch { base64 = await toBase64(file); mimeType = file.type || 'image/jpeg' }
       }
       update(i, 'fileItem', { name: file.name, base64, mimeType })
@@ -152,10 +153,11 @@ export default function Upload() {
         continue
       }
       try {
+        const ocr = await preprocessForGemini(item)
         const res = await fetch('/api/process-receipt', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ fileData: item.base64, mimeType: item.mimeType }),
+          body: JSON.stringify({ fileData: ocr.base64, mimeType: ocr.mimeType }),
         })
         const data = await res.json()
         setFileItems(prev => [...prev, item])
@@ -393,17 +395,31 @@ async function compressImage(file) {
     else { width = Math.round(width * MAX / height); height = MAX }
   }
   const canvas = new OffscreenCanvas(width, height)
-  const ctx = canvas.getContext('2d')
-  ctx.drawImage(bitmap, 0, 0, width, height)
-
-  // Pre-process for OCR: grayscale + auto-levels contrast boost
-  const imageData = ctx.getImageData(0, 0, width, height)
-  applyOCRPreprocess(imageData.data)
-  ctx.putImageData(imageData, 0, 0)
-
-  // PNG is lossless — no compression artefacts around thin text strokes
-  const blob = await canvas.convertToBlob({ type: 'image/png' })
+  canvas.getContext('2d').drawImage(bitmap, 0, 0, width, height)
+  const blob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.93 })
   return bufToBase64(await blob.arrayBuffer())
+}
+
+// Returns a high-contrast greyscale PNG for the Gemini API only.
+// The original colour JPEG in fileItems is kept for Firebase Storage / display.
+async function preprocessForGemini(item) {
+  if (item.mimeType === 'application/pdf') return item
+  try {
+    const byteStr = atob(item.base64)
+    const arr = new Uint8Array(byteStr.length)
+    for (let i = 0; i < byteStr.length; i++) arr[i] = byteStr.charCodeAt(i)
+    const bitmap = await createImageBitmap(new Blob([arr], { type: item.mimeType }))
+    const canvas = new OffscreenCanvas(bitmap.width, bitmap.height)
+    const ctx = canvas.getContext('2d')
+    ctx.drawImage(bitmap, 0, 0)
+    const imageData = ctx.getImageData(0, 0, bitmap.width, bitmap.height)
+    applyOCRPreprocess(imageData.data)
+    ctx.putImageData(imageData, 0, 0)
+    const pngBlob = await canvas.convertToBlob({ type: 'image/png' })
+    return { base64: bufToBase64(await pngBlob.arrayBuffer()), mimeType: 'image/png' }
+  } catch {
+    return item // fall back to original if preprocessing fails
+  }
 }
 
 function applyOCRPreprocess(data) {
