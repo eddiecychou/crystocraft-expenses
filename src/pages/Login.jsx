@@ -1,11 +1,12 @@
 import { useState } from 'react'
-import { signInWithEmailAndPassword, signInWithPopup, GoogleAuthProvider } from 'firebase/auth'
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword, signInWithPopup, GoogleAuthProvider } from 'firebase/auth'
 import { auth } from '../firebase'
 import { useNavigate } from 'react-router-dom'
 
 const googleProvider = new GoogleAuthProvider()
 
 export default function Login() {
+  const [mode, setMode] = useState('signin') // 'signin' | 'signup'
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -17,10 +18,17 @@ export default function Login() {
     setError('')
     setLoading(true)
     try {
-      await signInWithEmailAndPassword(auth, email, password)
+      if (mode === 'signup') {
+        await createUserWithEmailAndPassword(auth, email, password)
+      } else {
+        await signInWithEmailAndPassword(auth, email, password)
+      }
       navigate('/')
-    } catch {
-      setError('Invalid email or password.')
+    } catch (err) {
+      if (err.code === 'auth/email-already-in-use') setError('An account with this email already exists.')
+      else if (err.code === 'auth/weak-password') setError('Password must be at least 6 characters.')
+      else if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') setError('Invalid email or password.')
+      else setError('Something went wrong. Please try again.')
     } finally {
       setLoading(false)
     }
@@ -44,6 +52,8 @@ export default function Login() {
     }
   }
 
+  function switchMode(m) { setMode(m); setError('') }
+
   return (
     <div className="login-page">
       <div className="login-card">
@@ -59,7 +69,12 @@ export default function Login() {
           Continue with Google
         </button>
 
-        <div className="login-divider"><span>or sign in with email</span></div>
+        <div className="login-divider"><span>or</span></div>
+
+        <div className="login-tabs">
+          <button type="button" className={mode === 'signin' ? 'active' : ''} onClick={() => switchMode('signin')}>Sign In</button>
+          <button type="button" className={mode === 'signup' ? 'active' : ''} onClick={() => switchMode('signup')}>Sign Up</button>
+        </div>
 
         <form onSubmit={handleSubmit}>
           <input
@@ -72,14 +87,14 @@ export default function Login() {
           />
           <input
             type="password"
-            placeholder="Password"
+            placeholder={mode === 'signup' ? 'Password (min 6 characters)' : 'Password'}
             value={password}
             onChange={e => setPassword(e.target.value)}
             required
           />
           {error && <div className="error-msg">{error}</div>}
           <button type="submit" disabled={loading}>
-            {loading ? 'Signing in…' : 'Sign In'}
+            {loading ? '…' : mode === 'signup' ? 'Create Account' : 'Sign In'}
           </button>
         </form>
       </div>
