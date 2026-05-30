@@ -8,6 +8,7 @@ import ExcelJS from 'exceljs'
 import { uploadReceiptImage, deleteReceiptImage, MAX_IMAGES } from '../receiptStorage'
 import { CATEGORIES, CURRENCIES } from '../constants'
 import ConfirmDialog from '../components/ConfirmDialog'
+import LoadingBar from '../components/LoadingBar'
 
 function Lightbox({ expenseId, images, onClose, onAdd, onDelete, uploading }) {
   const canAdd = images.length < MAX_IMAGES
@@ -269,7 +270,13 @@ export default function Expenses() {
   }
 
   if (projectLoading) return <div className="loading">Loading…</div>
-  if (loading) return <div className="loading">Loading…</div>
+  if (loading) return (
+    <div className="page">
+      <ProjectBanner />
+      <h2>Expense Records</h2>
+      <LoadingBar label="Loading records…" />
+    </div>
+  )
   if (expenses.length === 0) return (
     <div className="page"><ProjectBanner /><h2>Expense Records</h2><p className="empty">No expenses yet.</p></div>
   )

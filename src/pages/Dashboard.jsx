@@ -5,6 +5,7 @@ import { Link } from 'react-router-dom'
 import { CATEGORIES } from '../constants'
 import { useProject } from '../contexts/ProjectContext'
 import ProjectBanner from '../components/ProjectBanner'
+import LoadingBar from '../components/LoadingBar'
 
 function isoDate(d) { return d.toISOString().slice(0, 10) }
 
@@ -109,7 +110,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {loading ? <div className="loading">Loading…</div> : (
+      {loading ? <LoadingBar label="Loading expenses…" /> : (
         <>
           <div className="stat-row">
             <div className="stat-card">
