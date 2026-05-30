@@ -55,6 +55,9 @@ export default function Upload() {
     }
     setFileItems(items)
     setLoading(false)
+    if (items.length === 1 && !items[0].error) {
+      processFiles(items)
+    }
   }
 
   function handleDrop(e) {
@@ -68,12 +71,13 @@ export default function Upload() {
     if (selected.length) { readFiles(selected); setResults([]); setSaved(false) }
   }
 
-  async function processFiles() {
+  async function processFiles(itemsOverride) {
+    const items = itemsOverride ?? fileItems
     setProcessing(true)
     setProcessDone(0)
     const out = []
     let done = 0
-    for (const item of fileItems) {
+    for (const item of items) {
       setProcessDone(++done)
       if (item.error) { out.push({ fileName: item.name, error: item.error, _id: ++resultIdRef.current }); continue }
       try {
