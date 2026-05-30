@@ -52,10 +52,13 @@ export function ProjectProvider({ children }) {
         if (!saved || !list.find(p => p.id === saved)) persistActiveId(list[0].id)
       }
 
-      // Always migrate any expenses that still have no projectId
-      // (idempotent — skips expenses already migrated)
-      const defaultProject = list.find(p => p.name === 'Default') || list[0]
-      await migrateExpenses(uid, defaultProject.id)
+      // Migrate expenses that have no projectId — only run once per user per browser
+      const migKey = `expenses_migrated_${uid}`
+      if (!localStorage.getItem(migKey)) {
+        const defaultProject = list.find(p => p.name === 'Default') || list[0]
+        await migrateExpenses(uid, defaultProject.id)
+        localStorage.setItem(migKey, '1')
+      }
 
       setProjects(list)
     } catch (err) {

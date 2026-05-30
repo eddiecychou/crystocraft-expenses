@@ -15,18 +15,17 @@ function firstOfMonth() {
 
 export default function Dashboard() {
   const { activeProject, projects, loading: projectLoading } = useProject()
-  const [expenses, setExpenses] = useState([])
+  const [allExpenses, setAllExpenses] = useState([])
   const [loading, setLoading] = useState(true)
   const [from, setFrom] = useState(firstOfMonth)
   const [to, setTo] = useState(() => isoDate(new Date()))
 
+  // Fetch once per project — date filters are applied in memory below
   useEffect(() => {
     if (projectLoading || !activeProject) return
     async function load() {
       setLoading(true)
       try {
-        // Query by userId (always indexed), filter project client-side
-        // This handles both migrated expenses (have projectId) and legacy ones (no projectId)
         const snap = await getDocs(
           query(collection(db, 'expenses'), where('userId', '==', auth.currentUser.uid))
         )
@@ -36,17 +35,22 @@ export default function Dashboard() {
           e.projectId === activeProject.id ||
           (!e.projectId && activeProject.id === defaultProjectId)
         )
-        if (from) list = list.filter(e => e.date >= from)
-        if (to)   list = list.filter(e => e.date <= to)
         list.sort((a, b) => (b.date || '').localeCompare(a.date || ''))
-        setExpenses(list)
+        setAllExpenses(list)
       } catch (err) {
         console.error('Dashboard load error:', err)
       }
       setLoading(false)
     }
     load()
-  }, [from, to, activeProject?.id, projectLoading])
+  }, [activeProject?.id, projectLoading])
+
+  // Apply date filters in memory — no network round-trip
+  const expenses = allExpenses.filter(e => {
+    if (from && e.date < from) return false
+    if (to   && e.date > to)   return false
+    return true
+  })
 
   function setPreset(preset) {
     const now = new Date()
