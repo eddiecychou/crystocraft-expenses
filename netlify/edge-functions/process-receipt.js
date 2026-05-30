@@ -15,7 +15,46 @@ export default async function handler(req) {
     const { fileData, mimeType } = await req.json()
     if (!fileData || !mimeType) return json({ error: 'Missing file data' }, 400)
 
-    const prompt = `You are an expert receipt parser. Extract expense details from this receipt image and return ONLY a valid JSON object with no markdown, code fences, or extra text.
+    // Step 1 — transcribe every line of text from the receipt image.
+    // Working from explicit text in step 2 is far more reliable than asking
+    // the model to read and reason at the same time.
+    const transcript = await callGemini(
+      [
+        { inlineData: { mimeType, data: fileData } },
+        { text: 'Transcribe every line of text visible on this receipt exactly as printed, top to bottom. Preserve all numbers, currency symbols, and punctuation. Output plain text only, no commentary.' },
+      ],
+      { temperature: 0, maxOutputTokens: 1024 },
+      GEMINI_API_KEY
+    )
+
+    // Step 2 — extract structured fields.
+    // If transcription succeeded: send text only (no image) — faster and cheaper.
+    // If transcription failed: fall back to sending the image directly.
+    const extractionParts = transcript
+      ? [{ text: `Receipt text:\n\n${transcript}\n\n${EXTRACTION_PROMPT}` }]
+      : [{ inlineData: { mimeType, data: fileData } }, { text: EXTRACTION_PROMPT }]
+
+    const raw = await callGemini(
+      extractionParts,
+      { temperature: 0.1, maxOutputTokens: 512 },
+      GEMINI_API_KEY
+    )
+
+    if (!raw) return json({ date: null, vendor: null, amount: null, currency: 'HKD', category: 'Other', notes: 'AI could not parse — please fill in manually' })
+
+    const match = raw.match(/\{[\s\S]*\}/)
+    if (match) {
+      try { return json(JSON.parse(match[0])) } catch {}
+    }
+
+    return json({ date: null, vendor: null, amount: null, currency: 'HKD', category: 'Other', notes: 'AI could not parse — please fill in manually' })
+  } catch (err) {
+    return json({ error: err.message || 'Processing failed' }, 500)
+  }
+}
+
+// Shared extraction prompt — used whether input is a transcript or a raw image.
+const EXTRACTION_PROMPT = `You are an expert receipt parser. Extract expense details from this receipt and return ONLY a valid JSON object with no markdown, code fences, or extra text.
 
 {
   "date": "YYYY-MM-DD or null",
@@ -30,61 +69,41 @@ Currency rules: HK$ or HKD = HKD | ¥ or RMB or CNY or 人民币 = RMB | $ or US
 Category rules: flights/trains/taxis/hotels = Travel | restaurants/cafes/food = Meals | stationery/supplies = Office | apps/subscriptions/SaaS = Software | electricity/internet/phone = Utilities | coding/tech tools/hosting/domains = Development | ads/promotions/print materials = Marketing | accounting/legal/consulting fees = Professional Services | hardware/machinery/tools = Equipment | bank fees/wire transfer/FX fees = Bank Charges | anything else = Other.
 Amount rules: use the line labelled "Total", "Grand Total", "Amount Due", or "Total Paid". Ignore subtotals, tax lines shown separately, and individual item prices.`
 
-    const MODELS = ['gemini-2.5-flash', 'gemini-2.5-pro']
-    let text = ''
-    const errors = []
+// Calls Gemini with model fallback (flash → pro) and one retry on high-demand errors.
+// Returns the response text, or an empty string if all attempts fail.
+async function callGemini(parts, generationConfig, GEMINI_API_KEY) {
+  const MODELS = ['gemini-2.5-flash', 'gemini-2.5-pro']
 
-    for (const model of MODELS) {
-      let res, data
-      for (let attempt = 0; attempt <= 1; attempt++) {
-        res = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              contents: [{
-                role: 'user',
-                parts: [
-                  { inlineData: { mimeType, data: fileData } },
-                  { text: prompt },
-                ],
-              }],
-              generationConfig: { temperature: 0.1, maxOutputTokens: 512 },
-            }),
-          }
-        )
-        data = await res.json()
-        const isHighDemand = !res.ok && (data.error?.message || '').includes('high demand')
-        if (isHighDemand && attempt === 0) {
-          await new Promise(r => setTimeout(r, 3000))
-          continue
+  for (const model of MODELS) {
+    let res, data
+    for (let attempt = 0; attempt <= 1; attempt++) {
+      res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ role: 'user', parts }],
+            generationConfig,
+          }),
         }
-        break
-      }
-      if (!res.ok) {
-        errors.push(`${model}: ${data.error?.message || res.status}`)
+      )
+      data = await res.json()
+      const isHighDemand = !res.ok && (data.error?.message || '').includes('high demand')
+      if (isHighDemand && attempt === 0) {
+        await new Promise(r => setTimeout(r, 3000))
         continue
       }
-      const parts = data.candidates?.[0]?.content?.parts || []
-      const part = parts.find(p => p.text && !p.thought) || parts[parts.length - 1]
-      text = part?.text || ''
-      if (text) break
-      errors.push(`${model}: empty response`)
+      break
     }
-
-    if (!text) return json({ error: `AI extraction failed. ${errors.join(' | ')}` }, 502)
-
-    const match = text.match(/\{[\s\S]*\}/)
-    if (match) {
-      try { return json(JSON.parse(match[0])) } catch {}
-    }
-
-    // Parsing failed — return blank form so user can fill in manually
-    return json({ date: null, vendor: null, amount: null, currency: 'HKD', category: 'Other', notes: 'AI could not parse — please fill in manually' })
-  } catch (err) {
-    return json({ error: err.message || 'Processing failed' }, 500)
+    if (!res.ok) continue
+    const responseParts = data.candidates?.[0]?.content?.parts || []
+    const part = responseParts.find(p => p.text && !p.thought) || responseParts[responseParts.length - 1]
+    const text = part?.text?.trim() || ''
+    if (text) return text
   }
+
+  return ''
 }
 
 function json(data, status = 200) {
