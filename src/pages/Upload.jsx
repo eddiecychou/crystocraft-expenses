@@ -18,6 +18,7 @@ export default function Upload() {
   const [validationErrors, setValidationErrors] = useState({})
   const [confirmDialog, setConfirmDialog] = useState(null)
   const [processDone, setProcessDone] = useState(0)
+  const [previewSrc, setPreviewSrc] = useState(null)
   const resultIdRef = useRef(0)
   const fileIdRef = useRef(0)
   const fileRef = useRef()
@@ -357,7 +358,7 @@ export default function Upload() {
                   {thumbItem && !thumbItem.error && (
                     thumbItem.mimeType === 'application/pdf'
                       ? <div className="result-thumb-pdf">📄</div>
-                      : <img className="result-thumb" src={`data:${thumbItem.mimeType};base64,${thumbItem.base64}`} alt="" />
+                      : <img className="result-thumb" src={`data:${thumbItem.mimeType};base64,${thumbItem.base64}`} alt="" onClick={() => setPreviewSrc(`data:${thumbItem.mimeType};base64,${thumbItem.base64}`)} />
                   )}
                   <span className="result-filename">{r.fileName}</span>
                 </div>
@@ -441,6 +442,15 @@ export default function Upload() {
               onCancel={() => setConfirmDialog(null)}
             />
           )}
+        </div>
+      )}
+
+      {previewSrc && (
+        <div className="lightbox-overlay" onClick={() => setPreviewSrc(null)}>
+          <div className="lightbox-box" onClick={e => e.stopPropagation()}>
+            <button className="lightbox-close" onClick={() => setPreviewSrc(null)}>✕</button>
+            <img className="lightbox-img" src={previewSrc} alt="" />
+          </div>
         </div>
       )}
     </div>
