@@ -152,21 +152,34 @@ export default function Expenses() {
       const wb = new ExcelJS.Workbook()
       const ws = wb.addWorksheet('Expense Records')
       ws.columns = [
-        { header: 'Date',     key: 'date',     width: 13 },
-        { header: 'Vendor',   key: 'vendor',   width: 26 },
-        { header: 'Amount',   key: 'amount',   width: 12 },
-        { header: 'Currency', key: 'currency', width: 10 },
-        { header: 'Category', key: 'category', width: 14 },
-        { header: 'Notes',    key: 'notes',    width: 32 },
-        { header: 'Receipts', key: 'receipts', width: 50 },
+        { header: 'Date',       key: 'date',       width: 13 },
+        { header: 'Vendor',     key: 'vendor',      width: 26 },
+        { header: 'Amount',     key: 'amount',      width: 12 },
+        { header: 'Currency',   key: 'currency',    width: 10 },
+        { header: 'Category',   key: 'category',    width: 22 },
+        { header: 'Notes',      key: 'notes',       width: 32 },
+        { header: 'Project',    key: 'project',     width: 18 },
+        { header: 'Receipts',   key: 'receipts',    width: 10 },
+        { header: 'Created',    key: 'created',     width: 13 },
       ]
       const hdr = ws.getRow(1)
       hdr.font = { bold: true, color: { argb: 'FFFFFFFF' } }
       hdr.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1A5C38' } }
 
       for (const e of rows) {
-        const urls = (e.images || []).map(img => img.url).join('\n')
-        ws.addRow({ date: e.date, vendor: e.vendor, amount: e.amount, currency: e.currency, category: e.category, notes: e.notes || '', receipts: urls })
+        const projectName = projects.find(p => p.id === e.projectId)?.name || ''
+        const createdDate = e.createdAt?.toDate?.()
+        ws.addRow({
+          date: e.date,
+          vendor: e.vendor,
+          amount: e.amount,
+          currency: e.currency,
+          category: e.category,
+          notes: e.notes || '',
+          project: projectName,
+          receipts: (e.images || []).length,
+          created: createdDate ? createdDate.toISOString().slice(0, 10) : '',
+        })
       }
 
       // Per-currency totals
