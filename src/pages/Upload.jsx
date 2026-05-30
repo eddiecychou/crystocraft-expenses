@@ -14,7 +14,8 @@ export default function Upload() {
   const [results, setResults] = useState([])
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
-  const [validationErrors, setValidationErrors] = useState([])
+  const [validationErrors, setValidationErrors] = useState({})
+  const resultIdRef = useRef(0)
   const fileRef = useRef()
   const scanMoreRef = useRef()
   const attachRef = useRef()
@@ -76,9 +77,9 @@ export default function Upload() {
           body: JSON.stringify({ fileData: ocr.base64, mimeType: ocr.mimeType }),
         })
         const data = await res.json()
-        out.push({ ...data, fileName: item.name })
+        out.push({ ...data, fileName: item.name, _id: ++resultIdRef.current })
       } catch (err) {
-        out.push({ fileName: item.name, error: err.message || 'Failed to process' })
+        out.push({ fileName: item.name, error: err.message || 'Failed to process', _id: ++resultIdRef.current })
       }
     }
     setResults(out)
@@ -91,29 +92,32 @@ export default function Upload() {
 
   function addManual() {
     const today = new Date().toISOString().slice(0, 10)
-    setResults(prev => [...prev, { fileName: 'Manual Entry', date: today, vendor: '', amount: '', currency: 'HKD', category: 'Other', notes: '' }])
+    setResults(prev => [...prev, { fileName: 'Manual Entry', date: today, vendor: '', amount: '', currency: 'HKD', category: 'Other', notes: '', _id: ++resultIdRef.current }])
   }
 
-  function update(i, field, value) {
-    setResults(prev => prev.map((r, idx) => idx === i ? { ...r, [field]: value } : r))
+  function update(id, field, value) {
+    setResults(prev => prev.map(r => r._id === id ? { ...r, [field]: value } : r))
     // Clear the error for this field as the user corrects it
     if (['date', 'vendor', 'amount'].includes(field)) {
       setValidationErrors(prev => {
-        if (!prev[i]) return prev
-        const next = [...prev]
-        next[i] = { ...next[i], [field]: false }
+        const next = { ...prev }
+        if (next[id]) next[id] = { ...next[id], [field]: false }
         return next
       })
     }
   }
 
-  function remove(i) {
-    setResults(prev => prev.filter((_, idx) => idx !== i))
-    setValidationErrors(prev => prev.filter((_, idx) => idx !== i))
+  function remove(id) {
+    setResults(prev => prev.filter(r => r._id !== id))
+    setValidationErrors(prev => {
+      const next = { ...prev }
+      delete next[id]
+      return next
+    })
   }
 
-  function openAttach(i) {
-    attachIdxRef.current = i
+  function openAttach(id) {
+    attachIdxRef.current = id
     attachRef.current.click()
   }
 
@@ -121,7 +125,7 @@ export default function Upload() {
     const file = e.target.files[0]
     e.target.value = ''
     if (!file || attachIdxRef.current === null) return
-    const i = attachIdxRef.current
+    const id = attachIdxRef.current
     const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
     try {
       let base64, mimeType
@@ -132,7 +136,7 @@ export default function Upload() {
         try { base64 = await compressImage(file); mimeType = 'image/jpeg' }
         catch { base64 = await toBase64(file); mimeType = file.type || 'image/jpeg' }
       }
-      update(i, 'fileItem', { name: file.name, base64, mimeType })
+      update(id, 'fileItem', { name: file.name, base64, mimeType })
     } catch (err) {
       alert('Could not read file: ' + err.message)
     }
@@ -172,7 +176,7 @@ export default function Upload() {
         })
         const data = await res.json()
         setFileItems(prev => [...prev, item])
-        setResults(prev => [...prev, { ...data, fileName: item.name }])
+        setResults(prev => [...prev, { ...data, fileName: item.name, _id: ++resultIdRef.current }])
       } catch (err) {
         setResults(prev => [...prev, { fileName: file.name, error: err.message || 'Failed to process' }])
       }
@@ -181,19 +185,21 @@ export default function Upload() {
   }
 
   async function saveAll() {
-    const errs = results.map(r => {
-      if (r.error) return null
-      return {
+    const errs = {}
+    for (const r of results) {
+      if (r.error) continue
+      const e = {
         date: !r.date,
         vendor: !r.vendor?.trim(),
         amount: !(parseFloat(r.amount) > 0),
       }
-    })
-    if (errs.some(e => e && (e.date || e.vendor || e.amount))) {
+      if (e.date || e.vendor || e.amount) errs[r._id] = e
+    }
+    if (Object.keys(errs).length > 0) {
       setValidationErrors(errs)
       return
     }
-    setValidationErrors([])
+    setValidationErrors({})
     setSaving(true)
     const uid = auth.currentUser.uid
     const email = auth.currentUser.email
@@ -316,10 +322,10 @@ export default function Upload() {
           <h3>Review Extracted Data</h3>
           <p className="hint">Check and correct any fields before saving.</p>
           {results.map((r, i) => (
-            <div key={i} className="result-card">
+            <div key={r._id} className="result-card">
               <div className="result-card-header">
                 <span className="result-filename">{r.fileName}</span>
-                <button onClick={() => remove(i)} className="btn-small btn-danger">Remove</button>
+                <button onClick={() => remove(r._id)} className="btn-small btn-danger">Remove</button>
               </div>
               {r.error
                 ? <div className="error-msg">Could not extract: {r.error}</div>
@@ -328,44 +334,44 @@ export default function Upload() {
                     <div className="result-grid">
                       <label>
                         Date
-                        <input type="date" value={r.date || ''} onChange={e => update(i, 'date', e.target.value)} className={validationErrors[i]?.date ? 'input-error' : ''} />
-                        {validationErrors[i]?.date && <span className="field-error-msg">Required</span>}
+                        <input type="date" value={r.date || ''} onChange={e => update(r._id, 'date', e.target.value)} className={validationErrors[r._id]?.date ? 'input-error' : ''} />
+                        {validationErrors[r._id]?.date && <span className="field-error-msg">Required</span>}
                       </label>
                       <label>
                         Vendor
-                        <input value={r.vendor || ''} onChange={e => update(i, 'vendor', e.target.value)} className={validationErrors[i]?.vendor ? 'input-error' : ''} />
-                        {validationErrors[i]?.vendor && <span className="field-error-msg">Required</span>}
+                        <input value={r.vendor || ''} onChange={e => update(r._id, 'vendor', e.target.value)} className={validationErrors[r._id]?.vendor ? 'input-error' : ''} />
+                        {validationErrors[r._id]?.vendor && <span className="field-error-msg">Required</span>}
                       </label>
                       <label>
                         Amount
-                        <input type="number" step="0.01" value={r.amount || ''} onChange={e => update(i, 'amount', e.target.value)} className={validationErrors[i]?.amount ? 'input-error' : ''} />
-                        {validationErrors[i]?.amount && <span className="field-error-msg">Required</span>}
+                        <input type="number" step="0.01" value={r.amount || ''} onChange={e => update(r._id, 'amount', e.target.value)} className={validationErrors[r._id]?.amount ? 'input-error' : ''} />
+                        {validationErrors[r._id]?.amount && <span className="field-error-msg">Required</span>}
                       </label>
                       <label>
                         Currency
-                        <select value={r.currency || 'HKD'} onChange={e => update(i, 'currency', e.target.value)}>
+                        <select value={r.currency || 'HKD'} onChange={e => update(r._id, 'currency', e.target.value)}>
                           {CURRENCIES.map(c => <option key={c}>{c}</option>)}
                         </select>
                       </label>
                       <label>
                         Category
-                        <select value={r.category || 'Other'} onChange={e => update(i, 'category', e.target.value)}>
+                        <select value={r.category || 'Other'} onChange={e => update(r._id, 'category', e.target.value)}>
                           {CATEGORIES.map(c => <option key={c}>{c}</option>)}
                         </select>
                       </label>
                       <label className="full-width">
                         Notes
-                        <input value={r.notes || ''} onChange={e => update(i, 'notes', e.target.value)} />
+                        <input value={r.notes || ''} onChange={e => update(r._id, 'notes', e.target.value)} />
                       </label>
                     </div>
                     <div className="attach-row">
                       {r.fileItem
                         ? <>
                             <span className="hint">📎 {r.fileItem.name}</span>
-                            <button onClick={() => update(i, 'fileItem', null)} className="btn-small btn-ghost">Remove image</button>
+                            <button onClick={() => update(r._id, 'fileItem', null)} className="btn-small btn-ghost">Remove image</button>
                           </>
                         : !fileItems.find(f => f.name === r.fileName) && (
-                            <button onClick={() => openAttach(i)} className="btn-ghost btn-small">📎 Attach Image</button>
+                            <button onClick={() => openAttach(r._id)} className="btn-ghost btn-small">📎 Attach Image</button>
                           )
                       }
                     </div>
