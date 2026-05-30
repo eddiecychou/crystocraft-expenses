@@ -83,6 +83,10 @@ export default function Upload() {
     setProcessing(false)
   }
 
+  function removeFile(name) {
+    setFileItems(prev => prev.filter(f => f.name !== name))
+  }
+
   function addManual() {
     const today = new Date().toISOString().slice(0, 10)
     setResults(prev => [...prev, { fileName: 'Manual Entry', date: today, vendor: '', amount: '', currency: 'HKD', category: 'Other', notes: '' }])
@@ -262,9 +266,12 @@ export default function Upload() {
               <p>{fileItems.length} file(s) selected:</p>
               <ul>
                 {fileItems.map(f => (
-                  <li key={f.name}>
-                    {f.name}
-                    {f.error && <div className="error-msg">{f.error}</div>}
+                  <li key={f.name} style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                    <span style={{ flex: 1 }}>
+                      {f.name}
+                      {f.error && <div className="error-msg">{f.error}</div>}
+                    </span>
+                    <button onClick={() => removeFile(f.name)} className="btn-small btn-danger">Remove</button>
                   </li>
                 ))}
               </ul>
