@@ -18,6 +18,7 @@ export default function Upload() {
   const [validationErrors, setValidationErrors] = useState({})
   const [confirmDialog, setConfirmDialog] = useState(null)
   const resultIdRef = useRef(0)
+  const fileIdRef = useRef(0)
   const fileRef = useRef()
   const scanMoreRef = useRef()
   const attachRef = useRef()
@@ -43,12 +44,12 @@ export default function Upload() {
             mimeType = file.type || 'image/jpeg'
           }
         }
-        items.push({ name: file.name, base64, mimeType })
+        items.push({ _id: ++fileIdRef.current, name: file.name, base64, mimeType })
       } catch (err) {
         const msg = err.name === 'NotFoundError'
           ? 'File not available locally — if stored in iCloud, open it in Preview first to download it'
           : (err.message || 'Could not read file')
-        items.push({ name: file.name, error: msg })
+        items.push({ _id: ++fileIdRef.current, name: file.name, error: msg })
       }
     }
     setFileItems(items)
@@ -88,8 +89,8 @@ export default function Upload() {
     setProcessing(false)
   }
 
-  function removeFile(name) {
-    setFileItems(prev => prev.filter(f => f.name !== name))
+  function removeFile(id) {
+    setFileItems(prev => prev.filter(f => f._id !== id))
   }
 
   function addManual() {
@@ -162,7 +163,7 @@ export default function Upload() {
           try { base64 = await compressImage(file); mimeType = 'image/jpeg' }
           catch { base64 = await toBase64(file); mimeType = file.type || 'image/jpeg' }
         }
-        item = { name: file.name, base64, mimeType }
+        item = { _id: ++fileIdRef.current, name: file.name, base64, mimeType }
       } catch (err) {
         const msg = err.name === 'NotFoundError'
           ? 'File not available locally — if stored in iCloud, open it in Preview first to download it'
@@ -301,12 +302,12 @@ export default function Upload() {
               <p>{fileItems.length} file(s) selected:</p>
               <ul>
                 {fileItems.map(f => (
-                  <li key={f.name} style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                  <li key={f._id} style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
                     <span style={{ flex: 1 }}>
                       {f.name}
                       {f.error && <div className="error-msg">{f.error}</div>}
                     </span>
-                    <button onClick={() => removeFile(f.name)} className="btn-small btn-danger">Remove</button>
+                    <button onClick={() => removeFile(f._id)} className="btn-small btn-danger">Remove</button>
                   </li>
                 ))}
               </ul>
