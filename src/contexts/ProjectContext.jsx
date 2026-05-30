@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect } from 'react'
-import { collection, query, where, getDocs, addDoc, serverTimestamp, writeBatch } from 'firebase/firestore'
+import { collection, query, where, getDocs, onSnapshot, addDoc, serverTimestamp, writeBatch } from 'firebase/firestore'
 import { onAuthStateChanged } from 'firebase/auth'
 import { db, auth } from '../firebase'
 
@@ -26,46 +26,64 @@ export function ProjectProvider({ children }) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, user => {
-      if (user) loadProjects(user.uid)
-      else { setProjects([]); setLoading(false) }
+    let projectUnsub = null
+
+    console.time('[perf] auth-ready')
+    const authUnsub = onAuthStateChanged(auth, user => {
+      console.timeEnd('[perf] auth-ready')
+      // Clean up previous project listener when user changes
+      if (projectUnsub) { projectUnsub(); projectUnsub = null }
+
+      if (!user) { setProjects([]); setLoading(false); return }
+
+      setLoading(true)
+      console.time('[perf] projects-ready')
+      projectUnsub = onSnapshot(
+        query(collection(db, 'projects'), where('userId', '==', user.uid)),
+        async snap => {
+          console.timeEnd('[perf] projects-ready')
+          try {
+            let list = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+
+            if (list.length === 0) {
+              // First time: create Default project — onSnapshot will re-fire with it
+              const ref = await addDoc(collection(db, 'projects'), {
+                name: 'Default', userId: user.uid, color: 'green', createdAt: serverTimestamp(),
+              })
+              persistActiveId(ref.id)
+              return
+            }
+
+            // Ensure saved activeProjectId is still valid
+            const saved = localStorage.getItem('activeProjectId')
+            if (!saved || !list.find(p => p.id === saved)) persistActiveId(list[0].id)
+
+            // Migrate expenses that have no projectId — only run once per user per browser
+            const migKey = `expenses_migrated_${user.uid}`
+            if (!localStorage.getItem(migKey)) {
+              const defaultProject = list.find(p => p.name === 'Default') || list[0]
+              await migrateExpenses(user.uid, defaultProject.id)
+              localStorage.setItem(migKey, '1')
+            }
+
+            setProjects(list)
+          } catch (err) {
+            console.error('ProjectContext error:', err.message)
+          }
+          setLoading(false)
+        },
+        err => {
+          console.error('ProjectContext error:', err.message)
+          setLoading(false)
+        }
+      )
     })
-    return unsub
-  }, [])
 
-  async function loadProjects(uid) {
-    setLoading(true)
-    try {
-      const snap = await getDocs(query(collection(db, 'projects'), where('userId', '==', uid)))
-      let list = snap.docs.map(d => ({ id: d.id, ...d.data() }))
-
-      if (list.length === 0) {
-        // First time: create Default project
-        const ref = await addDoc(collection(db, 'projects'), {
-          name: 'Default', userId: uid, color: 'green', createdAt: serverTimestamp(),
-        })
-        list = [{ id: ref.id, name: 'Default', userId: uid, color: 'green' }]
-        persistActiveId(ref.id)
-      } else {
-        // Ensure saved activeProjectId is still valid
-        const saved = localStorage.getItem('activeProjectId')
-        if (!saved || !list.find(p => p.id === saved)) persistActiveId(list[0].id)
-      }
-
-      // Migrate expenses that have no projectId — only run once per user per browser
-      const migKey = `expenses_migrated_${uid}`
-      if (!localStorage.getItem(migKey)) {
-        const defaultProject = list.find(p => p.name === 'Default') || list[0]
-        await migrateExpenses(uid, defaultProject.id)
-        localStorage.setItem(migKey, '1')
-      }
-
-      setProjects(list)
-    } catch (err) {
-      console.error('ProjectContext error:', err.message)
+    return () => {
+      authUnsub()
+      if (projectUnsub) projectUnsub()
     }
-    setLoading(false)
-  }
+  }, [])
 
   async function migrateExpenses(uid, projectId) {
     const snap = await getDocs(query(collection(db, 'expenses'), where('userId', '==', uid)))
@@ -94,7 +112,7 @@ export function ProjectProvider({ children }) {
       activeProject,
       selectProject: persistActiveId,
       updateProject,
-      reloadProjects: () => auth.currentUser && loadProjects(auth.currentUser.uid),
+      reloadProjects: () => {}, // onSnapshot keeps projects in sync automatically
       loading,
     }}>
       {children}
