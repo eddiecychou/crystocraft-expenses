@@ -33,8 +33,11 @@ export default function Login() {
       await signInWithPopup(auth, googleProvider)
       navigate('/')
     } catch (err) {
-      if (err.code !== 'auth/popup-closed-by-user') {
-        setError('Google sign-in failed. Please try again.')
+      console.error('Google sign-in error:', err.code, err.message)
+      if (err.code === 'auth/unauthorized-domain') {
+        setError('This domain is not authorised in Firebase. Add it under Authentication → Authorized domains.')
+      } else if (err.code !== 'auth/popup-closed-by-user') {
+        setError(`Sign-in failed: ${err.code}`)
       }
     } finally {
       setLoading(false)
