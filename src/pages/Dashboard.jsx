@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { collection, query, where, getDocs } from 'firebase/firestore'
+import { collection, query, where, onSnapshot } from 'firebase/firestore'
 import { db, auth } from '../firebase'
 import { Link } from 'react-router-dom'
 import { CATEGORIES } from '../constants'
@@ -21,29 +21,29 @@ export default function Dashboard() {
   const [from, setFrom] = useState(firstOfMonth)
   const [to, setTo] = useState(() => isoDate(new Date()))
 
-  // Fetch once per project — date filters are applied in memory below
+  // Subscribe once per project — onSnapshot caches in IndexedDB for instant repeat loads
   useEffect(() => {
     if (projectLoading || !activeProject) return
-    async function load() {
-      setLoading(true)
-      try {
-        const snap = await getDocs(
-          query(collection(db, 'expenses'), where('userId', '==', auth.currentUser.uid))
-        )
+    setLoading(true)
+    const defaultProjectId = (projects.find(p => p.name === 'Default') || projects[0])?.id
+    const unsubscribe = onSnapshot(
+      query(collection(db, 'expenses'), where('userId', '==', auth.currentUser.uid)),
+      snap => {
         let list = snap.docs.map(d => ({ id: d.id, ...d.data() }))
-        const defaultProjectId = (projects.find(p => p.name === 'Default') || projects[0])?.id
         list = list.filter(e =>
           e.projectId === activeProject.id ||
           (!e.projectId && activeProject.id === defaultProjectId)
         )
         list.sort((a, b) => (b.date || '').localeCompare(a.date || ''))
         setAllExpenses(list)
-      } catch (err) {
+        setLoading(false)
+      },
+      err => {
         console.error('Dashboard load error:', err)
+        setLoading(false)
       }
-      setLoading(false)
-    }
-    load()
+    )
+    return unsubscribe
   }, [activeProject?.id, projectLoading])
 
   // Apply date filters in memory — no network round-trip
@@ -89,7 +89,13 @@ export default function Dashboard() {
     })
     .filter(c => Object.keys(c.totals).length > 0)
 
-  if (projectLoading) return <div className="loading">Loading…</div>
+  if (projectLoading) return (
+    <div className="page">
+      <ProjectBanner />
+      <h2>Dashboard</h2>
+      <LoadingBar label="Loading expenses…" />
+    </div>
+  )
 
   return (
     <div className="page">

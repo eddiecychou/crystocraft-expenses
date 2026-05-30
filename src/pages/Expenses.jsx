@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { collection, query, where, getDocs, doc, updateDoc, deleteDoc } from 'firebase/firestore'
+import { collection, query, where, onSnapshot, doc, updateDoc, deleteDoc } from 'firebase/firestore'
 import { db, auth } from '../firebase'
 import { useProject } from '../contexts/ProjectContext'
 import ProjectBanner from '../components/ProjectBanner'
@@ -69,28 +69,31 @@ export default function Expenses() {
     setConfirmDialog({ message, onConfirm })
   }
 
-  async function load() {
-    if (!activeProject) return
-    try {
-      const snap = await getDocs(
-        query(collection(db, 'expenses'), where('userId', '==', auth.currentUser.uid))
-      )
-      const defaultProjectId = (projects.find(p => p.name === 'Default') || projects[0])?.id
-      const list = snap.docs
-        .map(d => ({ id: d.id, ...d.data() }))
-        .filter(e =>
-          e.projectId === activeProject.id ||
-          (!e.projectId && activeProject.id === defaultProjectId)
-        )
-      list.sort((a, b) => (b.date || '').localeCompare(a.date || ''))
-      setExpenses(list)
-    } catch (err) {
-      console.error('Expenses load error:', err)
-    }
-    setLoading(false)
-  }
-
-  useEffect(() => { if (!projectLoading && activeProject) load() }, [activeProject?.id, projectLoading])
+  // Subscribe once per project — onSnapshot caches in IndexedDB for instant repeat loads
+  useEffect(() => {
+    if (projectLoading || !activeProject) return
+    setLoading(true)
+    const defaultProjectId = (projects.find(p => p.name === 'Default') || projects[0])?.id
+    const unsubscribe = onSnapshot(
+      query(collection(db, 'expenses'), where('userId', '==', auth.currentUser.uid)),
+      snap => {
+        const list = snap.docs
+          .map(d => ({ id: d.id, ...d.data() }))
+          .filter(e =>
+            e.projectId === activeProject.id ||
+            (!e.projectId && activeProject.id === defaultProjectId)
+          )
+        list.sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+        setExpenses(list)
+        setLoading(false)
+      },
+      err => {
+        console.error('Expenses load error:', err)
+        setLoading(false)
+      }
+    )
+    return unsubscribe
+  }, [activeProject?.id, projectLoading])
 
   async function saveEdit() {
     const { id, userId, userEmail, createdAt, ...fields } = editData
@@ -99,13 +102,11 @@ export default function Expenses() {
       amount: parseFloat(fields.amount) || 0,
     })
     setEditId(null)
-    load()
   }
 
   function deleteExpense(id) {
     askConfirm('Delete this expense?', async () => {
       await deleteDoc(doc(db, 'expenses', id))
-      load()
     })
   }
 
@@ -126,7 +127,6 @@ export default function Expenses() {
       const newImages = [...images, img]
       await updateDoc(doc(db, 'expenses', expenseId), { images: newImages })
       setViewImages({ expenseId, images: newImages })
-      load()
     } catch (err) {
       alert('Upload failed: ' + err.message)
     }
@@ -140,7 +140,6 @@ export default function Expenses() {
       const newImages = images.filter(i => i.path !== img.path)
       await updateDoc(doc(db, 'expenses', expenseId), { images: newImages })
       setViewImages({ expenseId, images: newImages })
-      load()
     })
   }
 
@@ -269,8 +268,7 @@ export default function Expenses() {
     setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
 
-  if (projectLoading) return <div className="loading">Loading…</div>
-  if (loading) return (
+  if (projectLoading || loading) return (
     <div className="page">
       <ProjectBanner />
       <h2>Expense Records</h2>
