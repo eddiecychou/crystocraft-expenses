@@ -33,7 +33,7 @@ export default function Upload() {
         } else {
           try {
             base64 = await compressImage(file)
-            mimeType = 'image/jpeg'
+            mimeType = 'image/png'
           } catch {
             base64 = await toBase64(file)
             mimeType = file.type || 'image/jpeg'
@@ -117,7 +117,7 @@ export default function Upload() {
         base64 = await toBase64(file)
         mimeType = 'application/pdf'
       } else {
-        try { base64 = await compressImage(file); mimeType = 'image/jpeg' }
+        try { base64 = await compressImage(file); mimeType = 'image/png' }
         catch { base64 = await toBase64(file); mimeType = file.type || 'image/jpeg' }
       }
       update(i, 'fileItem', { name: file.name, base64, mimeType })
@@ -194,7 +194,7 @@ export default function Upload() {
       const fileItem = r.fileItem || fileItems.find(f => f.name === r.fileName)
       if (fileItem && !fileItem.error) {
         try {
-          const ext = fileItem.mimeType === 'application/pdf' ? 'pdf' : 'jpg'
+          const ext = fileItem.mimeType === 'application/pdf' ? 'pdf' : fileItem.mimeType === 'image/png' ? 'png' : 'jpg'
           const path = `receipts/${uid}/${docRef.id}/image0.${ext}`
           const bytes = atob(fileItem.base64)
           const arr = new Uint8Array(bytes.length)
@@ -393,7 +393,36 @@ async function compressImage(file) {
     else { width = Math.round(width * MAX / height); height = MAX }
   }
   const canvas = new OffscreenCanvas(width, height)
-  canvas.getContext('2d').drawImage(bitmap, 0, 0, width, height)
-  const blob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.93 })
+  const ctx = canvas.getContext('2d')
+  ctx.drawImage(bitmap, 0, 0, width, height)
+
+  // Pre-process for OCR: grayscale + auto-levels contrast boost
+  const imageData = ctx.getImageData(0, 0, width, height)
+  applyOCRPreprocess(imageData.data)
+  ctx.putImageData(imageData, 0, 0)
+
+  // PNG is lossless — no compression artefacts around thin text strokes
+  const blob = await canvas.convertToBlob({ type: 'image/png' })
   return bufToBase64(await blob.arrayBuffer())
+}
+
+function applyOCRPreprocess(data) {
+  // Step 1: Convert to grayscale (strips colour noise, helps thermal receipts)
+  for (let i = 0; i < data.length; i += 4) {
+    const g = Math.round(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2])
+    data[i] = data[i + 1] = data[i + 2] = g
+  }
+  // Step 2: Auto-levels — sample every 4th pixel, clip 1% outliers, stretch to 0–255
+  // On faded thermal paper this turns light grey text into solid black
+  const samples = []
+  for (let i = 0; i < data.length; i += 16) samples.push(data[i])
+  samples.sort((a, b) => a - b)
+  const clip = Math.floor(samples.length * 0.01)
+  const lo = samples[clip]
+  const hi = samples[samples.length - 1 - clip]
+  const range = hi - lo || 1
+  for (let i = 0; i < data.length; i += 4) {
+    const v = Math.min(255, Math.max(0, Math.round((data[i] - lo) / range * 255)))
+    data[i] = data[i + 1] = data[i + 2] = v
+  }
 }
