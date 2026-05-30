@@ -17,6 +17,7 @@ export default function Upload() {
   const [saved, setSaved] = useState(false)
   const [validationErrors, setValidationErrors] = useState({})
   const [confirmDialog, setConfirmDialog] = useState(null)
+  const [processDone, setProcessDone] = useState(0)
   const resultIdRef = useRef(0)
   const fileIdRef = useRef(0)
   const fileRef = useRef()
@@ -69,8 +70,11 @@ export default function Upload() {
 
   async function processFiles() {
     setProcessing(true)
+    setProcessDone(0)
     const out = []
+    let done = 0
     for (const item of fileItems) {
+      setProcessDone(++done)
       if (item.error) { out.push({ fileName: item.name, error: item.error, _id: ++resultIdRef.current }); continue }
       try {
         const ocr = await preprocessForGemini(item)
@@ -313,7 +317,11 @@ export default function Upload() {
               </ul>
               {hasReadable && (
                 <button onClick={processFiles} disabled={processing} className="btn-primary">
-                  {processing ? 'Extracting data…' : 'Extract Data with AI'}
+                  {processing
+                    ? fileItems.length > 1
+                      ? `Extracting ${processDone} of ${fileItems.length}…`
+                      : 'Extracting data…'
+                    : 'Extract Data with AI'}
                 </button>
               )}
             </div>
