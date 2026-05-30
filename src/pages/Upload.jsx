@@ -276,28 +276,32 @@ export default function Upload() {
 
       {results.length === 0 && (
         <>
-          <div
-            className="dropzone"
-            onDrop={handleDrop}
-            onDragOver={e => e.preventDefault()}
-            onClick={() => fileRef.current.click()}
-          >
-            <div className="dropzone-icon">📄</div>
-            <p>Drag & drop receipts here, or click to select</p>
-            <p className="hint">JPEG · PNG · WebP · HEIC · GIF · BMP · TIFF · PDF · Multiple files OK</p>
-            <input
-              ref={fileRef}
-              type="file"
-              multiple
-              accept="image/*,.heic,.heif,.pdf"
-              onChange={handleChange}
-              hidden
-            />
-          </div>
+          {fileItems.length === 0 && (
+            <>
+              <div
+                className="dropzone"
+                onDrop={handleDrop}
+                onDragOver={e => e.preventDefault()}
+                onClick={() => fileRef.current.click()}
+              >
+                <div className="dropzone-icon">📄</div>
+                <p>Drag & drop receipts here, or click to select</p>
+                <p className="hint">JPEG · PNG · WebP · HEIC · GIF · BMP · TIFF · PDF · Multiple files OK</p>
+                <input
+                  ref={fileRef}
+                  type="file"
+                  multiple
+                  accept="image/*,.heic,.heif,.pdf"
+                  onChange={handleChange}
+                  hidden
+                />
+              </div>
 
-          <div style={{ textAlign: 'center', margin: '-8px 0 20px' }}>
-            <button onClick={addManual} className="btn-ghost">+ Add Manually</button>
-          </div>
+              <div style={{ textAlign: 'center', margin: '-8px 0 20px' }}>
+                <button onClick={addManual} className="btn-ghost">+ Add Manually</button>
+              </div>
+            </>
+          )}
 
           {loading && <p className="hint">Reading files…</p>}
 
