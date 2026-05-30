@@ -18,12 +18,14 @@ export default async function handler(req) {
     // Step 1 — transcribe every line of text from the receipt image.
     // Working from explicit text in step 2 is far more reliable than asking
     // the model to read and reason at the same time.
-    const transcript = await callGemini(
+    // PDFs already contain machine-readable text — Gemini can extract directly
+    // in one call, so we skip the transcription round-trip for them.
+    const transcript = mimeType === 'application/pdf' ? null : await callGemini(
       [
         { inlineData: { mimeType, data: fileData } },
         { text: 'Transcribe every line of text visible on this receipt exactly as printed, top to bottom. Preserve all numbers, currency symbols, and punctuation. Output plain text only, no commentary.' },
       ],
-      { temperature: 0, maxOutputTokens: 1024 },
+      { temperature: 0, maxOutputTokens: 1024, thinkingConfig: { thinkingBudget: 0 } },
       GEMINI_API_KEY
     )
 
