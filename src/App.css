@@ -114,6 +114,43 @@ body {
 .login-card button:hover { background: var(--t-btn-hover); }
 .login-card button:disabled { opacity: 0.6; cursor: not-allowed; }
 
+.btn-google {
+  width: 100%;
+  padding: 10px 14px;
+  border-radius: 6px;
+  border: 1px solid #dadce0;
+  background: #fff;
+  color: #3c4043;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 4px;
+  transition: background 0.15s, box-shadow 0.15s;
+}
+.btn-google:hover { background: #f8f9fa; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+.btn-google:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.login-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #a0aec0;
+  font-size: 12px;
+  margin: 12px 0;
+}
+.login-divider::before, .login-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: #e2e8f0;
+}
+
+.error-msg { color: #e53e3e; font-size: 13px; }
+
 /* ── Page ── */
 .page { max-width: 900px; }
 .page h2 { font-size: 22px; margin-bottom: 24px; color: var(--t-dark); }
