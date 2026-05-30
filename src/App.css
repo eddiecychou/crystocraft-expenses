@@ -324,7 +324,17 @@ body {
 }
 .btn-small:hover { background: #f7f8fa; }
 .btn-small.btn-ghost { background: #fff; }
-.btn-small.btn-danger { color: #e53e3e; border-color: #feb2b2; }
+.btn-danger {
+  background: #fff;
+  color: #e53e3e;
+  border: 1px solid #feb2b2;
+  border-radius: 6px;
+  padding: 9px 18px;
+  font-size: 14px;
+  cursor: pointer;
+}
+.btn-danger:hover { background: #fff5f5; }
+.btn-small.btn-danger { padding: 4px 10px; font-size: 12px; border-radius: 5px; }
 .btn-small.btn-danger:hover { background: #fff5f5; }
 
 .action-row { display: flex; gap: 12px; margin-top: 24px; }
