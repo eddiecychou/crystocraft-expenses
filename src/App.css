@@ -278,8 +278,12 @@ body {
 .badge-office    { background: #dce8f5; color: #2a5280; }
 .badge-software  { background: #ebe6f5; color: #5a3a8a; }
 .badge-utilities { background: #f5edd4; color: #7a5410; }
-.badge-development { background: #d4ead4; color: #1a5c2a; }
-.badge-other       { background: #e8e8e8; color: #555555; }
+.badge-development            { background: #d4ead4; color: #1a5c2a; }
+.badge-marketing              { background: #fde8f5; color: #8a1a6a; }
+.badge-professional-services  { background: #e8e0d4; color: #5c3a10; }
+.badge-equipment              { background: #e0eaf5; color: #1a3a6a; }
+.badge-bank-charges           { background: #f0f0e0; color: #5a5a10; }
+.badge-other                  { background: #e8e8e8; color: #555555; }
 
 /* ── Buttons ── */
 .btn-primary {

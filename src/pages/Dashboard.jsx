@@ -123,7 +123,7 @@ export default function Dashboard() {
               <h3>By Category</h3>
               {byCategory.map(c => (
                 <div key={c.cat} className="category-row">
-                  <span className={`badge badge-${c.cat.toLowerCase()}`}>{c.cat}</span>
+                  <span className={`badge badge-${c.cat.toLowerCase().replace(/\s+/g, '-')}`}>{c.cat}</span>
                   <span>{Object.entries(c.totals).map(([cur, amt]) => `${cur} ${amt.toFixed(2)}`).join('  |  ')}</span>
                 </div>
               ))}
@@ -144,7 +144,7 @@ export default function Dashboard() {
                       <span className="date">{e.date}</span>
                       <span className="vendor">{e.vendor}</span>
                       <span className="amount">{e.currency} {e.amount?.toFixed(2)}</span>
-                      <span className={`badge badge-${e.category.toLowerCase()}`}>{e.category}</span>
+                      <span className={`badge badge-${e.category.toLowerCase().replace(/\s+/g, '-')}`}>{e.category}</span>
                     </div>
                   ))}
                   <div className="expense-total-row">

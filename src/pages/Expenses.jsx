@@ -351,7 +351,7 @@ export default function Expenses() {
                 ) : (
                   <>
                     <td>{e.date}</td><td>{e.vendor}</td><td>{e.amount?.toFixed(2)}</td>
-                    <td>{e.currency}</td><td><span className={`badge badge-${e.category.toLowerCase()}`}>{e.category}</span></td>
+                    <td>{e.currency}</td><td><span className={`badge badge-${e.category.toLowerCase().replace(/\s+/g, '-')}`}>{e.category}</span></td>
                     <td>{e.notes}</td>
                     <td>
                       <button onClick={() => openLightbox(e)} className="btn-small" title="Manage receipts">
@@ -395,7 +395,7 @@ export default function Expenses() {
                 </div>
                 <div className="mob-card-sub">
                   <span className="mob-card-date">{e.date}</span>
-                  <span className={`badge badge-${e.category.toLowerCase()}`}>{e.category}</span>
+                  <span className={`badge badge-${e.category.toLowerCase().replace(/\s+/g, '-')}`}>{e.category}</span>
                 </div>
                 {e.notes && <div className="mob-card-notes">{e.notes}</div>}
                 <div className="mob-card-actions">
