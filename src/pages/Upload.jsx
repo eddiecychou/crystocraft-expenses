@@ -379,7 +379,7 @@ function bufToBase64(buffer) {
 
 async function compressImage(file) {
   const bitmap = await createImageBitmap(file)
-  const MAX = 1600
+  const MAX = 2400
   let { width, height } = bitmap
   if (width > MAX || height > MAX) {
     if (width > height) { height = Math.round(height * MAX / width); width = MAX }
@@ -387,6 +387,6 @@ async function compressImage(file) {
   }
   const canvas = new OffscreenCanvas(width, height)
   canvas.getContext('2d').drawImage(bitmap, 0, 0, width, height)
-  const blob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.85 })
+  const blob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.93 })
   return bufToBase64(await blob.arrayBuffer())
 }

@@ -15,16 +15,20 @@ export default async function handler(req) {
     const { fileData, mimeType } = await req.json()
     if (!fileData || !mimeType) return json({ error: 'Missing file data' }, 400)
 
-    const prompt = `Extract expense details from this receipt and return ONLY a valid JSON object with no markdown or extra text:
+    const prompt = `You are an expert receipt parser. Extract expense details from this receipt image and return ONLY a valid JSON object with no markdown, code fences, or extra text.
+
 {
   "date": "YYYY-MM-DD or null",
-  "vendor": "merchant name or null",
-  "amount": number or null,
+  "vendor": "merchant or business name, or null",
+  "amount": <final total amount actually paid, including tax and service charge — NOT subtotal or any individual line item, as a number or null>,
   "currency": "HKD or RMB or USD or EUR or JPY or AUD or GBP or SGD or CAD or KRW or Other or null",
-  "category": "one of: Travel, Meals, Office, Software, Utilities, Other",
-  "notes": "brief description of purchase or null"
+  "category": "one of: Travel, Meals, Office, Software, Utilities, Development, Other",
+  "notes": "brief description of what was purchased (items or service), or null"
 }
-Currency detection: HK$ or HKD = HKD, ¥ or RMB or CNY or 人民币 = RMB, $ or USD = USD, € or EUR = EUR, JP¥ or JPY = JPY, A$ or AUD = AUD, £ or GBP = GBP, S$ or SGD = SGD, C$ or CAD = CAD, ₩ or KRW = KRW. Default to HKD if unclear.`
+
+Currency rules: HK$ or HKD = HKD | ¥ or RMB or CNY or 人民币 = RMB | $ or USD = USD | € = EUR | JP¥ or JPY = JPY | A$ = AUD | £ = GBP | S$ = SGD | C$ = CAD | ₩ = KRW. Default to HKD if unclear.
+Category rules: flights/trains/taxis/hotels = Travel | restaurants/cafes/food = Meals | stationery/equipment = Office | apps/subscriptions/SaaS = Software | electricity/internet/phone = Utilities | coding/tech tools/hosting/domains = Development | anything else = Other.
+Amount rules: use the line labelled "Total", "Grand Total", "Amount Due", or "Total Paid". Ignore subtotals, tax lines shown separately, and individual item prices.`
 
     const MODELS = ['gemini-2.5-flash', 'gemini-2.5-pro']
     let text = ''
