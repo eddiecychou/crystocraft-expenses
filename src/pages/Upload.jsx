@@ -14,6 +14,7 @@ export default function Upload() {
   const [results, setResults] = useState([])
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [validationErrors, setValidationErrors] = useState([])
   const fileRef = useRef()
   const scanMoreRef = useRef()
   const attachRef = useRef()
@@ -95,10 +96,20 @@ export default function Upload() {
 
   function update(i, field, value) {
     setResults(prev => prev.map((r, idx) => idx === i ? { ...r, [field]: value } : r))
+    // Clear the error for this field as the user corrects it
+    if (['date', 'vendor', 'amount'].includes(field)) {
+      setValidationErrors(prev => {
+        if (!prev[i]) return prev
+        const next = [...prev]
+        next[i] = { ...next[i], [field]: false }
+        return next
+      })
+    }
   }
 
   function remove(i) {
     setResults(prev => prev.filter((_, idx) => idx !== i))
+    setValidationErrors(prev => prev.filter((_, idx) => idx !== i))
   }
 
   function openAttach(i) {
@@ -170,6 +181,19 @@ export default function Upload() {
   }
 
   async function saveAll() {
+    const errs = results.map(r => {
+      if (r.error) return null
+      return {
+        date: !r.date,
+        vendor: !r.vendor?.trim(),
+        amount: !(parseFloat(r.amount) > 0),
+      }
+    })
+    if (errs.some(e => e && (e.date || e.vendor || e.amount))) {
+      setValidationErrors(errs)
+      return
+    }
+    setValidationErrors([])
     setSaving(true)
     const uid = auth.currentUser.uid
     const email = auth.currentUser.email
@@ -304,15 +328,18 @@ export default function Upload() {
                     <div className="result-grid">
                       <label>
                         Date
-                        <input type="date" value={r.date || ''} onChange={e => update(i, 'date', e.target.value)} />
+                        <input type="date" value={r.date || ''} onChange={e => update(i, 'date', e.target.value)} className={validationErrors[i]?.date ? 'input-error' : ''} />
+                        {validationErrors[i]?.date && <span className="field-error-msg">Required</span>}
                       </label>
                       <label>
                         Vendor
-                        <input value={r.vendor || ''} onChange={e => update(i, 'vendor', e.target.value)} />
+                        <input value={r.vendor || ''} onChange={e => update(i, 'vendor', e.target.value)} className={validationErrors[i]?.vendor ? 'input-error' : ''} />
+                        {validationErrors[i]?.vendor && <span className="field-error-msg">Required</span>}
                       </label>
                       <label>
                         Amount
-                        <input type="number" step="0.01" value={r.amount || ''} onChange={e => update(i, 'amount', e.target.value)} />
+                        <input type="number" step="0.01" value={r.amount || ''} onChange={e => update(i, 'amount', e.target.value)} className={validationErrors[i]?.amount ? 'input-error' : ''} />
+                        {validationErrors[i]?.amount && <span className="field-error-msg">Required</span>}
                       </label>
                       <label>
                         Currency

@@ -64,6 +64,7 @@ export default function Expenses() {
   const [exportingZip, setExportingZip] = useState(false)
   const [zipProgress, setZipProgress] = useState('')
   const [confirmDialog, setConfirmDialog] = useState(null) // { message, onConfirm }
+  const [editErrors, setEditErrors] = useState({})
 
   function askConfirm(message, onConfirm) {
     setConfirmDialog({ message, onConfirm })
@@ -96,12 +97,22 @@ export default function Expenses() {
   }, [activeProject?.id, projectLoading])
 
   async function saveEdit() {
+    const errs = {
+      date: !editData.date,
+      vendor: !editData.vendor?.trim(),
+      amount: !(parseFloat(editData.amount) > 0),
+    }
+    if (errs.date || errs.vendor || errs.amount) {
+      setEditErrors(errs)
+      return
+    }
     const { id, userId, userEmail, createdAt, ...fields } = editData
     await updateDoc(doc(db, 'expenses', editId), {
       ...fields,
       amount: parseFloat(fields.amount) || 0,
     })
     setEditId(null)
+    setEditErrors({})
   }
 
   function deleteExpense(id) {
@@ -143,8 +154,11 @@ export default function Expenses() {
     })
   }
 
-  function startEdit(e) { setEditId(e.id); setEditData({ ...e }) }
-  function upd(field, value) { setEditData(p => ({ ...p, [field]: value })) }
+  function startEdit(e) { setEditId(e.id); setEditData({ ...e }); setEditErrors({}) }
+  function upd(field, value) {
+    setEditData(p => ({ ...p, [field]: value }))
+    if (editErrors[field]) setEditErrors(p => ({ ...p, [field]: false }))
+  }
 
   async function exportExcel(rows) {
     setExportingXls(true)
@@ -371,9 +385,9 @@ export default function Expenses() {
               <tr key={e.id}>
                 {editId === e.id ? (
                   <>
-                    <td><input type="date" value={editData.date || ''} onChange={ev => upd('date', ev.target.value)} /></td>
-                    <td><input value={editData.vendor || ''} onChange={ev => upd('vendor', ev.target.value)} /></td>
-                    <td><input type="number" min="0" step="0.01" value={editData.amount || ''} onChange={ev => upd('amount', ev.target.value)} /></td>
+                    <td><input type="date" value={editData.date || ''} onChange={ev => upd('date', ev.target.value)} className={editErrors.date ? 'input-error' : ''} /></td>
+                    <td><input value={editData.vendor || ''} onChange={ev => upd('vendor', ev.target.value)} className={editErrors.vendor ? 'input-error' : ''} /></td>
+                    <td><input type="number" min="0" step="0.01" value={editData.amount || ''} onChange={ev => upd('amount', ev.target.value)} className={editErrors.amount ? 'input-error' : ''} /></td>
                     <td><select value={editData.currency} onChange={ev => upd('currency', ev.target.value)}>{CURRENCIES.map(c => <option key={c}>{c}</option>)}</select></td>
                     <td><select value={editData.category} onChange={ev => upd('category', ev.target.value)}>{CATEGORIES.map(c => <option key={c}>{c}</option>)}</select></td>
                     <td><input value={editData.notes || ''} onChange={ev => upd('notes', ev.target.value)} /></td>
@@ -409,9 +423,9 @@ export default function Expenses() {
             {editId === e.id ? (
               <>
                 <div className="result-grid">
-                  <label>Date<input type="date" value={editData.date || ''} onChange={ev => upd('date', ev.target.value)} /></label>
-                  <label>Vendor<input value={editData.vendor || ''} onChange={ev => upd('vendor', ev.target.value)} /></label>
-                  <label>Amount<input type="number" min="0" step="0.01" value={editData.amount || ''} onChange={ev => upd('amount', ev.target.value)} /></label>
+                  <label>Date<input type="date" value={editData.date || ''} onChange={ev => upd('date', ev.target.value)} className={editErrors.date ? 'input-error' : ''} /></label>
+                  <label>Vendor<input value={editData.vendor || ''} onChange={ev => upd('vendor', ev.target.value)} className={editErrors.vendor ? 'input-error' : ''} /></label>
+                  <label>Amount<input type="number" min="0" step="0.01" value={editData.amount || ''} onChange={ev => upd('amount', ev.target.value)} className={editErrors.amount ? 'input-error' : ''} /></label>
                   <label>Currency<select value={editData.currency} onChange={ev => upd('currency', ev.target.value)}>{CURRENCIES.map(c => <option key={c}>{c}</option>)}</select></label>
                   <label>Category<select value={editData.category} onChange={ev => upd('category', ev.target.value)}>{CATEGORIES.map(c => <option key={c}>{c}</option>)}</select></label>
                   <label className="full-width">Notes<input value={editData.notes || ''} onChange={ev => upd('notes', ev.target.value)} /></label>
