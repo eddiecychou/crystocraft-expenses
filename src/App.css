@@ -75,6 +75,7 @@ body {
   align-items: center;
   justify-content: center;
   background: #f2f7f3;
+  padding: 24px 16px;
 }
 
 .login-card {
@@ -605,8 +606,9 @@ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
 
   .result-grid { grid-template-columns: 1fr 1fr; }
 
+  .login-page { align-items: flex-start; }
   .login-card {
-    width: calc(100% - 32px);
+    width: 100%;
     padding: 28px 20px;
   }
 
