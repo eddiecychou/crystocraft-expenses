@@ -76,11 +76,12 @@ export default function Upload() {
     const items = itemsOverride ?? fileItems
     setProcessing(true)
     setProcessDone(0)
-    const out = []
-    let done = 0
-    for (const item of items) {
-      setProcessDone(++done)
-      if (item.error) { out.push({ fileName: item.name, error: item.error, _id: ++resultIdRef.current }); continue }
+
+    const out = await Promise.all(items.map(async (item) => {
+      if (item.error) {
+        setProcessDone(prev => prev + 1)
+        return { fileName: item.name, error: item.error, _id: ++resultIdRef.current }
+      }
       try {
         const ocr = await preprocessForGemini(item)
         const res = await fetch('/api/process-receipt', {
@@ -89,11 +90,14 @@ export default function Upload() {
           body: JSON.stringify({ fileData: ocr.base64, mimeType: ocr.mimeType }),
         })
         const data = await res.json()
-        out.push({ ...data, fileName: item.name, _id: ++resultIdRef.current })
+        setProcessDone(prev => prev + 1)
+        return { ...data, fileName: item.name, _id: ++resultIdRef.current }
       } catch (err) {
-        out.push({ fileName: item.name, error: err.message || 'Failed to process', _id: ++resultIdRef.current })
+        setProcessDone(prev => prev + 1)
+        return { fileName: item.name, error: err.message || 'Failed to process', _id: ++resultIdRef.current }
       }
-    }
+    }))
+
     setResults(out)
     setProcessing(false)
   }
@@ -329,7 +333,7 @@ export default function Upload() {
                   <button onClick={processFiles} disabled={processing} className="btn-primary">
                     {processing
                       ? fileItems.length > 1
-                        ? `Extracting ${processDone} of ${fileItems.length}…`
+                        ? `${processDone} of ${fileItems.length} done…`
                         : 'Extracting data…'
                       : 'Extract Data with AI'}
                   </button>
