@@ -27,7 +27,7 @@ function Lightbox({ expenseId, images, onClose, onAdd, onDelete, uploading }) {
         {images.map((img, i) => (
           <div key={i} className="lightbox-item">
             {img.name?.toLowerCase().endsWith('.pdf')
-              ? <a href={img.url} target="_blank" rel="noreferrer" className="btn-primary">Open PDF ↗</a>
+              ? <iframe src={img.url} className="lightbox-pdf" title={img.name} />
               : <img src={img.url} alt={img.name} className="lightbox-img" />
             }
             <div className="lightbox-item-footer">
@@ -60,6 +60,7 @@ export default function Expenses() {
   const [filterFrom, setFilterFrom] = useState('')
   const [filterTo, setFilterTo] = useState('')
   const [filterCategory, setFilterCategory] = useState('')
+  const [filterSearch, setFilterSearch] = useState('')
   const [exportingXls, setExportingXls] = useState(false)
   const [exportingZip, setExportingZip] = useState(false)
   const [zipProgress, setZipProgress] = useState('')
@@ -310,6 +311,7 @@ export default function Expenses() {
     if (filterFrom && e.date < filterFrom) return false
     if (filterTo && e.date > filterTo) return false
     if (filterCategory && e.category !== filterCategory) return false
+    if (filterSearch && !e.vendor?.toLowerCase().includes(filterSearch.toLowerCase())) return false
     return true
   })
 
@@ -319,6 +321,13 @@ export default function Expenses() {
       <h2>Expense Records</h2>
 
       <div className="filter-row">
+        <input
+          type="text"
+          placeholder="Search vendor…"
+          value={filterSearch}
+          onChange={ev => setFilterSearch(ev.target.value)}
+          className="filter-search"
+        />
         <div className="date-range">
           <input type="date" value={filterFrom} onChange={ev => setFilterFrom(ev.target.value)} placeholder="From" />
           <span style={{ padding: '0 4px', color: '#718096' }}>–</span>
@@ -328,8 +337,8 @@ export default function Expenses() {
           <option value="">All Categories</option>
           {CATEGORIES.map(c => <option key={c}>{c}</option>)}
         </select>
-        {(filterFrom || filterTo || filterCategory) && (
-          <button className="btn-small btn-ghost" onClick={() => { setFilterFrom(''); setFilterTo(''); setFilterCategory('') }}>Clear</button>
+        {(filterFrom || filterTo || filterCategory || filterSearch) && (
+          <button className="btn-small btn-ghost" onClick={() => { setFilterFrom(''); setFilterTo(''); setFilterCategory(''); setFilterSearch('') }}>Clear</button>
         )}
       </div>
 

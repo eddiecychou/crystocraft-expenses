@@ -18,6 +18,7 @@ export default function Upload() {
   const [validationErrors, setValidationErrors] = useState({})
   const [confirmDialog, setConfirmDialog] = useState(null)
   const [processDone, setProcessDone] = useState(0)
+  const [saveDone, setSaveDone] = useState(0)
   const [previewSrc, setPreviewSrc] = useState(null)
   const resultIdRef = useRef(0)
   const fileIdRef = useRef(0)
@@ -214,8 +215,10 @@ export default function Upload() {
     }
     setValidationErrors({})
     setSaving(true)
+    setSaveDone(0)
     const uid = auth.currentUser.uid
     const email = auth.currentUser.email
+    let saved = 0
 
     for (const r of results) {
       if (r.error) continue
@@ -256,6 +259,7 @@ export default function Upload() {
           // Don't block saving if image upload fails
         }
       }
+      setSaveDone(++saved)
     }
 
     setSaving(false)
@@ -419,7 +423,11 @@ export default function Upload() {
           )})}
           <div className="action-row">
             <button onClick={saveAll} disabled={saving || processing} className="btn-primary">
-              {saving ? 'Saving…' : 'Save All Expenses'}
+              {saving
+                ? results.filter(r => !r.error).length > 1
+                  ? `Saving ${saveDone} of ${results.filter(r => !r.error).length}…`
+                  : 'Saving…'
+                : 'Save All Expenses'}
             </button>
             <button onClick={() => scanMoreRef.current.click()} disabled={processing} className="btn-ghost">
               {processing ? 'Scanning…' : '+ Scan More'}
@@ -427,7 +435,7 @@ export default function Upload() {
             <button onClick={addManual} disabled={processing} className="btn-ghost">+ Add Manually</button>
             <button onClick={() => { setResults([]); setFileItems([]) }} className="btn-ghost">Cancel</button>
           </div>
-          {processing && (
+          {(processing || saving) && (
             <div className="scan-progress-bar">
               <div className="scan-progress-fill" />
             </div>
