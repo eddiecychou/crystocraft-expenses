@@ -6,7 +6,7 @@ import ProjectBanner from '../components/ProjectBanner'
 import JSZip from 'jszip'
 import ExcelJS from 'exceljs'
 import { uploadReceiptImage, deleteReceiptImage, MAX_IMAGES } from '../receiptStorage'
-import { CATEGORIES, CURRENCIES } from '../constants'
+import { CATEGORIES, CURRENCIES, PAYMENT_METHODS } from '../constants'
 import ConfirmDialog from '../components/ConfirmDialog'
 import LoadingBar from '../components/LoadingBar'
 
@@ -61,6 +61,7 @@ export default function Expenses() {
   const [filterTo, setFilterTo] = useState('')
   const [filterCategory, setFilterCategory] = useState('')
   const [filterSearch, setFilterSearch] = useState('')
+  const [filterPayment, setFilterPayment] = useState('')
   const [exportingXls, setExportingXls] = useState(false)
   const [exportingZip, setExportingZip] = useState(false)
   const [zipProgress, setZipProgress] = useState('')
@@ -172,6 +173,7 @@ export default function Expenses() {
         { header: 'Amount',     key: 'amount',      width: 12 },
         { header: 'Currency',   key: 'currency',    width: 10 },
         { header: 'Category',   key: 'category',    width: 22 },
+        { header: 'Paid via',   key: 'paymentMethod', width: 18 },
         { header: 'Notes',      key: 'notes',       width: 32 },
         { header: 'Project',    key: 'project',     width: 18 },
         { header: 'Receipts',   key: 'receipts',    width: 10 },
@@ -190,6 +192,7 @@ export default function Expenses() {
           amount: e.amount,
           currency: e.currency,
           category: e.category,
+          paymentMethod: e.paymentMethod || '',
           notes: e.notes || '',
           project: projectName,
           receipts: (e.images || []).length,
@@ -311,6 +314,7 @@ export default function Expenses() {
     if (filterFrom && e.date < filterFrom) return false
     if (filterTo && e.date > filterTo) return false
     if (filterCategory && e.category !== filterCategory) return false
+    if (filterPayment && e.paymentMethod !== filterPayment) return false
     if (filterSearch && !e.vendor?.toLowerCase().includes(filterSearch.toLowerCase())) return false
     return true
   })
@@ -337,8 +341,12 @@ export default function Expenses() {
           <option value="">All Categories</option>
           {CATEGORIES.map(c => <option key={c}>{c}</option>)}
         </select>
-        {(filterFrom || filterTo || filterCategory || filterSearch) && (
-          <button className="btn-small btn-ghost" onClick={() => { setFilterFrom(''); setFilterTo(''); setFilterCategory(''); setFilterSearch('') }}>Clear</button>
+        <select value={filterPayment} onChange={ev => setFilterPayment(ev.target.value)} style={{ padding: '8px 10px', borderRadius: 6, border: '1px solid #c6e0c0', fontSize: 14 }}>
+          <option value="">All Payment Methods</option>
+          {PAYMENT_METHODS.map(m => <option key={m}>{m}</option>)}
+        </select>
+        {(filterFrom || filterTo || filterCategory || filterPayment || filterSearch) && (
+          <button className="btn-small btn-ghost" onClick={() => { setFilterFrom(''); setFilterTo(''); setFilterCategory(''); setFilterPayment(''); setFilterSearch('') }}>Clear</button>
         )}
       </div>
 
@@ -386,7 +394,7 @@ export default function Expenses() {
           <thead>
             <tr>
               <th>Date</th><th>Vendor</th><th>Amount</th><th>Currency</th>
-              <th>Category</th><th>Notes</th><th>Actions</th>
+              <th>Category</th><th>Paid via</th><th>Notes</th><th>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -399,6 +407,7 @@ export default function Expenses() {
                     <td><input type="number" min="0" step="0.01" value={editData.amount || ''} onChange={ev => upd('amount', ev.target.value)} className={editErrors.amount ? 'input-error' : ''} /></td>
                     <td><select value={editData.currency} onChange={ev => upd('currency', ev.target.value)}>{CURRENCIES.map(c => <option key={c}>{c}</option>)}</select></td>
                     <td><select value={editData.category} onChange={ev => upd('category', ev.target.value)}>{CATEGORIES.map(c => <option key={c}>{c}</option>)}</select></td>
+                    <td><select value={editData.paymentMethod || ''} onChange={ev => upd('paymentMethod', ev.target.value)}><option value="">—</option>{PAYMENT_METHODS.map(m => <option key={m}>{m}</option>)}</select></td>
                     <td><input value={editData.notes || ''} onChange={ev => upd('notes', ev.target.value)} /></td>
                     <td>
                       <button onClick={saveEdit} className="btn-small">Save</button>
@@ -409,6 +418,7 @@ export default function Expenses() {
                   <>
                     <td>{e.date}</td><td>{e.vendor}</td><td>{e.amount?.toFixed(2)}</td>
                     <td>{e.currency}</td><td><span className={`badge badge-${e.category.toLowerCase().replace(/\s+/g, '-')}`}>{e.category}</span></td>
+                    <td>{e.paymentMethod || ''}</td>
                     <td>{e.notes}</td>
                     <td>
                       <button onClick={() => openLightbox(e)} className="btn-small" title="Manage receipts">
@@ -437,6 +447,7 @@ export default function Expenses() {
                   <label>Amount<input type="number" min="0" step="0.01" value={editData.amount || ''} onChange={ev => upd('amount', ev.target.value)} className={editErrors.amount ? 'input-error' : ''} /></label>
                   <label>Currency<select value={editData.currency} onChange={ev => upd('currency', ev.target.value)}>{CURRENCIES.map(c => <option key={c}>{c}</option>)}</select></label>
                   <label>Category<select value={editData.category} onChange={ev => upd('category', ev.target.value)}>{CATEGORIES.map(c => <option key={c}>{c}</option>)}</select></label>
+                  <label>Paid via<select value={editData.paymentMethod || ''} onChange={ev => upd('paymentMethod', ev.target.value)}><option value="">—</option>{PAYMENT_METHODS.map(m => <option key={m}>{m}</option>)}</select></label>
                   <label className="full-width">Notes<input value={editData.notes || ''} onChange={ev => upd('notes', ev.target.value)} /></label>
                 </div>
                 <div className="mob-card-actions">
@@ -453,6 +464,7 @@ export default function Expenses() {
                 <div className="mob-card-sub">
                   <span className="mob-card-date">{e.date}</span>
                   <span className={`badge badge-${e.category.toLowerCase().replace(/\s+/g, '-')}`}>{e.category}</span>
+                  {e.paymentMethod && <span className="mob-card-payment">{e.paymentMethod}</span>}
                 </div>
                 {e.notes && <div className="mob-card-notes">{e.notes}</div>}
                 <div className="mob-card-actions">

@@ -64,11 +64,13 @@ const EXTRACTION_PROMPT = `You are an expert receipt parser. Extract expense det
   "amount": <final total amount actually paid, including tax and service charge — NOT subtotal or any individual line item, as a number or null>,
   "currency": "HKD or RMB or USD or EUR or JPY or AUD or GBP or SGD or CAD or KRW or Other or null",
   "category": "one of: Travel, Meals, Office, Software, Utilities, Development, Marketing, Professional Services, Equipment, Bank Charges, Production, Other",
-  "notes": "brief description of what was purchased (items or service), or null"
+  "notes": "brief description of what was purchased (items or service), or null",
+  "paymentMethod": "one of: Credit Card HK, Bank Account HK, Alipay, WeChat Pay, Bank Account CN, Cash, or null if not shown"
 }
 
 Currency rules: HK$ or HKD = HKD | ¥ or RMB or CNY or 人民币 = RMB | $ or USD = USD | € = EUR | JP¥ or JPY = JPY | A$ = AUD | £ = GBP | S$ = SGD | C$ = CAD | ₩ = KRW. Default to HKD if unclear.
 Category rules: flights/trains/taxis/hotels = Travel | restaurants/cafes/food = Meals | stationery/supplies = Office | apps/subscriptions/SaaS = Software | electricity/internet/phone = Utilities | coding/tech tools/hosting/domains = Development | ads/promotions/print materials = Marketing | accounting/legal/consulting fees = Professional Services | hardware/machinery/tools = Equipment | bank fees/wire transfer/FX fees = Bank Charges | production materials/props/sets/costumes/crew/studio hire = Production | anything else = Other.
+Payment method rules: Visa/Mastercard/AMEX/credit card with HKD or HK address = Credit Card HK | 支付宝 or Alipay = Alipay | 微信支付 or WeChat Pay = WeChat Pay | bank transfer/wire in HKD = Bank Account HK | bank transfer/wire in RMB/CNY = Bank Account CN | 现金 or cash = Cash | default to null if unclear.
 Amount rules: use the line labelled "Total", "Grand Total", "Amount Due", or "Total Paid". Ignore subtotals, tax lines shown separately, and individual item prices.`
 
 // Calls Gemini with model fallback (flash → pro) and one retry on high-demand errors.

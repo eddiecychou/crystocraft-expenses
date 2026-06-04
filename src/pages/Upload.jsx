@@ -2,7 +2,7 @@ import { useState, useRef } from 'react'
 import { collection, addDoc, updateDoc, doc, serverTimestamp } from 'firebase/firestore'
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { db, auth, storage } from '../firebase'
-import { CATEGORIES, CURRENCIES } from '../constants'
+import { CATEGORIES, CURRENCIES, PAYMENT_METHODS } from '../constants'
 import { useProject } from '../contexts/ProjectContext'
 import ProjectBanner from '../components/ProjectBanner'
 import ConfirmDialog from '../components/ConfirmDialog'
@@ -134,7 +134,7 @@ export default function Upload() {
 
   function addManual() {
     const today = new Date().toISOString().slice(0, 10)
-    setResults(prev => [...prev, { fileName: 'Manual Entry', date: today, vendor: '', amount: '', currency: 'HKD', category: 'Other', notes: '', _id: ++resultIdRef.current }])
+    setResults(prev => [...prev, { fileName: 'Manual Entry', date: today, vendor: '', amount: '', currency: 'HKD', category: 'Other', notes: '', paymentMethod: '', _id: ++resultIdRef.current }])
   }
 
   function update(id, field, value) {
@@ -263,6 +263,7 @@ export default function Upload() {
         currency: r.currency || 'HKD',
         category: r.category || 'Other',
         notes: r.notes || '',
+        paymentMethod: r.paymentMethod || '',
         images: [],
         createdAt: serverTimestamp(),
       })
@@ -439,6 +440,13 @@ export default function Upload() {
                       <label className="full-width">
                         Notes
                         <input value={r.notes || ''} onChange={e => update(r._id, 'notes', e.target.value)} />
+                      </label>
+                      <label>
+                        Paid via
+                        <select value={r.paymentMethod || ''} onChange={e => update(r._id, 'paymentMethod', e.target.value)}>
+                          <option value="">— select —</option>
+                          {PAYMENT_METHODS.map(m => <option key={m}>{m}</option>)}
+                        </select>
                       </label>
                     </div>
                     <div className="attach-row">
