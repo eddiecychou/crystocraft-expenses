@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { collection, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore'
+import { collection, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, query, where, getDocs, writeBatch } from 'firebase/firestore'
 import { db, auth } from '../firebase'
 import { useProject, PROJECT_COLORS, COLOR_KEYS } from '../contexts/ProjectContext'
 import ProjectBanner from '../components/ProjectBanner'
@@ -15,6 +15,8 @@ export default function Settings() {
   const [editColor, setEditColor] = useState('green')
   const [saving, setSaving] = useState(false)
   const [confirmDialog, setConfirmDialog] = useState(null)
+  const [migrating, setMigrating] = useState(false)
+  const [migrateResult, setMigrateResult] = useState(null)
 
   async function createProject() {
     if (!newName.trim()) return
@@ -52,6 +54,36 @@ export default function Settings() {
   }
 
   function startEdit(p) { setEditId(p.id); setEditName(p.name); setEditColor(p.color) }
+
+  async function runPaymentMigration() {
+    const uid = auth.currentUser.uid
+    const snap = await getDocs(query(collection(db, 'expenses'), where('userId', '==', uid)))
+    const toUpdate = snap.docs.filter(d => {
+      const e = d.data()
+      return e.date < '2026-01-01' && !e.paymentMethod
+    })
+    if (toUpdate.length === 0) {
+      setMigrateResult('No matching records found — all pre-2026 expenses already have a payment method set.')
+      return
+    }
+    setConfirmDialog({
+      message: `Set "Credit Card HK" on ${toUpdate.length} expense${toUpdate.length !== 1 ? 's' : ''} dated before 2026?`,
+      confirmLabel: 'Update All',
+      confirmClassName: 'btn-primary',
+      onConfirm: async () => {
+        setMigrating(true)
+        setMigrateResult(null)
+        const CHUNK = 500
+        for (let i = 0; i < toUpdate.length; i += CHUNK) {
+          const batch = writeBatch(db)
+          toUpdate.slice(i, i + CHUNK).forEach(d => batch.update(d.ref, { paymentMethod: 'Credit Card HK' }))
+          await batch.commit()
+        }
+        setMigrating(false)
+        setMigrateResult(`Done — ${toUpdate.length} record${toUpdate.length !== 1 ? 's' : ''} updated.`)
+      }
+    })
+  }
 
   return (
     <div className="page">
@@ -126,9 +158,25 @@ export default function Settings() {
         )}
       </div>
 
+      <div className="settings-section">
+        <h3 className="settings-section-title">Data Tools</h3>
+        <p className="hint">One-time bulk updates for your expense records.</p>
+        <div style={{ marginTop: 12 }}>
+          <p style={{ fontSize: 14, marginBottom: 8 }}>
+            <strong>Backfill payment method:</strong> Set "Credit Card HK" on all expenses dated before 2026 that have no payment method recorded.
+          </p>
+          <button onClick={runPaymentMigration} disabled={migrating} className="btn-ghost">
+            {migrating ? 'Updating…' : 'Run — Set pre-2026 expenses to Credit Card HK'}
+          </button>
+          {migrateResult && <p style={{ marginTop: 8, fontSize: 13, color: '#2d6e4a' }}>{migrateResult}</p>}
+        </div>
+      </div>
+
       {confirmDialog && (
         <ConfirmDialog
           message={confirmDialog.message}
+          confirmLabel={confirmDialog.confirmLabel}
+          confirmClassName={confirmDialog.confirmClassName}
           onConfirm={() => { confirmDialog.onConfirm(); setConfirmDialog(null) }}
           onCancel={() => setConfirmDialog(null)}
         />
