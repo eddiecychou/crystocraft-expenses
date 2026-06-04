@@ -63,12 +63,12 @@ const EXTRACTION_PROMPT = `You are an expert receipt parser. Extract expense det
   "vendor": "merchant or business name, or null",
   "amount": <final total amount actually paid, including tax and service charge — NOT subtotal or any individual line item, as a number or null>,
   "currency": "HKD or RMB or USD or EUR or JPY or AUD or GBP or SGD or CAD or KRW or Other or null",
-  "category": "one of: Travel, Meals, Office, Software, Utilities, Development, Marketing, Professional Services, Equipment, Bank Charges, Other",
+  "category": "one of: Travel, Meals, Office, Software, Utilities, Development, Marketing, Professional Services, Equipment, Bank Charges, Production, Other",
   "notes": "brief description of what was purchased (items or service), or null"
 }
 
 Currency rules: HK$ or HKD = HKD | ¥ or RMB or CNY or 人民币 = RMB | $ or USD = USD | € = EUR | JP¥ or JPY = JPY | A$ = AUD | £ = GBP | S$ = SGD | C$ = CAD | ₩ = KRW. Default to HKD if unclear.
-Category rules: flights/trains/taxis/hotels = Travel | restaurants/cafes/food = Meals | stationery/supplies = Office | apps/subscriptions/SaaS = Software | electricity/internet/phone = Utilities | coding/tech tools/hosting/domains = Development | ads/promotions/print materials = Marketing | accounting/legal/consulting fees = Professional Services | hardware/machinery/tools = Equipment | bank fees/wire transfer/FX fees = Bank Charges | anything else = Other.
+Category rules: flights/trains/taxis/hotels = Travel | restaurants/cafes/food = Meals | stationery/supplies = Office | apps/subscriptions/SaaS = Software | electricity/internet/phone = Utilities | coding/tech tools/hosting/domains = Development | ads/promotions/print materials = Marketing | accounting/legal/consulting fees = Professional Services | hardware/machinery/tools = Equipment | bank fees/wire transfer/FX fees = Bank Charges | production materials/props/sets/costumes/crew/studio hire = Production | anything else = Other.
 Amount rules: use the line labelled "Total", "Grand Total", "Amount Due", or "Total Paid". Ignore subtotals, tax lines shown separately, and individual item prices.`
 
 // Calls Gemini with model fallback (flash → pro) and one retry on high-demand errors.

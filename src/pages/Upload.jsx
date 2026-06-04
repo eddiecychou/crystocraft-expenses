@@ -20,6 +20,7 @@ export default function Upload() {
   const [processDone, setProcessDone] = useState(0)
   const [saveDone, setSaveDone] = useState(0)
   const [previewSrc, setPreviewSrc] = useState(null)
+  const [reparsing, setReparsing] = useState({})
   const resultIdRef = useRef(0)
   const fileIdRef = useRef(0)
   const fileRef = useRef()
@@ -97,6 +98,34 @@ export default function Upload() {
     }
     setResults(out)
     setProcessing(false)
+  }
+
+  async function reparseOne(id) {
+    const r = results.find(r => r._id === id)
+    if (!r) return
+    const fileItem = r.fileItem || fileItems.find(f => f.name === r.fileName)
+    if (!fileItem || fileItem.error) return
+    setReparsing(prev => ({ ...prev, [id]: true }))
+    try {
+      const ocr = await preprocessForGemini(fileItem)
+      const res = await fetch('/api/process-receipt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileData: ocr.base64, mimeType: ocr.mimeType }),
+      })
+      const data = await res.json()
+      setResults(prev => prev.map(r => r._id === id
+        ? { ...data, fileName: r.fileName, fileItem: r.fileItem, _id: id }
+        : r
+      ))
+      setValidationErrors(prev => { const next = { ...prev }; delete next[id]; return next })
+    } catch (err) {
+      setResults(prev => prev.map(r => r._id === id
+        ? { ...r, error: err.message || 'Failed to re-scan' }
+        : r
+      ))
+    }
+    setReparsing(prev => { const next = { ...prev }; delete next[id]; return next })
   }
 
   function removeFile(id) {
@@ -366,7 +395,14 @@ export default function Upload() {
                   )}
                   <span className="result-filename">{r.fileName}</span>
                 </div>
-                <button onClick={() => remove(r._id)} className="btn-small btn-danger">Remove</button>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  {thumbItem && !thumbItem.error && (
+                    <button onClick={() => reparseOne(r._id)} disabled={reparsing[r._id] || processing || saving} className="btn-small btn-ghost">
+                      {reparsing[r._id] ? 'Scanning…' : '↻ Re-scan'}
+                    </button>
+                  )}
+                  <button onClick={() => remove(r._id)} className="btn-small btn-danger">Remove</button>
+                </div>
               </div>
               {r.error
                 ? <div className="error-msg">Could not extract: {r.error}</div>
