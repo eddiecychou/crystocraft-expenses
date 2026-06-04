@@ -394,7 +394,7 @@ export default function Expenses() {
           <thead>
             <tr>
               <th>Date</th><th>Vendor</th><th>Amount</th><th>Currency</th>
-              <th>Category</th><th>Paid via</th><th>Notes</th><th>Actions</th>
+              <th>Category</th><th>Notes</th><th>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -407,8 +407,13 @@ export default function Expenses() {
                     <td><input type="number" min="0" step="0.01" value={editData.amount || ''} onChange={ev => upd('amount', ev.target.value)} className={editErrors.amount ? 'input-error' : ''} /></td>
                     <td><select value={editData.currency} onChange={ev => upd('currency', ev.target.value)}>{CURRENCIES.map(c => <option key={c}>{c}</option>)}</select></td>
                     <td><select value={editData.category} onChange={ev => upd('category', ev.target.value)}>{CATEGORIES.map(c => <option key={c}>{c}</option>)}</select></td>
-                    <td><select value={editData.paymentMethod || ''} onChange={ev => upd('paymentMethod', ev.target.value)}><option value="">—</option>{PAYMENT_METHODS.map(m => <option key={m}>{m}</option>)}</select></td>
-                    <td><input value={editData.notes || ''} onChange={ev => upd('notes', ev.target.value)} /></td>
+                    <td>
+                      <input value={editData.notes || ''} onChange={ev => upd('notes', ev.target.value)} style={{ marginBottom: 4 }} />
+                      <select value={editData.paymentMethod || ''} onChange={ev => upd('paymentMethod', ev.target.value)}>
+                        <option value="">— Paid via —</option>
+                        {PAYMENT_METHODS.map(m => <option key={m}>{m}</option>)}
+                      </select>
+                    </td>
                     <td>
                       <button onClick={saveEdit} className="btn-small">Save</button>
                       <button onClick={() => setEditId(null)} className="btn-small btn-ghost">Cancel</button>
@@ -418,8 +423,10 @@ export default function Expenses() {
                   <>
                     <td>{e.date}</td><td>{e.vendor}</td><td>{e.amount?.toFixed(2)}</td>
                     <td>{e.currency}</td><td><span className={`badge badge-${e.category.toLowerCase().replace(/\s+/g, '-')}`}>{e.category}</span></td>
-                    <td>{e.paymentMethod || ''}</td>
-                    <td>{e.notes}</td>
+                    <td>
+                      {e.notes && <div>{e.notes}</div>}
+                      {e.paymentMethod && <div className="payment-sub">{e.paymentMethod}</div>}
+                    </td>
                     <td>
                       <button onClick={() => openLightbox(e)} className="btn-small" title="Manage receipts">
                         📎 {e.images?.length || 0}
