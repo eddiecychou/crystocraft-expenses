@@ -538,10 +538,26 @@ async function compressImage(file) {
     if (width > height) { height = Math.round(height * MAX / width); width = MAX }
     else { width = Math.round(width * MAX / height); height = MAX }
   }
-  const canvas = new OffscreenCanvas(width, height)
-  canvas.getContext('2d').drawImage(bitmap, 0, 0, width, height)
-  const blob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.93 })
-  return bufToBase64(await blob.arrayBuffer())
+  // OffscreenCanvas is only available on iOS 16.4+; fall back to regular canvas on older iOS
+  if (typeof OffscreenCanvas !== 'undefined') {
+    const canvas = new OffscreenCanvas(width, height)
+    canvas.getContext('2d').drawImage(bitmap, 0, 0, width, height)
+    const blob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.93 })
+    return bufToBase64(await blob.arrayBuffer())
+  }
+  return new Promise((resolve, reject) => {
+    const canvas = document.createElement('canvas')
+    canvas.width = width
+    canvas.height = height
+    canvas.getContext('2d').drawImage(bitmap, 0, 0, width, height)
+    canvas.toBlob(
+      blob => blob
+        ? blob.arrayBuffer().then(buf => resolve(bufToBase64(buf)))
+        : reject(new Error('Canvas compression failed')),
+      'image/jpeg',
+      0.93
+    )
+  })
 }
 
 // Returns a high-contrast greyscale PNG for the Gemini API only.
@@ -553,14 +569,33 @@ async function preprocessForGemini(item) {
     const arr = new Uint8Array(byteStr.length)
     for (let i = 0; i < byteStr.length; i++) arr[i] = byteStr.charCodeAt(i)
     const bitmap = await createImageBitmap(new Blob([arr], { type: item.mimeType }))
-    const canvas = new OffscreenCanvas(bitmap.width, bitmap.height)
-    const ctx = canvas.getContext('2d')
-    ctx.drawImage(bitmap, 0, 0)
-    const imageData = ctx.getImageData(0, 0, bitmap.width, bitmap.height)
-    applyOCRPreprocess(imageData.data)
-    ctx.putImageData(imageData, 0, 0)
-    const pngBlob = await canvas.convertToBlob({ type: 'image/png' })
-    return { base64: bufToBase64(await pngBlob.arrayBuffer()), mimeType: 'image/png' }
+    // OffscreenCanvas is only available on iOS 16.4+; fall back to regular canvas on older iOS
+    if (typeof OffscreenCanvas !== 'undefined') {
+      const canvas = new OffscreenCanvas(bitmap.width, bitmap.height)
+      const ctx = canvas.getContext('2d')
+      ctx.drawImage(bitmap, 0, 0)
+      const imageData = ctx.getImageData(0, 0, bitmap.width, bitmap.height)
+      applyOCRPreprocess(imageData.data)
+      ctx.putImageData(imageData, 0, 0)
+      const pngBlob = await canvas.convertToBlob({ type: 'image/png' })
+      return { base64: bufToBase64(await pngBlob.arrayBuffer()), mimeType: 'image/png' }
+    }
+    return new Promise(resolve => {
+      const canvas = document.createElement('canvas')
+      canvas.width = bitmap.width
+      canvas.height = bitmap.height
+      const ctx = canvas.getContext('2d')
+      ctx.drawImage(bitmap, 0, 0)
+      const imageData = ctx.getImageData(0, 0, bitmap.width, bitmap.height)
+      applyOCRPreprocess(imageData.data)
+      ctx.putImageData(imageData, 0, 0)
+      canvas.toBlob(
+        blob => blob
+          ? blob.arrayBuffer().then(buf => resolve({ base64: bufToBase64(buf), mimeType: 'image/png' }))
+          : resolve(item), // if toBlob fails, fall back to original
+        'image/png'
+      )
+    })
   } catch {
     return item // fall back to original if preprocessing fails
   }
