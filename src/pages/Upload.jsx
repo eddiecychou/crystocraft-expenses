@@ -531,7 +531,7 @@ function bufToBase64(buffer) {
 }
 
 async function compressImage(file) {
-  const bitmap = await createImageBitmap(file)
+  const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' })
   const MAX = 2400
   let { width, height } = bitmap
   if (width > MAX || height > MAX) {
@@ -560,7 +560,7 @@ async function compressImage(file) {
   })
 }
 
-// Returns a high-contrast greyscale PNG for the Gemini API only.
+// Returns a high-contrast greyscale JPEG for the Gemini API only.
 // The original colour JPEG in fileItems is kept for Firebase Storage / display.
 async function preprocessForGemini(item) {
   if (item.mimeType === 'application/pdf') return item
@@ -568,7 +568,7 @@ async function preprocessForGemini(item) {
     const byteStr = atob(item.base64)
     const arr = new Uint8Array(byteStr.length)
     for (let i = 0; i < byteStr.length; i++) arr[i] = byteStr.charCodeAt(i)
-    const bitmap = await createImageBitmap(new Blob([arr], { type: item.mimeType }))
+    const bitmap = await createImageBitmap(new Blob([arr], { type: item.mimeType }), { imageOrientation: 'from-image' })
     // OffscreenCanvas is only available on iOS 16.4+; fall back to regular canvas on older iOS
     if (typeof OffscreenCanvas !== 'undefined') {
       const canvas = new OffscreenCanvas(bitmap.width, bitmap.height)
@@ -577,8 +577,8 @@ async function preprocessForGemini(item) {
       const imageData = ctx.getImageData(0, 0, bitmap.width, bitmap.height)
       applyOCRPreprocess(imageData.data)
       ctx.putImageData(imageData, 0, 0)
-      const pngBlob = await canvas.convertToBlob({ type: 'image/png' })
-      return { base64: bufToBase64(await pngBlob.arrayBuffer()), mimeType: 'image/png' }
+      const jpegBlob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.93 })
+      return { base64: bufToBase64(await jpegBlob.arrayBuffer()), mimeType: 'image/jpeg' }
     }
     return new Promise(resolve => {
       const canvas = document.createElement('canvas')
@@ -591,9 +591,10 @@ async function preprocessForGemini(item) {
       ctx.putImageData(imageData, 0, 0)
       canvas.toBlob(
         blob => blob
-          ? blob.arrayBuffer().then(buf => resolve({ base64: bufToBase64(buf), mimeType: 'image/png' }))
+          ? blob.arrayBuffer().then(buf => resolve({ base64: bufToBase64(buf), mimeType: 'image/jpeg' }))
           : resolve(item), // if toBlob fails, fall back to original
-        'image/png'
+        'image/jpeg',
+        0.93
       )
     })
   } catch {
