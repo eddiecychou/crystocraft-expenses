@@ -62,6 +62,13 @@ body {
 }
 .logout-btn:hover { color: #fff; }
 
+.app-version {
+  padding: 0 20px 16px;
+  font-size: 11px;
+  color: #718096;
+  opacity: 0.6;
+}
+
 .main-content {
   flex: 1;
   overflow-y: auto;
