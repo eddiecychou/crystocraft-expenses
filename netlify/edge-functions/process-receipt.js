@@ -73,14 +73,17 @@ Category rules: flights/trains/taxis/hotels = Travel | restaurants/cafes/food = 
 Payment method rules: Visa/Mastercard/AMEX/credit card with HKD or HK address = Credit Card HK | 支付宝 or Alipay = Alipay | 微信支付 or WeChat Pay = WeChat Pay | bank transfer/wire in HKD = Bank Account HK | bank transfer/wire in RMB/CNY = Bank Account CN | 现金 or cash = Cash | default to null if unclear.
 Amount rules: use the line labelled "Total", "Grand Total", "Amount Due", or "Total Paid". Ignore subtotals, tax lines shown separately, and individual item prices.`
 
-// Calls Gemini with model fallback (flash → pro) and one retry on high-demand errors.
-// Returns the response text, or an empty string if all attempts fail.
+// Calls Gemini with model fallback (flash → pro) and retries on high-demand
+// or rate-limit/quota errors (with backoff). Returns the response text, or
+// throws if every model/attempt is exhausted due to rate-limiting, so the
+// caller can surface a real error instead of silently returning blank fields.
 async function callGemini(parts, generationConfig, GEMINI_API_KEY) {
   const MODELS = ['gemini-2.5-flash', 'gemini-2.5-pro']
+  let rateLimited = false
 
   for (const model of MODELS) {
     let res, data
-    for (let attempt = 0; attempt <= 1; attempt++) {
+    for (let attempt = 0; attempt <= 2; attempt++) {
       res = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`,
         {
@@ -93,9 +96,13 @@ async function callGemini(parts, generationConfig, GEMINI_API_KEY) {
         }
       )
       data = await res.json()
-      const isHighDemand = !res.ok && (data.error?.message || '').includes('high demand')
-      if (isHighDemand && attempt === 0) {
-        await new Promise(r => setTimeout(r, 3000))
+      const isRetryable = !res.ok && (
+        res.status === 429 ||
+        /high demand|quota|resource_exhausted|rate limit/i.test(data.error?.message || '')
+      )
+      if (isRetryable) rateLimited = true
+      if (isRetryable && attempt < 2) {
+        await new Promise(r => setTimeout(r, 3000 * (attempt + 1)))
         continue
       }
       break
@@ -107,6 +114,7 @@ async function callGemini(parts, generationConfig, GEMINI_API_KEY) {
     if (text) return text
   }
 
+  if (rateLimited) throw new Error('AI service is busy right now — please try again in a moment')
   return ''
 }
 
