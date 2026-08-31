@@ -133,6 +133,10 @@ export default function Settings() {
           onCancel={() => setConfirmDialog(null)}
         />
       )}
+
+      <div className="app-version">
+        Build v{__APP_VERSION__} · deployed {new Date(__BUILD_TIME__).toLocaleString()}
+      </div>
     </div>
   )
 }

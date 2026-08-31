@@ -27,9 +27,6 @@ export default function Layout() {
         <NavLink to="/expenses">Records</NavLink>
         <NavLink to="/settings">Settings</NavLink>
         <button onClick={handleLogout} className="logout-btn">Logout</button>
-        <div className="app-version">
-          v{__APP_VERSION__} · {new Date(__BUILD_TIME__).toLocaleString()}
-        </div>
       </nav>
       <main className="main-content">
         <Outlet />

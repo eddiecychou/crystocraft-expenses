@@ -63,10 +63,9 @@ body {
 .logout-btn:hover { color: #fff; }
 
 .app-version {
-  padding: 0 20px 16px;
-  font-size: 11px;
-  color: #718096;
-  opacity: 0.6;
+  margin-top: 32px;
+  font-size: 12px;
+  color: #a0aec0;
 }
 
 .main-content {

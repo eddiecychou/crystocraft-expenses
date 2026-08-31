@@ -25,7 +25,10 @@ export default async function handler(req) {
         { inlineData: { mimeType, data: fileData } },
         { text: 'Transcribe every line of text visible on this receipt exactly as printed, top to bottom. Preserve all numbers, currency symbols, and punctuation. Output plain text only, no commentary.' },
       ],
-      { temperature: 0, maxOutputTokens: 1024 },
+      // thinkingBudget:0 disables gemini-2.5-flash's internal "thinking", which
+      // otherwise consumes the whole maxOutputTokens budget and returns an empty
+      // response (MAX_TOKENS) for some receipts — the cause of silent failures.
+      { temperature: 0, maxOutputTokens: 2048, thinkingConfig: { thinkingBudget: 0 } },
       GEMINI_API_KEY
     )
 
@@ -38,7 +41,7 @@ export default async function handler(req) {
 
     const raw = await callGemini(
       extractionParts,
-      { temperature: 0.1, maxOutputTokens: 512 },
+      { temperature: 0.1, maxOutputTokens: 2048, responseMimeType: 'application/json', thinkingConfig: { thinkingBudget: 0 } },
       GEMINI_API_KEY
     )
 
