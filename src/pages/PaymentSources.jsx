@@ -7,6 +7,7 @@ import ConfirmDialog from '../components/ConfirmDialog'
 import { CURRENCIES } from '../constants'
 import { parseCSV, mapCsvRecords, normalizeMerchant, classifyTransactionType, computeFingerprints } from '../lib/paymentMatching'
 import { parsePdfStatement } from '../lib/pdfStatementParser'
+import { uploadStatementFile, deleteStatementFile } from '../statementStorage'
 
 const SOURCE_TYPES = [
   { value: 'bank', label: 'Bank Account' },
@@ -85,14 +86,15 @@ export default function PaymentSources() {
   // rows (reviewed by the user first). Classifies, fingerprints against
   // existing transactions on this account, and writes paymentImports +
   // paymentTransactions.
-  async function commitRows(mapped, account, fileName, sourceType) {
+  async function commitRows(mapped, account, file, sourceType) {
     const importRef = await addDoc(collection(db, 'paymentImports'), {
       userId: auth.currentUser.uid,
       projectId: activeProject.id,
       paymentAccountId: account.id,
       sourceType,
-      sourceFileName: fileName,
+      sourceFileName: file.name,
       sourceFileUrl: null,
+      sourceFilePath: null,
       periodStart: mapped.reduce((min, t) => !min || (t.transactionDate && t.transactionDate < min) ? t.transactionDate : min, null),
       periodEnd: mapped.reduce((max, t) => !max || (t.transactionDate && t.transactionDate > max) ? t.transactionDate : max, null),
       importStatus: 'processing',
@@ -101,6 +103,17 @@ export default function PaymentSources() {
       updatedAt: serverTimestamp(),
       errorMessage: null,
     })
+
+    // Keep the original statement file — the transaction rows are derived
+    // data, and proper accounting practice keeps the source document
+    // retrievable for audit trail, the same way receipts are kept for
+    // expenses. Uploaded as-is (no compression/re-encoding).
+    try {
+      const { url, path } = await uploadStatementFile(file, auth.currentUser.uid, importRef.id)
+      await updateDoc(doc(db, 'paymentImports', importRef.id), { sourceFileUrl: url, sourceFilePath: path })
+    } catch (err) {
+      console.error('Failed to store original statement file:', err.message)
+    }
 
     // Check existing fingerprints for this account so re-importing the same
     // statement flags duplicates instead of silently doubling transactions.
@@ -301,6 +314,9 @@ export default function PaymentSources() {
           snap.docs.slice(i, i + 400).forEach(d => batch.delete(d.ref))
           await batch.commit()
         }
+        if (imp.sourceFilePath) {
+          try { await deleteStatementFile(imp.sourceFilePath) } catch (err) { console.error('Failed to delete stored statement file:', err.message) }
+        }
         await deleteDoc(doc(db, 'paymentImports', imp.id))
         if (viewingImportId === imp.id) setViewingImportId(null)
         setConfirmDialog(null)
@@ -327,7 +343,7 @@ export default function PaymentSources() {
               : `Found ${lineCount} lines of text across ${pageCount} page(s) but couldn't recognize any transaction rows — this bank's PDF layout may not be supported yet. Try CSV export instead.`
           )
         } else {
-          setPdfPreview({ fileName: file.name, accountId: account.id, rows: rows.map(r => ({ ...r, include: true })) })
+          setPdfPreview({ file, fileName: file.name, accountId: account.id, rows: rows.map(r => ({ ...r, include: true })) })
         }
       } catch (err) {
         setImportMsg('Could not read PDF: ' + (err.message || 'unknown error'))
@@ -347,7 +363,7 @@ export default function PaymentSources() {
         setImporting(false)
         return
       }
-      const { written, duplicateRows, importId } = await commitRows(mapped, account, file.name, 'csv')
+      const { written, duplicateRows, importId } = await commitRows(mapped, account, file, 'csv')
       setImportMsg(
         `Imported ${written} transaction${written === 1 ? '' : 's'}` +
         (duplicateRows.length ? ` (${duplicateRows.length} possible duplicate${duplicateRows.length === 1 ? '' : 's'} held for review below)` : '') +
@@ -370,7 +386,7 @@ export default function PaymentSources() {
     setImporting(true)
     setImportMsg('')
     try {
-      const { written, duplicateRows, importId } = await commitRows(toImport, account, pdfPreview.fileName, 'pdf')
+      const { written, duplicateRows, importId } = await commitRows(toImport, account, pdfPreview.file, 'pdf')
       setImportMsg(
         `Imported ${written} transaction${written === 1 ? '' : 's'} from PDF` +
         (duplicateRows.length ? ` (${duplicateRows.length} possible duplicate${duplicateRows.length === 1 ? '' : 's'} held for review below)` : '') +
@@ -563,6 +579,9 @@ export default function PaymentSources() {
                         <button className="btn-small" onClick={() => setViewingImportId(viewingImportId === imp.id ? null : imp.id)}>
                           {viewingImportId === imp.id ? 'Hide' : 'View/Edit'}
                         </button>
+                        {imp.sourceFileUrl
+                          ? <a href={imp.sourceFileUrl} target="_blank" rel="noreferrer" className="btn-small">Original</a>
+                          : <span className="btn-small" style={{ opacity: 0.4, cursor: 'default' }} title="No original file stored for this import">No file</span>}
                         <button className="btn-small btn-danger" onClick={() => deleteImport(imp)}>Delete</button>
                       </td>
                     </tr>
