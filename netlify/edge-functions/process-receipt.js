@@ -84,13 +84,25 @@ Category rules: flights/trains/taxis/hotels = Travel | restaurants/cafes/food = 
 Payment method rules: Visa/Mastercard/AMEX/credit card with HKD or HK address = Credit Card HK | 支付宝 or Alipay = Alipay | 微信支付 or WeChat Pay = WeChat Pay | bank transfer/wire in HKD = Bank Account HK | bank transfer/wire in RMB/CNY = Bank Account CN | 现金 or cash = Cash | default to null if unclear.
 Amount rules: use the line labelled "Total", "Grand Total", "Amount Due", or "Total Paid". Ignore subtotals, tax lines shown separately, and individual item prices.`
 
+// fetch with a hard timeout so a hung upstream fails fast with a clear error,
+// instead of hanging until Netlify's 40s response deadline kills it opaquely.
+async function fetchWithTimeout(url, options, ms) {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), ms)
+  try {
+    return await fetch(url, { ...options, signal: controller.signal })
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 // Reads text from an image with Google Cloud Vision DOCUMENT_TEXT_DETECTION.
 // Returns the full transcript, or null on any failure so the caller can fall
 // back to Gemini transcription. Uses the REST + API-key path (no service
 // account), which is the simplest option for an edge function.
 async function callVisionOCR(base64Image, VISION_API_KEY) {
   try {
-    const res = await fetch(
+    const res = await fetchWithTimeout(
       `https://vision.googleapis.com/v1/images:annotate?key=${VISION_API_KEY}`,
       {
         method: 'POST',
@@ -101,7 +113,8 @@ async function callVisionOCR(base64Image, VISION_API_KEY) {
             features: [{ type: 'DOCUMENT_TEXT_DETECTION' }],
           }],
         }),
-      }
+      },
+      15000
     )
     if (!res.ok) return null
     const data = await res.json()
@@ -122,26 +135,31 @@ async function callGemini(parts, generationConfig, GEMINI_API_KEY) {
 
   for (const model of MODELS) {
     let res, data
-    for (let attempt = 0; attempt <= 2; attempt++) {
-      res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ role: 'user', parts }],
-            generationConfig,
-          }),
-        }
-      )
+    for (let attempt = 0; attempt <= 1; attempt++) {
+      try {
+        res = await fetchWithTimeout(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ role: 'user', parts }],
+              generationConfig,
+            }),
+          },
+          15000
+        )
+      } catch {
+        break // timed out / aborted — move on to the next model
+      }
       data = await res.json()
       const isRetryable = !res.ok && (
         res.status === 429 ||
         /high demand|quota|resource_exhausted|rate limit/i.test(data.error?.message || '')
       )
       if (isRetryable) rateLimited = true
-      if (isRetryable && attempt < 2) {
-        await new Promise(r => setTimeout(r, 3000 * (attempt + 1)))
+      if (isRetryable && attempt < 1) {
+        await new Promise(r => setTimeout(r, 2000))
         continue
       }
       break
