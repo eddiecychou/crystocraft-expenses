@@ -130,7 +130,7 @@ export function normalizeMerchant(raw) {
     .trim()
 }
 
-const PAYMENT_KEYWORDS = /payment received|payment - thank you|thank you for your payment|online payment|\bpayment\b/i
+const PAYMENT_KEYWORDS = /payment received|payment - thank you|thank you for your payment|online payment|paid by autopay|\bpayment\b/i
 const REFUND_KEYWORDS = /refund|reversal|credit adjustment|return/i
 const FEE_KEYWORDS = /annual fee|late fee|service charge|handling fee|fx fee|foreign transaction fee|admin fee|dcc fee/i
 const INTEREST_KEYWORDS = /finance charge|interest charge|interest\b/i
