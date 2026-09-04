@@ -41,6 +41,9 @@ export default function PaymentSources() {
   const [editTxnId, setEditTxnId] = useState(null)
   const [editTxnData, setEditTxnData] = useState({})
   const fileRef = useRef()
+  const attachFileRef = useRef()
+  const attachingImportRef = useRef(null)
+  const [attachingImportId, setAttachingImportId] = useState(null)
 
   useEffect(() => {
     if (!activeProject) return
@@ -324,6 +327,28 @@ export default function PaymentSources() {
     })
   }
 
+  // Backfills the original file onto an import made before source-file
+  // storage existed (or where the upload failed at import time).
+  function openAttachOriginal(imp) {
+    attachingImportRef.current = imp
+    setAttachingImportId(imp.id)
+    attachFileRef.current.click()
+  }
+
+  async function handleAttachOriginal(e) {
+    const file = e.target.files[0]
+    e.target.value = ''
+    const imp = attachingImportRef.current
+    if (!file || !imp) return
+    try {
+      const { url, path } = await uploadStatementFile(file, auth.currentUser.uid, imp.id)
+      await updateDoc(doc(db, 'paymentImports', imp.id), { sourceFileUrl: url, sourceFilePath: path })
+    } catch (err) {
+      alert('Failed to attach file: ' + (err.message || 'unknown error'))
+    }
+    setAttachingImportId(null)
+  }
+
   async function handleFileSelected(e) {
     const file = e.target.files[0]
     e.target.value = ''
@@ -482,6 +507,7 @@ export default function PaymentSources() {
                 {importing ? 'Reading…' : '+ Import CSV or PDF'}
               </button>
               <input type="file" accept=".csv,.pdf,text/csv,application/pdf" hidden ref={fileRef} onChange={handleFileSelected} />
+              <input type="file" accept=".csv,.pdf,text/csv,application/pdf" hidden ref={attachFileRef} onChange={handleAttachOriginal} />
             </div>
             <p className="hint">CSV needs Date, Description, and Amount columns (or separate Debit/Credit). PDF must be a digital statement (not a scanned image) — parsed rows are shown for review before import.</p>
             {importMsg && <p className={importMsg.startsWith('Import failed') || importMsg.startsWith('Could not') || importMsg.startsWith('No text') || importMsg.startsWith('Found') ? 'error-msg' : 'success-msg'}>{importMsg}</p>}
@@ -581,7 +607,9 @@ export default function PaymentSources() {
                         </button>
                         {imp.sourceFileUrl
                           ? <a href={imp.sourceFileUrl} target="_blank" rel="noreferrer" className="btn-small">Original</a>
-                          : <span className="btn-small" style={{ opacity: 0.4, cursor: 'default' }} title="No original file stored for this import">No file</span>}
+                          : <button className="btn-small" disabled={attachingImportId === imp.id} onClick={() => openAttachOriginal(imp)}>
+                              {attachingImportId === imp.id ? 'Uploading…' : 'Attach Original'}
+                            </button>}
                         <button className="btn-small btn-danger" onClick={() => deleteImport(imp)}>Delete</button>
                       </td>
                     </tr>
