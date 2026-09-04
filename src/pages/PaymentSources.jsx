@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
-import { collection, query, where, onSnapshot, addDoc, doc, updateDoc, writeBatch, serverTimestamp, getDocs } from 'firebase/firestore'
+import { collection, query, where, onSnapshot, addDoc, doc, deleteDoc, updateDoc, writeBatch, serverTimestamp, getDocs } from 'firebase/firestore'
 import { db, auth } from '../firebase'
 import { useProject } from '../contexts/ProjectContext'
 import ProjectBanner from '../components/ProjectBanner'
+import ConfirmDialog from '../components/ConfirmDialog'
 import { CURRENCIES } from '../constants'
 import { parseCSV, mapCsvRecords, normalizeMerchant, classifyTransactionType, computeFingerprints } from '../lib/paymentMatching'
 import { parsePdfStatement } from '../lib/pdfStatementParser'
@@ -32,6 +33,12 @@ export default function PaymentSources() {
   // fingerprints identically to a re-imported duplicate, so the system
   // can't safely decide on its own; the user can.
   const [duplicateReview, setDuplicateReview] = useState(null) // { importId, fileName, rows: [{...doc, include}] }
+  const [confirmDialog, setConfirmDialog] = useState(null)
+  // Transactions for whichever import the user has expanded to review/edit.
+  const [viewingImportId, setViewingImportId] = useState(null)
+  const [importTxns, setImportTxns] = useState([])
+  const [editTxnId, setEditTxnId] = useState(null)
+  const [editTxnData, setEditTxnData] = useState({})
   const fileRef = useRef()
 
   useEffect(() => {
@@ -46,6 +53,15 @@ export default function PaymentSources() {
     )
     return () => { unsubA(); unsubI() }
   }, [activeProject?.id])
+
+  useEffect(() => {
+    if (!viewingImportId) { setImportTxns([]); return }
+    const unsub = onSnapshot(
+      query(collection(db, 'paymentTransactions'), where('userId', '==', auth.currentUser.uid), where('importId', '==', viewingImportId)),
+      snap => setImportTxns(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (a.transactionDate || '').localeCompare(b.transactionDate || '')))
+    )
+    return unsub
+  }, [viewingImportId])
 
   async function createAccount() {
     if (!newAccount.label.trim()) return
@@ -191,6 +207,105 @@ export default function PaymentSources() {
 
   function toggleDuplicateRow(i) {
     setDuplicateReview(prev => ({ ...prev, rows: prev.rows.map((r, idx) => idx === i ? { ...r, include: !r.include } : r) }))
+  }
+
+  // Editing or deleting a transaction that's already confirmed against an
+  // expense (or linked as a card-payment/bank-debit settlement) would
+  // otherwise leave that link pointing at stale or missing data. This
+  // reverts both sides of the link before the transaction itself changes.
+  async function unlinkTransaction(txn) {
+    if (txn.matchedExpenseIds?.[0]) {
+      await updateDoc(doc(db, 'expenses', txn.matchedExpenseIds[0]), {
+        matchedPaymentTransactionId: null,
+        matchedPaymentAccountId: null,
+        settlementAmount: null,
+        settlementCurrency: null,
+        settlementStatus: 'unsettled',
+      })
+    }
+    if (txn.settlementGroupId) {
+      const partnerSnap = await getDocs(query(
+        collection(db, 'paymentTransactions'),
+        where('userId', '==', auth.currentUser.uid),
+        where('settlementGroupId', '==', txn.settlementGroupId)
+      ))
+      for (const d of partnerSnap.docs) {
+        if (d.id === txn.id) continue
+        await updateDoc(doc(db, 'paymentTransactions', d.id), { settlementGroupId: null, status: 'unmatched' })
+      }
+    }
+  }
+
+  function startEditTxn(txn) {
+    setEditTxnId(txn.id)
+    setEditTxnData({ transactionDate: txn.transactionDate || '', merchantRaw: txn.merchantRaw, settlementAmount: txn.settlementAmount, direction: txn.direction })
+  }
+
+  async function saveEditTxn(txn) {
+    const merchantRaw = editTxnData.merchantRaw.trim()
+    const merchantNormalized = normalizeMerchant(merchantRaw)
+    const transactionType = classifyTransactionType(merchantRaw, editTxnData.direction)
+    const account = accounts.find(a => a.id === txn.paymentAccountId)
+    const { fingerprintExact, fingerprintLoose } = await computeFingerprints({
+      projectId: activeProject.id,
+      accountId: txn.paymentAccountId,
+      transactionDate: editTxnData.transactionDate,
+      merchantNormalized,
+      settlementAmount: parseFloat(editTxnData.settlementAmount),
+      direction: editTxnData.direction,
+      settlementCurrency: account?.settlementCurrency || txn.settlementCurrency,
+    })
+    if (txn.status === 'matched' || txn.settlementGroupId) await unlinkTransaction(txn)
+    await updateDoc(doc(db, 'paymentTransactions', txn.id), {
+      transactionDate: editTxnData.transactionDate,
+      merchantRaw,
+      merchantNormalized,
+      settlementAmount: parseFloat(editTxnData.settlementAmount) || 0,
+      direction: editTxnData.direction,
+      transactionType,
+      fingerprintExact,
+      fingerprintLoose,
+      status: 'unmatched',
+      matchedExpenseIds: [],
+      settlementGroupId: null,
+      confidenceScore: null,
+      matchReasons: [],
+      updatedAt: serverTimestamp(),
+    })
+    setEditTxnId(null)
+  }
+
+  function deleteTxn(txn) {
+    setConfirmDialog({
+      message: `Delete this transaction (${txn.merchantRaw})? This cannot be undone.`,
+      onConfirm: async () => {
+        await unlinkTransaction(txn)
+        await deleteDoc(doc(db, 'paymentTransactions', txn.id))
+        setConfirmDialog(null)
+      },
+    })
+  }
+
+  function deleteImport(imp) {
+    setConfirmDialog({
+      message: `Delete "${imp.sourceFileName}" and all ${imp.lineCount} transaction${imp.lineCount === 1 ? '' : 's'} it imported? This cannot be undone.`,
+      onConfirm: async () => {
+        const snap = await getDocs(query(
+          collection(db, 'paymentTransactions'),
+          where('userId', '==', auth.currentUser.uid),
+          where('importId', '==', imp.id)
+        ))
+        for (const d of snap.docs) await unlinkTransaction({ id: d.id, ...d.data() })
+        for (let i = 0; i < snap.docs.length; i += 400) {
+          const batch = writeBatch(db)
+          snap.docs.slice(i, i + 400).forEach(d => batch.delete(d.ref))
+          await batch.commit()
+        }
+        await deleteDoc(doc(db, 'paymentImports', imp.id))
+        if (viewingImportId === imp.id) setViewingImportId(null)
+        setConfirmDialog(null)
+      },
+    })
   }
 
   async function handleFileSelected(e) {
@@ -433,7 +548,7 @@ export default function PaymentSources() {
           <div className="table-wrap" style={{ marginTop: 16 }}>
             <table className="expense-table">
               <thead>
-                <tr><th>File</th><th>Account</th><th>Period</th><th>Rows</th><th>Status</th></tr>
+                <tr><th>File</th><th>Account</th><th>Period</th><th>Rows</th><th>Status</th><th>Actions</th></tr>
               </thead>
               <tbody>
                 {imports.map(imp => (
@@ -443,13 +558,76 @@ export default function PaymentSources() {
                     <td>{imp.periodStart && imp.periodEnd ? `${imp.periodStart} – ${imp.periodEnd}` : '—'}</td>
                     <td>{imp.lineCount}</td>
                     <td>{imp.importStatus}</td>
+                    <td>
+                      <button className="btn-small" onClick={() => setViewingImportId(viewingImportId === imp.id ? null : imp.id)}>
+                        {viewingImportId === imp.id ? 'Hide' : 'View/Edit'}
+                      </button>
+                      <button className="btn-small btn-danger" onClick={() => deleteImport(imp)}>Delete</button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
         )}
+
+        {viewingImportId && (
+          <div className="table-wrap" style={{ marginTop: 16 }}>
+            <h3>Transactions</h3>
+            {importTxns.length === 0 ? <p className="empty">No transactions (or still loading).</p> : (
+              <table className="expense-table">
+                <thead>
+                  <tr><th>Date</th><th>Description</th><th>Amount</th><th>Direction</th><th>Type</th><th>Actions</th></tr>
+                </thead>
+                <tbody>
+                  {importTxns.map(txn => (
+                    <tr key={txn.id}>
+                      {editTxnId === txn.id ? (
+                        <>
+                          <td><input type="date" value={editTxnData.transactionDate} onChange={e => setEditTxnData({ ...editTxnData, transactionDate: e.target.value })} /></td>
+                          <td><input value={editTxnData.merchantRaw} onChange={e => setEditTxnData({ ...editTxnData, merchantRaw: e.target.value })} /></td>
+                          <td><input type="number" min="0" step="0.01" value={editTxnData.settlementAmount} onChange={e => setEditTxnData({ ...editTxnData, settlementAmount: e.target.value })} /></td>
+                          <td>
+                            <select value={editTxnData.direction} onChange={e => setEditTxnData({ ...editTxnData, direction: e.target.value })}>
+                              <option value="debit">debit</option>
+                              <option value="credit">credit</option>
+                            </select>
+                          </td>
+                          <td>{txn.transactionType}</td>
+                          <td>
+                            <button className="btn-small" onClick={() => saveEditTxn(txn)}>Save</button>
+                            <button className="btn-small btn-ghost" onClick={() => setEditTxnId(null)}>Cancel</button>
+                          </td>
+                        </>
+                      ) : (
+                        <>
+                          <td>{txn.transactionDate}</td>
+                          <td>{txn.merchantRaw}</td>
+                          <td>{txn.settlementAmount?.toFixed(2)}</td>
+                          <td>{txn.direction}</td>
+                          <td>{txn.transactionType}{txn.status === 'matched' && ' · matched'}{txn.settlementGroupId && ' · linked'}</td>
+                          <td>
+                            <button className="btn-small" onClick={() => startEditTxn(txn)}>Edit</button>
+                            <button className="btn-small btn-danger" onClick={() => deleteTxn(txn)}>Delete</button>
+                          </td>
+                        </>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        )}
       </div>
+
+      {confirmDialog && (
+        <ConfirmDialog
+          message={confirmDialog.message}
+          onConfirm={confirmDialog.onConfirm}
+          onCancel={() => setConfirmDialog(null)}
+        />
+      )}
     </div>
   )
 }
