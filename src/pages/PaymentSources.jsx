@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, Fragment } from 'react'
 import { collection, query, where, onSnapshot, addDoc, doc, deleteDoc, updateDoc, writeBatch, serverTimestamp, getDocs } from 'firebase/firestore'
 import { db, auth } from '../firebase'
 import { useProject } from '../contexts/ProjectContext'
@@ -552,71 +552,73 @@ export default function PaymentSources() {
               </thead>
               <tbody>
                 {imports.map(imp => (
-                  <tr key={imp.id}>
-                    <td>{imp.sourceFileName}</td>
-                    <td>{accounts.find(a => a.id === imp.paymentAccountId)?.label || '—'}</td>
-                    <td>{imp.periodStart && imp.periodEnd ? `${imp.periodStart} – ${imp.periodEnd}` : '—'}</td>
-                    <td>{imp.lineCount}</td>
-                    <td>{imp.importStatus}</td>
-                    <td>
-                      <button className="btn-small" onClick={() => setViewingImportId(viewingImportId === imp.id ? null : imp.id)}>
-                        {viewingImportId === imp.id ? 'Hide' : 'View/Edit'}
-                      </button>
-                      <button className="btn-small btn-danger" onClick={() => deleteImport(imp)}>Delete</button>
-                    </td>
-                  </tr>
+                  <Fragment key={imp.id}>
+                    <tr>
+                      <td>{imp.sourceFileName}</td>
+                      <td>{accounts.find(a => a.id === imp.paymentAccountId)?.label || '—'}</td>
+                      <td>{imp.periodStart && imp.periodEnd ? `${imp.periodStart} – ${imp.periodEnd}` : '—'}</td>
+                      <td>{imp.lineCount}</td>
+                      <td>{imp.importStatus}</td>
+                      <td>
+                        <button className="btn-small" onClick={() => setViewingImportId(viewingImportId === imp.id ? null : imp.id)}>
+                          {viewingImportId === imp.id ? 'Hide' : 'View/Edit'}
+                        </button>
+                        <button className="btn-small btn-danger" onClick={() => deleteImport(imp)}>Delete</button>
+                      </td>
+                    </tr>
+                    {viewingImportId === imp.id && (
+                      <tr key={imp.id + '-txns'}>
+                        <td colSpan={6} style={{ background: '#fafbfc' }}>
+                          {importTxns.length === 0 ? <p className="empty" style={{ margin: '8px 0' }}>No transactions in this import.</p> : (
+                            <table className="expense-table" style={{ margin: '8px 0' }}>
+                              <thead>
+                                <tr><th>Date</th><th>Description</th><th>Amount</th><th>Direction</th><th>Type</th><th>Actions</th></tr>
+                              </thead>
+                              <tbody>
+                                {importTxns.map(txn => (
+                                  <tr key={txn.id}>
+                                    {editTxnId === txn.id ? (
+                                      <>
+                                        <td><input type="date" value={editTxnData.transactionDate} onChange={e => setEditTxnData({ ...editTxnData, transactionDate: e.target.value })} /></td>
+                                        <td><input value={editTxnData.merchantRaw} onChange={e => setEditTxnData({ ...editTxnData, merchantRaw: e.target.value })} /></td>
+                                        <td><input type="number" min="0" step="0.01" value={editTxnData.settlementAmount} onChange={e => setEditTxnData({ ...editTxnData, settlementAmount: e.target.value })} /></td>
+                                        <td>
+                                          <select value={editTxnData.direction} onChange={e => setEditTxnData({ ...editTxnData, direction: e.target.value })}>
+                                            <option value="debit">debit</option>
+                                            <option value="credit">credit</option>
+                                          </select>
+                                        </td>
+                                        <td>{txn.transactionType}</td>
+                                        <td>
+                                          <button className="btn-small" onClick={() => saveEditTxn(txn)}>Save</button>
+                                          <button className="btn-small btn-ghost" onClick={() => setEditTxnId(null)}>Cancel</button>
+                                        </td>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <td>{txn.transactionDate}</td>
+                                        <td>{txn.merchantRaw}</td>
+                                        <td>{txn.settlementAmount?.toFixed(2)}</td>
+                                        <td>{txn.direction}</td>
+                                        <td>{txn.transactionType}{txn.status === 'matched' && ' · matched'}{txn.settlementGroupId && ' · linked'}</td>
+                                        <td>
+                                          <button className="btn-small" onClick={() => startEditTxn(txn)}>Edit</button>
+                                          <button className="btn-small btn-danger" onClick={() => deleteTxn(txn)}>Delete</button>
+                                        </td>
+                                      </>
+                                    )}
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          )}
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
                 ))}
               </tbody>
             </table>
-          </div>
-        )}
-
-        {viewingImportId && (
-          <div className="table-wrap" style={{ marginTop: 16 }}>
-            <h3>Transactions</h3>
-            {importTxns.length === 0 ? <p className="empty">No transactions (or still loading).</p> : (
-              <table className="expense-table">
-                <thead>
-                  <tr><th>Date</th><th>Description</th><th>Amount</th><th>Direction</th><th>Type</th><th>Actions</th></tr>
-                </thead>
-                <tbody>
-                  {importTxns.map(txn => (
-                    <tr key={txn.id}>
-                      {editTxnId === txn.id ? (
-                        <>
-                          <td><input type="date" value={editTxnData.transactionDate} onChange={e => setEditTxnData({ ...editTxnData, transactionDate: e.target.value })} /></td>
-                          <td><input value={editTxnData.merchantRaw} onChange={e => setEditTxnData({ ...editTxnData, merchantRaw: e.target.value })} /></td>
-                          <td><input type="number" min="0" step="0.01" value={editTxnData.settlementAmount} onChange={e => setEditTxnData({ ...editTxnData, settlementAmount: e.target.value })} /></td>
-                          <td>
-                            <select value={editTxnData.direction} onChange={e => setEditTxnData({ ...editTxnData, direction: e.target.value })}>
-                              <option value="debit">debit</option>
-                              <option value="credit">credit</option>
-                            </select>
-                          </td>
-                          <td>{txn.transactionType}</td>
-                          <td>
-                            <button className="btn-small" onClick={() => saveEditTxn(txn)}>Save</button>
-                            <button className="btn-small btn-ghost" onClick={() => setEditTxnId(null)}>Cancel</button>
-                          </td>
-                        </>
-                      ) : (
-                        <>
-                          <td>{txn.transactionDate}</td>
-                          <td>{txn.merchantRaw}</td>
-                          <td>{txn.settlementAmount?.toFixed(2)}</td>
-                          <td>{txn.direction}</td>
-                          <td>{txn.transactionType}{txn.status === 'matched' && ' · matched'}{txn.settlementGroupId && ' · linked'}</td>
-                          <td>
-                            <button className="btn-small" onClick={() => startEditTxn(txn)}>Edit</button>
-                            <button className="btn-small btn-danger" onClick={() => deleteTxn(txn)}>Delete</button>
-                          </td>
-                        </>
-                      )}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
           </div>
         )}
       </div>
