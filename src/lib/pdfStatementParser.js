@@ -115,23 +115,41 @@ function detectHeader(line) {
 const AMOUNT_TOKEN = /\d[\d,]*\.\d{2}/
 const DATE_TOKEN = /^\d{1,2}[A-Za-z]{3}\b|^\d{1,2}[\/\-.]\d{1,2}/
 
+// The description column is the one column with no fixed shape: a
+// multi-word merchant description can arrive from the PDF as a single
+// merged text run, or as one item per word, depending on the PDF's
+// internal text-showing operators (verified: the exact same kind of
+// content comes out as one span via one extraction library and several
+// per-word items via another). It has no stable x to calibrate against
+// either way. Every other column (date-shaped or money-shaped) is a
+// single short token with a consistent-enough x to cluster on.
+const WIDE_COLUMNS = new Set(['description'])
+
 // Header labels don't always sit at the same x as the data beneath them —
 // a wide column's label can be centered or left-flush over data that
 // starts well to the left of the label's own text (verified: the same
 // statement prints "Description of transaction" starting at x=267 while
 // every actual description value starts at x=137). So the header is only
 // trusted for column NAMES and their LEFT-TO-RIGHT ORDER; actual
-// boundaries come from clustering the real data's x-positions — filtered
-// to rows that look like real transactions, then to only the clusters
-// with enough population to be a real column (a stray sidebar number that
-// slips past the row filter still only ever forms a tiny, easily
-// distinguished cluster next to columns with one entry per transaction).
-// Falls back to the header's own x-positions if the data doesn't cleanly
-// resolve to the same number of columns as the header names.
+// boundaries for the narrow (date/amount-shaped) columns come from
+// clustering the x-positions of matching ITEMS specifically — not every
+// item on a qualifying line, which would let a multi-word description's
+// scattered per-word items corrupt the clustering — filtered further to
+// clusters with enough population to be a real column (a stray sidebar
+// number that slips past the row filter only ever forms a tiny cluster
+// next to columns with one entry per transaction). The wide description
+// column is never clustered directly; its boundary is simply the gap
+// between its neighboring narrow columns' resolved anchors. Falls back
+// to the header's own x-positions if the narrow columns don't cleanly
+// resolve to the same count as the header's narrow columns.
 function resolveColumns(headerCols, sectionLines, tolerance = 20) {
   const headerSorted = [...headerCols].sort((a, b) => a.x - b.x)
+  const narrowHeaders = headerSorted.filter(h => !WIDE_COLUMNS.has(h.name))
+
   const rowLines = sectionLines.filter(l => l.items.some(it => AMOUNT_TOKEN.test(it.text) || DATE_TOKEN.test(it.text)))
-  const xs = rowLines.flatMap(l => l.items.map(it => it.x)).sort((a, b) => a - b)
+  const xs = rowLines
+    .flatMap(l => l.items.filter(it => AMOUNT_TOKEN.test(it.text) || DATE_TOKEN.test(it.text)).map(it => it.x))
+    .sort((a, b) => a - b)
   const clusters = []
   for (const x of xs) {
     const last = clusters[clusters.length - 1]
@@ -139,23 +157,73 @@ function resolveColumns(headerCols, sectionLines, tolerance = 20) {
     else clusters.push({ xs: [x] })
   }
   const minPopulation = Math.max(2, rowLines.length * 0.3)
-  const major = clusters.filter(c => c.xs.length >= minPopulation)
-  const anchors = major.map(c => c.xs.reduce((a, b) => a + b, 0) / c.xs.length)
-  if (anchors.length === headerSorted.length) {
-    return headerSorted.map((h, i) => ({ name: h.name, x: anchors[i] }))
+  const narrowClusters = clusters.filter(c => c.xs.length >= minPopulation)
+  const narrowAnchors = narrowClusters.map(c => ({
+    x: c.xs.reduce((a, b) => a + b, 0) / c.xs.length,
+    min: Math.min(...c.xs),
+  }))
+
+  if (narrowAnchors.length !== narrowHeaders.length) return headerSorted
+
+  const result = []
+  let i = 0
+  for (const h of headerSorted) {
+    if (WIDE_COLUMNS.has(h.name)) {
+      const prevX = result.length ? result[result.length - 1].x : -Infinity
+      const nextMin = i < narrowAnchors.length ? narrowAnchors[i].min : Infinity
+      // The wide column's own content isn't clusterable (its later words
+      // scatter across its full width — verified: on foreign-currency
+      // lines, description runs all the way out to an embedded currency
+      // amount well past where domestic lines end), but its FIRST word per
+      // row is — sitting at a fixed x just as reliably as any narrow
+      // column, regardless of how many items the rest of the description
+      // gets split into. Calibrating on that leftmost word, rather than
+      // guessing the midpoint of the entire gap to the next narrow column,
+      // is what keeps a wide gap from swallowing real description text
+      // into the previous narrow column's bucket.
+      const leftWordXs = rowLines
+        .map(l => l.items.map(it => it.x).filter(x => x > prevX + 5 && x < nextMin - 5))
+        .filter(xs => xs.length)
+        .map(xs => Math.min(...xs))
+        .sort((a, b) => a - b)
+      const leftClusters = []
+      for (const x of leftWordXs) {
+        const last = leftClusters[leftClusters.length - 1]
+        if (last && x - last.xs[last.xs.length - 1] <= tolerance) last.xs.push(x)
+        else leftClusters.push({ xs: [x] })
+      }
+      const bestCluster = leftClusters.sort((a, b) => b.xs.length - a.xs.length)[0]
+      const anchorX = bestCluster ? bestCluster.xs.reduce((a, b) => a + b, 0) / bestCluster.xs.length
+        : (isFinite(prevX) && isFinite(nextMin) ? (prevX + nextMin) / 2 : (isFinite(nextMin) ? nextMin : (isFinite(prevX) ? prevX : h.x)))
+      result.push({ name: h.name, x: anchorX })
+    } else {
+      result.push({ name: h.name, x: narrowAnchors[i].x, min: narrowAnchors[i].min })
+      i++
+    }
   }
-  return headerSorted
+  return result
 }
 
-// Buckets a data line's items into named columns using midpoints between
-// consecutive column x-positions as boundaries.
+// Buckets a data line's items into named columns. The boundary between two
+// columns uses the RIGHT column's own observed left edge (min) when known,
+// rather than a plain midpoint of both columns' representative x's — a
+// wide description column can run much further right on some rows than
+// others (e.g. a foreign-currency line's embedded amount notation), and a
+// mean-based midpoint would then cut into that column's own territory,
+// pulling a value that actually belongs to the following narrow column
+// (verified: the real HKD amount was being lost to the description bucket
+// merging with a foreign sub-amount) into the wrong column, or vice versa.
+// Falls back to the midpoint when the right column has no known min (i.e.
+// it's the wide column itself).
 function bucketLine(line, columns) {
   const buckets = {}
   for (const item of line.items) {
     let col = columns[0].name
     for (let i = 0; i < columns.length; i++) {
-      const lo = i === 0 ? -Infinity : (columns[i - 1].x + columns[i].x) / 2
-      const hi = i === columns.length - 1 ? Infinity : (columns[i].x + columns[i + 1].x) / 2
+      const prev = columns[i - 1]
+      const next = columns[i + 1]
+      const lo = i === 0 ? -Infinity : (columns[i].min != null ? columns[i].min - 5 : (prev.x + columns[i].x) / 2)
+      const hi = !next ? Infinity : (next.min != null ? next.min - 5 : (columns[i].x + next.x) / 2)
       if (item.x >= lo && item.x < hi) { col = columns[i].name; break }
     }
     buckets[col] = buckets[col] ? buckets[col] + ' ' + item.text : item.text
@@ -264,6 +332,21 @@ function parseSection(lines, columns, anchorDate) {
     const dateColumnNames = columns.filter(c => c.name === 'date' || c.name === 'transDate' || c.name === 'postDate').map(c => c.name)
     const hasUnparseableDate = dateColumnNames.some(name => buckets[name] && !parseDateBucket(buckets[name]))
     if (hasUnparseableDate) continue
+
+    // Some page furniture never touches a date bucket at all (verified: a
+    // "Minimum payment summary" sidebar box's rows read as plain
+    // description+amount, indistinguishable in bucket shape from a bank
+    // statement's legitimate date-less continuation transaction under a
+    // shared date). The tell is POSITION: a genuine continuation line's
+    // content starts flush with the description column's own calibrated
+    // left edge (its first word, wherever the table's real text starts);
+    // sidebar content starts wherever that unrelated box happens to sit,
+    // which in every case seen so far is well to the right of it. Only
+    // applies when there's no date to anchor the line as genuine outright.
+    if (!parsedDate && line.items.length) {
+      const descColumn = columns.find(c => c.name === 'description')
+      if (descColumn && Math.abs(line.items[0].x - descColumn.x) > 25) continue
+    }
 
     if (parsedDate) { currentDate = parsedDate; pendingDesc = [] }
     if (descText) pendingDesc.push(descText)
