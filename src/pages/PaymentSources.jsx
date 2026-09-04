@@ -28,12 +28,18 @@ export default function PaymentSources() {
   // CSV — they're held here for the user to review/exclude before anything
   // is written to Firestore.
   const [pdfPreview, setPdfPreview] = useState(null) // { fileName, rows: [{...row, include}] }
+  // Remaining PDFs from a batch selection, reviewed one at a time — each
+  // PDF's rows are heuristically parsed and must be checked before write,
+  // so a batch can't just import every PDF's rows unattended.
+  const [pdfQueue, setPdfQueue] = useState([])
   // Rows whose fingerprint matched an existing transaction on this account.
   // Held here for review instead of silently dropped — a genuine repeat
   // transaction (same merchant/amount/day, e.g. two identical purchases)
   // fingerprints identically to a re-imported duplicate, so the system
-  // can't safely decide on its own; the user can.
-  const [duplicateReview, setDuplicateReview] = useState(null) // { importId, fileName, rows: [{...doc, include}] }
+  // can't safely decide on its own; the user can. Accumulates across a
+  // whole batch — each row carries its own fileName/importId so a mixed
+  // batch's duplicates can all be reviewed together.
+  const [duplicateReview, setDuplicateReview] = useState(null) // { rows: [{...doc, include, fileName, importId}] }
   const [confirmDialog, setConfirmDialog] = useState(null)
   // Transactions for whichever import the user has expanded to review/edit.
   const [viewingImportId, setViewingImportId] = useState(null)
@@ -213,14 +219,20 @@ export default function PaymentSources() {
     try {
       for (let i = 0; i < toWrite.length; i += 400) {
         const batch = writeBatch(db)
-        toWrite.slice(i, i + 400).forEach(({ include, ...row }) => batch.set(doc(collection(db, 'paymentTransactions')), row))
+        toWrite.slice(i, i + 400).forEach(({ include, fileName, ...row }) => batch.set(doc(collection(db, 'paymentTransactions')), row))
         await batch.commit()
       }
-      const impSnap = imports.find(imp => imp.id === duplicateReview.importId)
-      await updateDoc(doc(db, 'paymentImports', duplicateReview.importId), {
-        lineCount: (impSnap?.lineCount || 0) + toWrite.length,
-        updatedAt: serverTimestamp(),
-      })
+      // A batch's duplicates can span several imports — bump each one's
+      // lineCount by however many of its own rows were added.
+      const byImport = new Map()
+      for (const row of toWrite) byImport.set(row.importId, (byImport.get(row.importId) || 0) + 1)
+      for (const [importId, count] of byImport) {
+        const impSnap = imports.find(imp => imp.id === importId)
+        await updateDoc(doc(db, 'paymentImports', importId), {
+          lineCount: (impSnap?.lineCount || 0) + count,
+          updatedAt: serverTimestamp(),
+        })
+      }
       setImportMsg(prev => prev + (toWrite.length ? ` ${toWrite.length} reviewed duplicate${toWrite.length === 1 ? '' : 's'} added.` : ''))
       setDuplicateReview(null)
     } catch (err) {
@@ -357,56 +369,82 @@ export default function PaymentSources() {
     setAttachingImportId(null)
   }
 
-  async function handleFileSelected(e) {
-    const file = e.target.files[0]
-    e.target.value = ''
-    if (!file || !importAccountId) return
-    const account = accounts.find(a => a.id === importAccountId)
-    const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
+  // Adds any duplicate rows found for one file onto the (possibly
+  // already-populated, from earlier files in this batch) shared review list.
+  function appendDuplicateRows(duplicateRows, fileName, importId) {
+    if (!duplicateRows.length) return
+    const tagged = duplicateRows.map(r => ({ ...r, include: false, fileName, importId }))
+    setDuplicateReview(prev => ({ rows: [...(prev?.rows || []), ...tagged] }))
+  }
 
-    if (isPdf) {
-      setImporting(true)
-      setImportMsg('')
-      try {
-        const { rows, lineCount, pageCount } = await parsePdfStatement(file)
-        if (!rows.length) {
-          setImportMsg(
-            lineCount === 0
-              ? 'No text found in this PDF — it may be a scanned image rather than a digital statement. Try exporting a CSV from your bank instead.'
-              : `Found ${lineCount} lines of text across ${pageCount} page(s) but couldn't recognize any transaction rows — this bank's PDF layout may not be supported yet. Try CSV export instead.`
-          )
-        } else {
-          setPdfPreview({ file, fileName: file.name, accountId: account.id, rows: rows.map(r => ({ ...r, include: true })) })
-        }
-      } catch (err) {
-        setImportMsg('Could not read PDF: ' + (err.message || 'unknown error'))
+  // Parses one PDF and either shows it for review or, if nothing came out
+  // of it, records why and moves on to the next queued file.
+  async function loadPdfPreview(file, accountId, remainingQueue) {
+    setImporting(true)
+    try {
+      const { rows, lineCount, pageCount } = await parsePdfStatement(file)
+      if (!rows.length) {
+        setImportMsg(prev => (prev ? prev + ' ' : '') + `${file.name}: ` + (
+          lineCount === 0
+            ? 'no text found — it may be a scanned image rather than a digital statement. Try exporting a CSV from your bank instead.'
+            : `found ${lineCount} lines across ${pageCount} page(s) but couldn't recognize any transaction rows — this bank's PDF layout may not be supported yet. Try CSV export instead.`
+        ))
+        setImporting(false)
+        await advancePdfQueue(remainingQueue, accountId)
+        return
       }
+      setPdfPreview({ file, fileName: file.name, accountId, rows: rows.map(r => ({ ...r, include: true })) })
+      setPdfQueue(remainingQueue)
+    } catch (err) {
+      setImportMsg(prev => (prev ? prev + ' ' : '') + `${file.name}: could not read PDF — ${err.message || 'unknown error'}`)
       setImporting(false)
+      await advancePdfQueue(remainingQueue, accountId)
       return
     }
+    setImporting(false)
+  }
+
+  async function advancePdfQueue(queue, accountId) {
+    if (!queue.length) { setPdfQueue([]); setPdfPreview(null); return }
+    const [next, ...rest] = queue
+    await loadPdfPreview(next, accountId, rest)
+  }
+
+  async function handleFileSelected(e) {
+    const files = Array.from(e.target.files)
+    e.target.value = ''
+    if (!files.length || !importAccountId) return
+    const account = accounts.find(a => a.id === importAccountId)
+    const pdfFiles = files.filter(f => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'))
+    const csvFiles = files.filter(f => !pdfFiles.includes(f))
 
     setImporting(true)
     setImportMsg('')
-    try {
-      const text = await file.text()
-      const { headers, records } = parseCSV(text)
-      const mapped = mapCsvRecords(records, headers)
-      if (!mapped.length) {
-        setImportMsg('No transaction rows recognized in this CSV — check it has Date, Description, and Amount (or Debit/Credit) columns.')
-        setImporting(false)
-        return
+    const messages = []
+    for (const file of csvFiles) {
+      try {
+        const text = await file.text()
+        const { headers, records } = parseCSV(text)
+        const mapped = mapCsvRecords(records, headers)
+        if (!mapped.length) {
+          messages.push(`${file.name}: no transaction rows recognized — check it has Date, Description, and Amount (or Debit/Credit) columns.`)
+          continue
+        }
+        const { written, duplicateRows, importId } = await commitRows(mapped, account, file, 'csv')
+        messages.push(
+          `${file.name}: imported ${written} transaction${written === 1 ? '' : 's'}` +
+          (duplicateRows.length ? ` (${duplicateRows.length} possible duplicate${duplicateRows.length === 1 ? '' : 's'} held for review below)` : '') + '.'
+        )
+        appendDuplicateRows(duplicateRows, file.name, importId)
+      } catch (err) {
+        messages.push(`${file.name}: import failed — ${err.message || 'unknown error'}`)
       }
-      const { written, duplicateRows, importId } = await commitRows(mapped, account, file, 'csv')
-      setImportMsg(
-        `Imported ${written} transaction${written === 1 ? '' : 's'}` +
-        (duplicateRows.length ? ` (${duplicateRows.length} possible duplicate${duplicateRows.length === 1 ? '' : 's'} held for review below)` : '') +
-        '. Go to Reconciliation to review matches.'
-      )
-      if (duplicateRows.length) setDuplicateReview({ importId, fileName: file.name, rows: duplicateRows.map(r => ({ ...r, include: false })) })
-    } catch (err) {
-      setImportMsg('Import failed: ' + (err.message || 'unknown error'))
     }
+    if (csvFiles.length) messages.push('Go to Reconciliation to review matches.')
+    setImportMsg(messages.join(' '))
     setImporting(false)
+
+    if (pdfFiles.length) await advancePdfQueue(pdfFiles, account.id)
   }
 
   function togglePreviewRow(i) {
@@ -416,21 +454,26 @@ export default function PaymentSources() {
   async function confirmPdfImport() {
     const account = accounts.find(a => a.id === pdfPreview.accountId)
     const toImport = pdfPreview.rows.filter(r => r.include)
+    const accountId = pdfPreview.accountId
+    const queueAfter = pdfQueue
     setImporting(true)
-    setImportMsg('')
     try {
       const { written, duplicateRows, importId } = await commitRows(toImport, account, pdfPreview.file, 'pdf')
-      setImportMsg(
-        `Imported ${written} transaction${written === 1 ? '' : 's'} from PDF` +
+      setImportMsg(prev => (prev ? prev + ' ' : '') +
+        `${pdfPreview.fileName}: imported ${written} transaction${written === 1 ? '' : 's'} from PDF` +
         (duplicateRows.length ? ` (${duplicateRows.length} possible duplicate${duplicateRows.length === 1 ? '' : 's'} held for review below)` : '') +
         '. Go to Reconciliation to review matches.'
       )
-      if (duplicateRows.length) setDuplicateReview({ importId, fileName: pdfPreview.fileName, rows: duplicateRows.map(r => ({ ...r, include: false })) })
-      setPdfPreview(null)
+      appendDuplicateRows(duplicateRows, pdfPreview.fileName, importId)
     } catch (err) {
-      setImportMsg('Import failed: ' + (err.message || 'unknown error'))
+      setImportMsg(prev => (prev ? prev + ' ' : '') + `${pdfPreview.fileName}: import failed — ${err.message || 'unknown error'}`)
     }
     setImporting(false)
+    await advancePdfQueue(queueAfter, accountId)
+  }
+
+  function skipPdfPreview() {
+    advancePdfQueue(pdfQueue, pdfPreview.accountId)
   }
 
   if (!activeProject) return <div className="page"><p className="loading">Loading…</p></div>
@@ -512,13 +555,13 @@ export default function PaymentSources() {
                 disabled={!importAccountId || importing}
                 onClick={() => fileRef.current.click()}
               >
-                {importing ? 'Reading…' : '+ Import CSV or PDF'}
+                {importing ? 'Reading…' : '+ Import Statements'}
               </button>
-              <input type="file" accept=".csv,.pdf,text/csv,application/pdf" hidden ref={fileRef} onChange={handleFileSelected} />
+              <input type="file" multiple accept=".csv,.pdf,text/csv,application/pdf" hidden ref={fileRef} onChange={handleFileSelected} />
               <input type="file" accept=".csv,.pdf,text/csv,application/pdf" hidden ref={attachFileRef} onChange={handleAttachOriginal} />
             </div>
-            <p className="hint">CSV needs Date, Description, and Amount columns (or separate Debit/Credit). PDF must be a digital statement (not a scanned image) — parsed rows are shown for review before import.</p>
-            {importMsg && <p className={importMsg.startsWith('Import failed') || importMsg.startsWith('Could not') || importMsg.startsWith('No text') || importMsg.startsWith('Found') ? 'error-msg' : 'success-msg'}>{importMsg}</p>}
+            <p className="hint">Select multiple CSV/PDF files at once for a batch import. CSV needs Date, Description, and Amount columns (or separate Debit/Credit). PDF must be a digital statement (not a scanned image) — each PDF's parsed rows are shown for review before import, one file at a time.</p>
+            {importMsg && <p className={/import failed|could not read|no text found|couldn't recognize/i.test(importMsg) ? 'error-msg' : 'success-msg'}>{importMsg}</p>}
           </>
         )}
 
@@ -528,7 +571,10 @@ export default function PaymentSources() {
               <h3>Review parsed rows — {pdfPreview.fileName}</h3>
               <span className="hint">{pdfPreview.rows.filter(r => r.include).length} of {pdfPreview.rows.length} selected</span>
             </div>
-            <p className="hint">PDF table parsing is heuristic — uncheck any row that looks wrong before importing.</p>
+            <p className="hint">
+              PDF table parsing is heuristic — uncheck any row that looks wrong before importing.
+              {pdfQueue.length > 0 && ` ${pdfQueue.length} more PDF${pdfQueue.length === 1 ? '' : 's'} queued after this one.`}
+            </p>
             <div className="table-wrap">
               <table className="expense-table">
                 <thead>
@@ -551,7 +597,7 @@ export default function PaymentSources() {
               <button className="btn-primary" disabled={importing || !pdfPreview.rows.some(r => r.include)} onClick={confirmPdfImport}>
                 {importing ? 'Importing…' : `Import ${pdfPreview.rows.filter(r => r.include).length} Row(s)`}
               </button>
-              <button className="btn-ghost" disabled={importing} onClick={() => setPdfPreview(null)}>Cancel</button>
+              <button className="btn-ghost" disabled={importing} onClick={skipPdfPreview}>{pdfQueue.length > 0 ? 'Skip' : 'Cancel'}</button>
             </div>
           </div>
         )}
@@ -559,7 +605,7 @@ export default function PaymentSources() {
         {duplicateReview && (
           <div className="card" style={{ marginTop: 16, background: '#fffaf0' }}>
             <div className="card-header">
-              <h3>Possible Duplicates — {duplicateReview.fileName}</h3>
+              <h3>Possible Duplicates</h3>
               <span className="hint">{duplicateReview.rows.filter(r => r.include).length} of {duplicateReview.rows.length} selected</span>
             </div>
             <p className="hint">
@@ -570,12 +616,13 @@ export default function PaymentSources() {
             <div className="table-wrap">
               <table className="expense-table">
                 <thead>
-                  <tr><th></th><th>Date</th><th>Description</th><th>Amount</th><th>Direction</th></tr>
+                  <tr><th></th><th>File</th><th>Date</th><th>Description</th><th>Amount</th><th>Direction</th></tr>
                 </thead>
                 <tbody>
                   {duplicateReview.rows.map((r, i) => (
                     <tr key={i} style={{ opacity: r.include ? 1 : 0.6 }}>
                       <td><input type="checkbox" checked={r.include} onChange={() => toggleDuplicateRow(i)} /></td>
+                      <td>{r.fileName}</td>
                       <td>{r.transactionDate}</td>
                       <td>{r.merchantRaw}</td>
                       <td>{r.settlementAmount.toFixed(2)}</td>
