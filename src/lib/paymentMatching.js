@@ -130,9 +130,9 @@ export function normalizeMerchant(raw) {
     .trim()
 }
 
-const PAYMENT_KEYWORDS = /payment received|payment - thank you|autopay|thank you for your payment|online payment|\bpayment\b/i
+const PAYMENT_KEYWORDS = /payment received|payment - thank you|thank you for your payment|online payment|\bpayment\b/i
 const REFUND_KEYWORDS = /refund|reversal|credit adjustment|return/i
-const FEE_KEYWORDS = /annual fee|late fee|service charge|handling fee|fx fee|foreign transaction fee|admin fee/i
+const FEE_KEYWORDS = /annual fee|late fee|service charge|handling fee|fx fee|foreign transaction fee|admin fee|dcc fee/i
 const INTEREST_KEYWORDS = /finance charge|interest charge|interest\b/i
 const CASH_KEYWORDS = /cash advance|atm withdrawal/i
 const TRANSFER_KEYWORDS = /balance transfer|funds transfer/i
@@ -142,7 +142,11 @@ const TRANSFER_KEYWORDS = /balance transfer|funds transfer/i
 // explainable (spec §4).
 export function classifyTransactionType(merchantRaw, direction) {
   const text = merchantRaw || ''
-  if (PAYMENT_KEYWORDS.test(text)) return 'payment'
+  // A settlement payment always reduces the balance it's paid against —
+  // it's a credit-direction row. A debit row that happens to mention
+  // "payment" (e.g. "HKT AUTOPAY 52300" — a phone bill autopaid BY the
+  // card) is a purchase, not a card-balance payment — direction disambiguates.
+  if (direction === 'credit' && PAYMENT_KEYWORDS.test(text)) return 'payment'
   if (REFUND_KEYWORDS.test(text)) return 'refund'
   if (FEE_KEYWORDS.test(text)) return 'fee'
   if (INTEREST_KEYWORDS.test(text)) return 'interest'
