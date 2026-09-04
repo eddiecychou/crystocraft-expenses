@@ -5,6 +5,8 @@ import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import Upload from './pages/Upload'
 import Expenses from './pages/Expenses'
+import PaymentSources from './pages/PaymentSources'
+import Reconciliation from './pages/Reconciliation'
 import Settings from './pages/Settings'
 import Layout from './components/Layout'
 import LoadingBar from './components/LoadingBar'
@@ -33,6 +35,8 @@ export default function App() {
           <Route index element={<Dashboard />} />
           <Route path="upload" element={<Upload />} />
           <Route path="expenses" element={<Expenses />} />
+          <Route path="payment-sources" element={<PaymentSources />} />
+          <Route path="reconciliation" element={<Reconciliation />} />
           <Route path="settings" element={<Settings />} />
         </Route>
       </Routes>
