@@ -26,6 +26,12 @@ export default function PaymentSources() {
   // CSV — they're held here for the user to review/exclude before anything
   // is written to Firestore.
   const [pdfPreview, setPdfPreview] = useState(null) // { fileName, rows: [{...row, include}] }
+  // Rows whose fingerprint matched an existing transaction on this account.
+  // Held here for review instead of silently dropped — a genuine repeat
+  // transaction (same merchant/amount/day, e.g. two identical purchases)
+  // fingerprints identically to a re-imported duplicate, so the system
+  // can't safely decide on its own; the user can.
+  const [duplicateReview, setDuplicateReview] = useState(null) // { importId, fileName, rows: [{...doc, include}] }
   const fileRef = useRef()
 
   useEffect(() => {
@@ -89,8 +95,14 @@ export default function PaymentSources() {
     ))
     const existingFingerprints = new Set(existingSnap.docs.map(d => d.data().fingerprintExact))
 
-    let dupCount = 0
+    // Rows whose fingerprint matches something already imported on this
+    // account aren't written automatically — a genuine repeat transaction
+    // (same merchant/amount/date, e.g. two identical purchases) produces
+    // the exact same fingerprint as a re-imported duplicate, so this can't
+    // be decided silently. They're returned separately for the caller to
+    // put in front of the user instead.
     const rowsToWrite = []
+    const duplicateRows = []
     for (const t of mapped) {
       const merchantNormalized = normalizeMerchant(t.merchantRaw)
       const transactionType = classifyTransactionType(t.merchantRaw, t.direction)
@@ -103,9 +115,7 @@ export default function PaymentSources() {
         direction: t.direction,
         settlementCurrency: account.settlementCurrency,
       })
-      if (existingFingerprints.has(fingerprintExact)) { dupCount++; continue }
-      existingFingerprints.add(fingerprintExact)
-      rowsToWrite.push({
+      const rowDoc = {
         userId: auth.currentUser.uid,
         projectId: activeProject.id,
         importId: importRef.id,
@@ -134,7 +144,10 @@ export default function PaymentSources() {
         rawRowText: t.rawRowText,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
-      })
+      }
+      if (existingFingerprints.has(fingerprintExact)) { duplicateRows.push(rowDoc); continue }
+      existingFingerprints.add(fingerprintExact)
+      rowsToWrite.push(rowDoc)
     }
 
     for (let i = 0; i < rowsToWrite.length; i += 400) {
@@ -149,7 +162,35 @@ export default function PaymentSources() {
       updatedAt: serverTimestamp(),
     })
 
-    return { written: rowsToWrite.length, dupCount }
+    return { written: rowsToWrite.length, duplicateRows, importId: importRef.id }
+  }
+
+  // Writes duplicate-fingerprint rows the user has explicitly confirmed are
+  // genuine (not a re-import) after reviewing them.
+  async function confirmDuplicateImport() {
+    const toWrite = duplicateReview.rows.filter(r => r.include)
+    setImporting(true)
+    try {
+      for (let i = 0; i < toWrite.length; i += 400) {
+        const batch = writeBatch(db)
+        toWrite.slice(i, i + 400).forEach(({ include, ...row }) => batch.set(doc(collection(db, 'paymentTransactions')), row))
+        await batch.commit()
+      }
+      const impSnap = imports.find(imp => imp.id === duplicateReview.importId)
+      await updateDoc(doc(db, 'paymentImports', duplicateReview.importId), {
+        lineCount: (impSnap?.lineCount || 0) + toWrite.length,
+        updatedAt: serverTimestamp(),
+      })
+      setImportMsg(prev => prev + (toWrite.length ? ` ${toWrite.length} reviewed duplicate${toWrite.length === 1 ? '' : 's'} added.` : ''))
+      setDuplicateReview(null)
+    } catch (err) {
+      setImportMsg('Failed to import reviewed duplicates: ' + (err.message || 'unknown error'))
+    }
+    setImporting(false)
+  }
+
+  function toggleDuplicateRow(i) {
+    setDuplicateReview(prev => ({ ...prev, rows: prev.rows.map((r, idx) => idx === i ? { ...r, include: !r.include } : r) }))
   }
 
   async function handleFileSelected(e) {
@@ -191,12 +232,13 @@ export default function PaymentSources() {
         setImporting(false)
         return
       }
-      const { written, dupCount } = await commitRows(mapped, account, file.name, 'csv')
+      const { written, duplicateRows, importId } = await commitRows(mapped, account, file.name, 'csv')
       setImportMsg(
         `Imported ${written} transaction${written === 1 ? '' : 's'}` +
-        (dupCount ? ` (${dupCount} duplicate${dupCount === 1 ? '' : 's'} skipped)` : '') +
+        (duplicateRows.length ? ` (${duplicateRows.length} possible duplicate${duplicateRows.length === 1 ? '' : 's'} held for review below)` : '') +
         '. Go to Reconciliation to review matches.'
       )
+      if (duplicateRows.length) setDuplicateReview({ importId, fileName: file.name, rows: duplicateRows.map(r => ({ ...r, include: false })) })
     } catch (err) {
       setImportMsg('Import failed: ' + (err.message || 'unknown error'))
     }
@@ -213,12 +255,13 @@ export default function PaymentSources() {
     setImporting(true)
     setImportMsg('')
     try {
-      const { written, dupCount } = await commitRows(toImport, account, pdfPreview.fileName, 'pdf')
+      const { written, duplicateRows, importId } = await commitRows(toImport, account, pdfPreview.fileName, 'pdf')
       setImportMsg(
         `Imported ${written} transaction${written === 1 ? '' : 's'} from PDF` +
-        (dupCount ? ` (${dupCount} duplicate${dupCount === 1 ? '' : 's'} skipped)` : '') +
+        (duplicateRows.length ? ` (${duplicateRows.length} possible duplicate${duplicateRows.length === 1 ? '' : 's'} held for review below)` : '') +
         '. Go to Reconciliation to review matches.'
       )
+      if (duplicateRows.length) setDuplicateReview({ importId, fileName: pdfPreview.fileName, rows: duplicateRows.map(r => ({ ...r, include: false })) })
       setPdfPreview(null)
     } catch (err) {
       setImportMsg('Import failed: ' + (err.message || 'unknown error'))
@@ -344,6 +387,44 @@ export default function PaymentSources() {
                 {importing ? 'Importing…' : `Import ${pdfPreview.rows.filter(r => r.include).length} Row(s)`}
               </button>
               <button className="btn-ghost" disabled={importing} onClick={() => setPdfPreview(null)}>Cancel</button>
+            </div>
+          </div>
+        )}
+
+        {duplicateReview && (
+          <div className="card" style={{ marginTop: 16, background: '#fffaf0' }}>
+            <div className="card-header">
+              <h3>Possible Duplicates — {duplicateReview.fileName}</h3>
+              <span className="hint">{duplicateReview.rows.filter(r => r.include).length} of {duplicateReview.rows.length} selected</span>
+            </div>
+            <p className="hint">
+              These rows match the date, amount, and description of a transaction already imported on this account.
+              That usually means the statement overlaps one already imported — but if these are genuinely separate
+              transactions (e.g. two identical purchases on the same day), check the ones to add.
+            </p>
+            <div className="table-wrap">
+              <table className="expense-table">
+                <thead>
+                  <tr><th></th><th>Date</th><th>Description</th><th>Amount</th><th>Direction</th></tr>
+                </thead>
+                <tbody>
+                  {duplicateReview.rows.map((r, i) => (
+                    <tr key={i} style={{ opacity: r.include ? 1 : 0.6 }}>
+                      <td><input type="checkbox" checked={r.include} onChange={() => toggleDuplicateRow(i)} /></td>
+                      <td>{r.transactionDate}</td>
+                      <td>{r.merchantRaw}</td>
+                      <td>{r.settlementAmount.toFixed(2)}</td>
+                      <td>{r.direction}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="action-row" style={{ marginTop: 12 }}>
+              <button className="btn-primary" disabled={importing || !duplicateReview.rows.some(r => r.include)} onClick={confirmDuplicateImport}>
+                {importing ? 'Importing…' : `Add ${duplicateReview.rows.filter(r => r.include).length} as New`}
+              </button>
+              <button className="btn-ghost" disabled={importing} onClick={() => setDuplicateReview(null)}>Discard All as Duplicates</button>
             </div>
           </div>
         )}
