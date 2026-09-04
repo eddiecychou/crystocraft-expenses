@@ -113,7 +113,8 @@ function detectHeader(line) {
 // money-shaped token — restricting clustering to those lines' items
 // excludes that unrelated content before it can corrupt column detection.
 const AMOUNT_TOKEN = /\d[\d,]*\.\d{2}/
-const DATE_TOKEN = /^\d{1,2}[A-Za-z]{3}\b|^\d{1,2}[\/\-.]\d{1,2}/
+const DATE_TOKEN = /^\d{1,2}[A-Za-z]{3}\b|^\d{1,2}[\/\-.]\d{1,2}|^\d{1,2}\s[A-Za-z]{3}\b/
+const DATE_HEADER_NAMES = new Set(['date', 'transDate', 'postDate'])
 
 // The description column is the one column with no fixed shape: a
 // multi-word merchant description can arrive from the PDF as a single
@@ -142,28 +143,57 @@ const WIDE_COLUMNS = new Set(['description'])
 // between its neighboring narrow columns' resolved anchors. Falls back
 // to the header's own x-positions if the narrow columns don't cleanly
 // resolve to the same count as the header's narrow columns.
-function resolveColumns(headerCols, sectionLines, tolerance = 20) {
-  const headerSorted = [...headerCols].sort((a, b) => a.x - b.x)
-  const narrowHeaders = headerSorted.filter(h => !WIDE_COLUMNS.has(h.name))
-
-  const rowLines = sectionLines.filter(l => l.items.some(it => AMOUNT_TOKEN.test(it.text) || DATE_TOKEN.test(it.text)))
-  const xs = rowLines
-    .flatMap(l => l.items.filter(it => AMOUNT_TOKEN.test(it.text) || DATE_TOKEN.test(it.text)).map(it => it.x))
-    .sort((a, b) => a - b)
+function clusterXs(xs, tolerance) {
+  const sorted = [...xs].sort((a, b) => a - b)
   const clusters = []
-  for (const x of xs) {
+  for (const x of sorted) {
     const last = clusters[clusters.length - 1]
     if (last && x - last.xs[last.xs.length - 1] <= tolerance) last.xs.push(x)
     else clusters.push({ xs: [x] })
   }
-  const minPopulation = Math.max(2, rowLines.length * 0.3)
-  const narrowClusters = clusters.filter(c => c.xs.length >= minPopulation)
-  const narrowAnchors = narrowClusters.map(c => ({
-    x: c.xs.reduce((a, b) => a + b, 0) / c.xs.length,
-    min: Math.min(...c.xs),
-  }))
+  return clusters
+}
 
-  if (narrowAnchors.length !== narrowHeaders.length) return headerSorted
+function resolveColumns(headerCols, sectionLines, tolerance = 20) {
+  const headerSorted = [...headerCols].sort((a, b) => a.x - b.x)
+  const narrowHeaders = headerSorted.filter(h => !WIDE_COLUMNS.has(h.name))
+  const narrowDateHeaders = narrowHeaders.filter(h => DATE_HEADER_NAMES.has(h.name))
+  const narrowMoneyHeaders = narrowHeaders.filter(h => !DATE_HEADER_NAMES.has(h.name))
+
+  const rowLines = sectionLines.filter(l => l.items.some(it => AMOUNT_TOKEN.test(it.text) || DATE_TOKEN.test(it.text)))
+  const minPopulation = Math.max(2, rowLines.length * 0.3)
+
+  // Date-type columns are calibrated ONLY from each line's leading items
+  // (as many as there are date columns — e.g. the first 2 for a Post
+  // date/Trans date layout) — never from a date-shaped token anywhere
+  // else on the line. Verified: a statement can print an unrelated
+  // processing-date reference mid-description ("...HC125C3193203289
+  // 31DEC") that also matches a date pattern; pooling it alongside the
+  // real Date column's values pulled the whole column's calibration onto
+  // that noise instead, since it happened to have similar population.
+  const dateXs = narrowDateHeaders.length
+    ? rowLines.flatMap(l => l.items.slice(0, narrowDateHeaders.length).filter(it => DATE_TOKEN.test(it.text)).map(it => it.x))
+    : []
+  // Money-type columns can stay pooled from anywhere on the line — a
+  // foreign-currency sub-amount matching the same shape is handled by the
+  // min-based boundary below, not by excluding it from calibration.
+  const moneyXs = rowLines.flatMap(l => l.items.filter(it => AMOUNT_TOKEN.test(it.text)).map(it => it.x))
+
+  const dateClusters = clusterXs(dateXs, tolerance).filter(c => c.xs.length >= minPopulation)
+  const moneyClusters = clusterXs(moneyXs, tolerance).filter(c => c.xs.length >= minPopulation)
+  if (dateClusters.length !== narrowDateHeaders.length || moneyClusters.length !== narrowMoneyHeaders.length) return headerSorted
+
+  const toAnchor = c => ({ x: c.xs.reduce((a, b) => a + b, 0) / c.xs.length, min: Math.min(...c.xs) })
+  const dateAnchors = dateClusters.map(toAnchor)
+  const moneyAnchors = moneyClusters.map(toAnchor)
+  // Recombine in the header's left-to-right order (date columns and money
+  // columns were calibrated separately, but a layout can interleave them
+  // with the wide column in between, e.g. [date, description, amount]).
+  const narrowAnchors = []
+  let di = 0, mi = 0
+  for (const h of narrowHeaders) {
+    narrowAnchors.push(DATE_HEADER_NAMES.has(h.name) ? dateAnchors[di++] : moneyAnchors[mi++])
+  }
 
   const result = []
   let i = 0
