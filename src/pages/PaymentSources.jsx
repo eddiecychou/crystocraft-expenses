@@ -134,19 +134,33 @@ export default function PaymentSources() {
 
     // Check existing fingerprints for this account so re-importing the same
     // statement flags duplicates instead of silently doubling transactions.
+    // Tracked as fingerprint -> the set of running balances already seen
+    // under it, not just a flag — see the balance-based disambiguation below.
     const existingSnap = await getDocs(query(
       collection(db, 'paymentTransactions'),
       where('userId', '==', auth.currentUser.uid),
       where('paymentAccountId', '==', account.id)
     ))
-    const existingFingerprints = new Set(existingSnap.docs.map(d => d.data().fingerprintExact))
+    const fingerprintBalances = new Map()
+    for (const d of existingSnap.docs) {
+      const data = d.data()
+      if (!fingerprintBalances.has(data.fingerprintExact)) fingerprintBalances.set(data.fingerprintExact, new Set())
+      fingerprintBalances.get(data.fingerprintExact).add(data.balanceAfter ?? null)
+    }
 
     // Rows whose fingerprint matches something already imported on this
     // account aren't written automatically — a genuine repeat transaction
     // (same merchant/amount/date, e.g. two identical purchases) produces
     // the exact same fingerprint as a re-imported duplicate, so this can't
-    // be decided silently. They're returned separately for the caller to
-    // put in front of the user instead.
+    // be decided silently... UNLESS the statement's own running balance
+    // settles it: two real transactions each actually move the balance, so
+    // if this row's balanceAfter differs from every balance already seen
+    // under the same fingerprint, that's ledger-level proof they're
+    // genuinely separate — not a guess — and it's written immediately
+    // instead of being held for manual review. When no balance is
+    // available (e.g. most credit card statements, or a CSV without a
+    // balance column) this can't be decided automatically and falls back
+    // to review, same as before.
     const rowsToWrite = []
     const duplicateRows = []
     for (const t of mapped) {
@@ -175,6 +189,7 @@ export default function PaymentSources() {
         settlementCurrency: account.settlementCurrency,
         direction: t.direction,
         transactionType,
+        balanceAfter: t.balanceAfter ?? null,
         installmentIndicator: false,
         installmentNumber: null,
         installmentTotal: null,
@@ -191,9 +206,16 @@ export default function PaymentSources() {
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       }
-      if (existingFingerprints.has(fingerprintExact)) { duplicateRows.push(rowDoc); continue }
-      existingFingerprints.add(fingerprintExact)
-      rowsToWrite.push(rowDoc)
+      const seenBalances = fingerprintBalances.get(fingerprintExact)
+      if (!seenBalances) {
+        fingerprintBalances.set(fingerprintExact, new Set([rowDoc.balanceAfter]))
+        rowsToWrite.push(rowDoc)
+      } else if (rowDoc.balanceAfter != null && !seenBalances.has(rowDoc.balanceAfter)) {
+        seenBalances.add(rowDoc.balanceAfter)
+        rowsToWrite.push(rowDoc)
+      } else {
+        duplicateRows.push(rowDoc)
+      }
     }
 
     for (let i = 0; i < rowsToWrite.length; i += 400) {
@@ -578,7 +600,7 @@ export default function PaymentSources() {
             <div className="table-wrap">
               <table className="expense-table">
                 <thead>
-                  <tr><th></th><th>Date</th><th>Description</th><th>Amount</th><th>Direction</th></tr>
+                  <tr><th></th><th>Date</th><th>Description</th><th>Amount</th><th>Direction</th><th>Balance</th></tr>
                 </thead>
                 <tbody>
                   {pdfPreview.rows.map((r, i) => (
@@ -588,6 +610,7 @@ export default function PaymentSources() {
                       <td>{r.merchantRaw}</td>
                       <td>{r.settlementAmount.toFixed(2)}</td>
                       <td>{r.direction}</td>
+                      <td>{r.balanceAfter != null ? r.balanceAfter.toFixed(2) : '—'}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -609,14 +632,16 @@ export default function PaymentSources() {
               <span className="hint">{duplicateReview.rows.filter(r => r.include).length} of {duplicateReview.rows.length} selected</span>
             </div>
             <p className="hint">
-              These rows match the date, amount, and description of a transaction already imported on this account.
-              That usually means the statement overlaps one already imported — but if these are genuinely separate
-              transactions (e.g. two identical purchases on the same day), check the ones to add.
+              These rows match the date, amount, and description of a transaction already imported on this account,
+              and the statement's own running balance couldn't confirm them as separate (either it printed the same
+              balance both times, or no balance was available to check). That usually means the statement overlaps
+              one already imported — but if these are genuinely separate transactions (e.g. two identical purchases
+              on the same day), check the ones to add.
             </p>
             <div className="table-wrap">
               <table className="expense-table">
                 <thead>
-                  <tr><th></th><th>File</th><th>Date</th><th>Description</th><th>Amount</th><th>Direction</th></tr>
+                  <tr><th></th><th>File</th><th>Date</th><th>Description</th><th>Amount</th><th>Direction</th><th>Balance</th></tr>
                 </thead>
                 <tbody>
                   {duplicateReview.rows.map((r, i) => (
@@ -627,6 +652,7 @@ export default function PaymentSources() {
                       <td>{r.merchantRaw}</td>
                       <td>{r.settlementAmount.toFixed(2)}</td>
                       <td>{r.direction}</td>
+                      <td>{r.balanceAfter != null ? r.balanceAfter.toFixed(2) : '—'}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -674,7 +700,7 @@ export default function PaymentSources() {
                           {importTxns.length === 0 ? <p className="empty" style={{ margin: '8px 0' }}>No transactions in this import.</p> : (
                             <table className="expense-table" style={{ margin: '8px 0' }}>
                               <thead>
-                                <tr><th>Date</th><th>Description</th><th>Amount</th><th>Direction</th><th>Type</th><th>Actions</th></tr>
+                                <tr><th>Date</th><th>Description</th><th>Amount</th><th>Direction</th><th>Balance</th><th>Type</th><th>Actions</th></tr>
                               </thead>
                               <tbody>
                                 {importTxns.map(txn => (
@@ -690,6 +716,7 @@ export default function PaymentSources() {
                                             <option value="credit">credit</option>
                                           </select>
                                         </td>
+                                        <td>{txn.balanceAfter != null ? txn.balanceAfter.toFixed(2) : '—'}</td>
                                         <td>{txn.transactionType}</td>
                                         <td>
                                           <button className="btn-small" onClick={() => saveEditTxn(txn)}>Save</button>
@@ -702,6 +729,7 @@ export default function PaymentSources() {
                                         <td>{txn.merchantRaw}</td>
                                         <td>{txn.settlementAmount?.toFixed(2)}</td>
                                         <td>{txn.direction}</td>
+                                        <td>{txn.balanceAfter != null ? txn.balanceAfter.toFixed(2) : '—'}</td>
                                         <td>{txn.transactionType}{txn.status === 'matched' && ' · matched'}{txn.settlementGroupId && ' · linked'}</td>
                                         <td>
                                           <button className="btn-small" onClick={() => startEditTxn(txn)}>Edit</button>

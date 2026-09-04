@@ -384,6 +384,7 @@ function parseSection(lines, columns, anchorDate) {
     const credit = parseMoneyText(buckets.credit)
     const debit = parseMoneyText(buckets.debit)
     const single = parseMoneyText(buckets.amount)
+    const balance = parseMoneyText(buckets.balance)
 
     let settlementAmount = null, direction = null
     if (credit) { settlementAmount = credit.amount; direction = 'credit' }
@@ -403,6 +404,11 @@ function parseSection(lines, columns, anchorDate) {
         merchantRaw,
         settlementAmount,
         direction,
+        // The statement's own running balance after this line, when printed
+        // — used to tell a genuine repeat transaction (the balance actually
+        // moves twice) apart from an accidental double-parse of one line
+        // (the balance wouldn't have moved at all) — see paymentMatching.js.
+        balanceAfter: balance ? balance.amount * (balance.isNegative ? -1 : 1) : null,
         installmentIndicator: false,
         installmentNumber: null,
         installmentTotal: null,
@@ -440,6 +446,7 @@ function parseFallback(lines) {
       merchantRaw,
       settlementAmount: first.amount,
       direction: (first.isCredit || first.isNegative) ? 'credit' : 'debit',
+      balanceAfter: null, // no column-aware balance in single-line fallback mode
     })
   }
   return rows.filter(r => r.transactionDate) // dropped below if date unresolved — see note

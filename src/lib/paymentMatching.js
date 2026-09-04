@@ -47,6 +47,7 @@ const COLUMN_ALIASES = {
   amount: ['amount', 'transaction amount'],
   debit: ['debit', 'withdrawal', 'debit amount'],
   credit: ['credit', 'deposit', 'credit amount'],
+  balance: ['balance', 'running balance', 'closing balance'],
 }
 
 function findColumn(headers, aliases) {
@@ -89,6 +90,7 @@ export function mapCsvRecords(records, headers) {
   const amountCol = findColumn(headers, COLUMN_ALIASES.amount)
   const debitCol = findColumn(headers, COLUMN_ALIASES.debit)
   const creditCol = findColumn(headers, COLUMN_ALIASES.credit)
+  const balanceCol = findColumn(headers, COLUMN_ALIASES.balance)
 
   return records.map((rec, i) => {
     const rawDateText = rec[dateCol] || ''
@@ -114,6 +116,7 @@ export function mapCsvRecords(records, headers) {
       merchantRaw: descCol ? rec[descCol] : '',
       settlementAmount,
       direction,
+      balanceAfter: balanceCol && rec[balanceCol] ? (isNaN(parseFloat(rec[balanceCol].replace(/[,$]/g, ''))) ? null : parseFloat(rec[balanceCol].replace(/[,$]/g, ''))) : null,
     }
   }).filter(t => t.settlementAmount != null && t.direction != null)
 }
