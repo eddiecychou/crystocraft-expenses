@@ -53,7 +53,15 @@ export default function PaymentSources() {
     )
     const unsubI = onSnapshot(
       query(collection(db, 'paymentImports'), where('userId', '==', auth.currentUser.uid), where('projectId', '==', activeProject.id)),
-      snap => setImports(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)))
+      // Grouped by filename (then real-data-first within a group) rather than
+      // plain creation order — a failed/duplicate re-import of the same
+      // statement creates a second row with the same name, and sorting
+      // purely by createdAt scatters it far from the original, making it
+      // easy to attach a file or take an action on the wrong one (verified:
+      // this happened in practice).
+      snap => setImports(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) =>
+        (a.sourceFileName || '').localeCompare(b.sourceFileName || '') || (b.lineCount || 0) - (a.lineCount || 0)
+      ))
     )
     return () => { unsubA(); unsubI() }
   }, [activeProject?.id])
@@ -595,8 +603,8 @@ export default function PaymentSources() {
               <tbody>
                 {imports.map(imp => (
                   <Fragment key={imp.id}>
-                    <tr>
-                      <td>{imp.sourceFileName}</td>
+                    <tr style={imp.lineCount === 0 ? { opacity: 0.55 } : undefined}>
+                      <td>{imp.sourceFileName}{imp.lineCount === 0 && <span className="hint"> (empty — safe to delete)</span>}</td>
                       <td>{accounts.find(a => a.id === imp.paymentAccountId)?.label || '—'}</td>
                       <td>{imp.periodStart && imp.periodEnd ? `${imp.periodStart} – ${imp.periodEnd}` : '—'}</td>
                       <td>{imp.lineCount}</td>
