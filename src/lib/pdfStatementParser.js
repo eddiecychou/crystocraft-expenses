@@ -42,6 +42,7 @@ async function extractStructuredLines(file) {
 
   for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
     const page = await pdf.getPage(pageNum)
+    const viewport = page.getViewport({ scale: 1 })
     const content = await page.getTextContent()
     const rawItems = content.items.filter(it => it.str.trim() !== '')
 
@@ -62,7 +63,7 @@ async function extractStructuredLines(file) {
       text: c.items.map(it => it.text).join(' ').replace(/\s+/g, ' ').trim(),
     })).filter(l => l.text)
 
-    pages.push(lines)
+    pages.push({ lines, width: viewport.width, height: viewport.height })
   }
   return pages
 }
@@ -327,10 +328,16 @@ const INSTALMENT_NOTE = /(\d+)(?:st|nd|rd|th)\s+of\s+(\d+)\s+instal?ments?/i
 // from — the caller uses the first opening marker and the last closing
 // marker across the whole document as the statement's overall totals
 // checkpoints.
-function parseSection(lines, columns, anchorDate, pageNumber, balanceMarkers) {
+function parseSection(lines, columns, anchorDate, pageNumber, balanceMarkers, xRange) {
   const rows = []
   let currentDate = null
   let pendingDesc = []
+  // The line where the current transaction's description started — a
+  // description can span 2-3 lines before the amount line closes the row
+  // out, so the redaction mask (see maskRect below) needs the full
+  // vertical span from the first description line down to the amount
+  // line, not just the single line the amount happened to print on.
+  let descStartY = null
 
   const parseDateBucket = text => parseShortDate(text, anchorDate) || (/^\d{4}-\d{2}-\d{2}$/.test(text) ? text : null)
 
@@ -412,8 +419,11 @@ function parseSection(lines, columns, anchorDate, pageNumber, balanceMarkers) {
       continue
     }
 
-    if (parsedDate) { currentDate = parsedDate; pendingDesc = [] }
-    if (descText) pendingDesc.push(descText)
+    if (parsedDate) { currentDate = parsedDate; pendingDesc = []; descStartY = null }
+    if (descText) {
+      if (pendingDesc.length === 0) descStartY = line.y
+      pendingDesc.push(descText)
+    }
 
     let settlementAmount = null, direction = null
     if (credit) { settlementAmount = credit.amount; direction = 'credit' }
@@ -423,7 +433,19 @@ function parseSection(lines, columns, anchorDate, pageNumber, balanceMarkers) {
     if (settlementAmount != null && currentDate) {
       const merchantRaw = pendingDesc.join(' ').replace(/\s+/g, ' ').trim()
       pendingDesc = []
-      if (!merchantRaw || NON_TRANSACTION_LABELS.test(merchantRaw)) continue
+      if (!merchantRaw || NON_TRANSACTION_LABELS.test(merchantRaw)) { descStartY = null; continue }
+      // pdf.js's line y is the text BASELINE, not the glyph's visual top —
+      // a symmetric few-point pad around it is nowhere near enough: a
+      // glyph's ascender/cap-height commonly extends 7-9pt above the
+      // baseline for a typical 9-11pt statement font, while descenders
+      // (g, j, p, q, y) only dip 2-4pt below it. Verified visually: an
+      // earlier ±3pt-both-sides pad left "24Jul" and "PERSONAL GROCERY
+      // STORE" both visibly peeking out above/below the mask. Padding
+      // generously enough to cover fonts up to ~13pt costs nothing and
+      // removes this failure mode entirely.
+      const padAbove = 10
+      const padBelow = 4
+      const top = descStartY != null ? descStartY : line.y
       rows.push({
         sourceRowIndex: rows.length,
         pageNumber,
@@ -442,7 +464,14 @@ function parseSection(lines, columns, anchorDate, pageNumber, balanceMarkers) {
         installmentIndicator: false,
         installmentNumber: null,
         installmentTotal: null,
+        // Used only by pdfRedaction.js to black out this row on the original
+        // PDF page for a personal-account export — see TECHNICAL.md's
+        // "Redacted Statement Excerpts" section. y is in PDF point space
+        // (origin bottom-left, increases upward), so yTop (visually higher)
+        // is the larger value.
+        maskRect: { page: pageNumber, x0: xRange.x0, x1: xRange.x1, yTop: top + padAbove, yBottom: line.y - padBelow },
       })
+      descStartY = null
     }
   }
   return rows
@@ -514,7 +543,7 @@ function extractBalanceMarkersFromRawLines(lines) {
 // anywhere in the document — never guessed.
 export async function parsePdfStatement(file) {
   const pages = await extractStructuredLines(file)
-  const allLines = pages.flat()
+  const allLines = pages.flatMap(p => p.lines)
   const lineCount = allLines.length
   const pageCount = pages.length
   const anchorDate = findAnchorDate(allLines.map(l => l.text).join(' '))
@@ -524,10 +553,18 @@ export async function parsePdfStatement(file) {
   // point at the same value when that happens — harmless duplication).
   const balanceMarkers = extractBalanceMarkersFromRawLines(allLines)
 
+  // Margin used for a row's redaction mask (see maskRect below) — generous
+  // and full-width-ish on purpose: better to mask slightly more of the page
+  // than a personal transaction's exact column footprint than to risk a
+  // sliver of real text peeking out from an under-sized box.
+  const MASK_MARGIN = 20
+
   const rows = []
   let pageNum = 0
-  for (const pageLines of pages) {
+  for (const page of pages) {
     pageNum++
+    const pageLines = page.lines
+    const xRange = { x0: MASK_MARGIN, x1: page.width - MASK_MARGIN }
     // Split each page into sections at header rows; parse each section
     // with its own column layout (a page can have multiple mini-tables,
     // and multi-page statements repeat the header on every page).
@@ -544,7 +581,7 @@ export async function parsePdfStatement(file) {
         // continuation) always has an item flush against one of the
         // resolved column positions; sidebar/footer text doesn't.
         const tableLines = sectionLines.filter(l => l.items.some(it => columns.some(c => Math.abs(it.x - c.x) <= 15)))
-        rows.push(...parseSection(tableLines, columns, anchorDate, pageNum, balanceMarkers))
+        rows.push(...parseSection(tableLines, columns, anchorDate, pageNum, balanceMarkers, xRange))
       }
       sectionLines = []
     }

@@ -539,12 +539,16 @@ by period + selected classifications, then builds a ZIP:
 ├── expense-register.xlsx        — one row per transaction, all spec §10 fields
 ├── company-expense-summary.csv  — totals by classification × currency
 ├── accountant-review-list.csv   — accountantStatus:'pending' or needs_accountant_review/shared
-├── source-statements/           — original statement files (via /api/download-receipt), one per unique importId
-│                                   for COMPANY accounts only — a personal account's statement mixes
-│                                   personal and company charges in one file, so including it whole
-│                                   would leak personal transactions regardless of classification
-│                                   filtering; a PERSONAL_ACCOUNT_STATEMENTS_OMITTED.txt lists what
-│                                   was left out and why
+├── source-statements/           — original statement files in full for COMPANY accounts (never mix
+│                                   personal data). A PERSONAL account's statement is never bundled
+│                                   as-is (it mixes personal and company charges in one file); instead:
+│                                     - a PDF gets a "-redacted.pdf" copy with every non-included row
+│                                       visually painted over on the real statement page (see
+│                                       "Redacted Statement Excerpts" below)
+│                                     - every personal-account import also gets a
+│                                       "-company-transactions-only.csv" backup regardless
+│                                     - a PERSONAL_ACCOUNT_STATEMENTS_REDACTED.txt explains what's
+│                                       redacted vs. CSV-only and why, per statement
 ├── receipts/                    — linked Expense images (same proxy, same pattern as Expenses.jsx's exportZip)
 ├── missing-receipts.csv         — rows with no linked Expense or receiptStatus:'missing'
 ├── reimbursement-or-director-current-account.csv  — 'shared' rows flagged as CANDIDATES only;
@@ -558,6 +562,42 @@ Reuses the exact ExcelJS/JSZip/download-proxy patterns already established in
 downloads (export runs are infrequent and small enough that the extra
 complexity of `Expenses.jsx`'s 6-at-a-time batching wasn't worth duplicating
 here), same `triggerDownload` helper.
+
+**Redacted Statement Excerpts.** For a personal account's PDF-sourced
+imports, `generateCompanyPackage` re-downloads and re-parses the original
+file, then calls `src/lib/pdfRedaction.js`'s `maskPdfPages(fileBlob,
+maskRects)` to produce a real, visually redacted copy of the statement —
+not a reformatted table. `maskRects` comes from `parsePdfStatement`'s output
+(`src/lib/pdfStatementParser.js`): every parsed row now carries a `maskRect
+{ page, x0, x1, yTop, yBottom }` in PDF point space, computed from the row's
+line y-position(s) (spanning from the first line of a multi-line description
+down to the amount line that closes it) with generous padding for glyph
+ascenders/descenders (pdf.js's line `y` is the text **baseline**, not the
+visual top of the glyph — a naive small symmetric pad leaves real text
+visibly peeking out; see `LESSONS_LEARNED.md`).
+
+`maskPdfPages` **rasterizes** each page (renders via `pdfjs-dist` to a
+canvas, same as parsing) and paints solid black rectangles over every row
+not in this export's included set, before reassembling a new PDF from the
+resulting page images via `pdf-lib`. This is deliberate, not a shortcut:
+drawing a shape on top of *live* PDF text without flattening to an image
+leaves the original text still selectable/copyable underneath it — a worse
+failure than no redaction at all. The output is therefore an image-based
+(non-text-searchable) PDF for masked pages, which is the correct tradeoff
+for a redaction, not a limitation to work around.
+
+Redaction is only attempted when every re-parsed row for that statement
+carries a `maskRect` — a layout that falls through to
+`pdfStatementParser.js`'s coordinate-free fallback parser (no rows have
+mask geometry) skips redaction entirely rather than risk a partial mask,
+falling back to the CSV excerpt only. A `-company-transactions-only.csv`
+excerpt is always written alongside a successful redaction too, as an
+independently-computed backup in case any row's geometry is ever
+imperfect — this app's own documentation (`pdf-statement-parsing-fragility.md`)
+is explicit that statement PDF parsing is heuristic, so redaction built on
+top of it inherits that risk and is treated accordingly (belt-and-suspenders,
+plus an explicit "spot-check before sending" note in the exported
+`PERSONAL_ACCOUNT_STATEMENTS_REDACTED.txt`).
 
 ### Export
 

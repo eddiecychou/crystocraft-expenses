@@ -9,6 +9,8 @@ import ConfirmDialog from '../components/ConfirmDialog'
 import { CLASSIFICATION_LABELS, BUSINESS_PURPOSE_OPTIONS, merchantRuleDocId, computeVisibleToMembers } from '../lib/expenseClassification'
 import { CREATE_EXPENSE_BLOCKED_TYPES } from '../lib/paymentMatching'
 import { paymentTransactionsQuery } from '../lib/projectAccess'
+import { parsePdfStatement } from '../lib/pdfStatementParser'
+import { maskPdfPages } from '../lib/pdfRedaction'
 
 // Statuses excluded from a Company Package export unless explicitly opted
 // into — per spec §10/acceptance-criterion 11, Personal and Rejected never
@@ -418,23 +420,79 @@ export default function CompanyReview() {
         .map(t => ({ TransactionDate: t.transactionDate || '', Merchant: t.merchantRaw || '', Amount: t.settlementAmount, Currency: t.settlementCurrency, Note: 'Requires accountant decision: reimbursement vs. director current account' }))
       zip.file('reimbursement-or-director-current-account.csv', toCsv(['TransactionDate', 'Merchant', 'Amount', 'Currency', 'Note'], sharedRows))
 
-      // source-statements/ — original files for every import represented.
-      // A personal account's statement mixes personal and company charges in
-      // ONE file — bundling it whole would expose every personal transaction
-      // on it regardless of how carefully the register/CSVs above filter by
-      // classification, defeating the entire point of that filter. Company
-      // accounts never mix personal data, so their statements are always
-      // safe to include in full.
+      // source-statements/ — for company accounts, the original file in
+      // full (never mixes personal data, always safe). For personal
+      // accounts, the original statement mixes personal and company charges
+      // in one file, so it's never bundled as-is. Instead:
+      //  - PDF statements get a visually redacted copy (black boxes over
+      //    every non-included row, via pdfRedaction.js) — real document,
+      //    personal lines painted out, not a reformatted table.
+      //  - A "-company-transactions-only.csv" excerpt is ALWAYS also
+      //    included alongside it (belt-and-suspenders) — statement PDF
+      //    parsing is documented elsewhere in this codebase as inherently
+      //    heuristic, so an independently-computed CSV of exactly what's
+      //    included stays available even if a row's geometry were ever
+      //    slightly off.
+      //  - If redaction can't be attempted safely (CSV-sourced import, or a
+      //    layout the parser can't confidently box every row on), only the
+      //    CSV excerpt is produced — never a PDF with a silent gap.
       setExportProgress('Downloading source statements…')
       const importIds = [...new Set(included.map(t => t.importId).filter(Boolean))]
-      const omittedPersonalStatements = []
+      const redactedPdfNames = []
+      const csvOnlyNames = []
       for (const importId of importIds) {
         const imp = imports.find(i => i.id === importId)
-        if (!imp?.sourceFileUrl) continue
+        if (!imp) continue
+
         if (accountOf(imp.paymentAccountId)?.ownershipType === 'personal') {
-          omittedPersonalStatements.push(imp.sourceFileName || importId)
+          const includedForImport = included.filter(t => t.importId === importId)
+          if (includedForImport.length === 0) continue
+          const safeName = (imp.sourceFileName || importId).replace(/\.[a-zA-Z0-9]+$/, '').replace(/[^a-zA-Z0-9_-]/g, '_')
+
+          zip.file(`source-statements/${safeName}-company-transactions-only.csv`, toCsv(
+            ['TransactionDate', 'PostingDate', 'Merchant', 'Amount', 'Currency', 'Direction', 'Classification'],
+            [...includedForImport].sort((a, b) => (a.transactionDate || '').localeCompare(b.transactionDate || '')).map(t => ({
+              TransactionDate: t.transactionDate || '',
+              PostingDate: t.postDate || '',
+              Merchant: t.merchantRaw || '',
+              Amount: t.settlementAmount,
+              Currency: t.settlementCurrency,
+              Direction: t.direction || '',
+              Classification: CLASSIFICATION_LABELS[t.classification] || t.classification,
+            }))
+          ))
+
+          let redacted = false
+          if (imp.sourceType === 'pdf' && imp.sourceFileUrl) {
+            try {
+              const res = await fetch('/api/download-receipt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: imp.sourceFileUrl }) })
+              if (!res.ok) throw new Error(`HTTP ${res.status}`)
+              const blob = await res.blob()
+              const file = new File([blob], imp.sourceFileName || 'statement.pdf', { type: 'application/pdf' })
+              const reparsed = await parsePdfStatement(file)
+              // Every re-parsed row must carry mask geometry, or this
+              // statement's layout fell through to the coordinate-free
+              // fallback parser — never attempt a partial redaction where
+              // some rows have no bounding box to mask with.
+              if (reparsed.rows.length > 0 && reparsed.rows.every(r => r.maskRect)) {
+                const includedRowIndexes = new Set(includedForImport.map(t => t.sourceRowIndex))
+                const maskRects = reparsed.rows
+                  .filter(r => !includedRowIndexes.has(r.sourceRowIndex))
+                  .map(r => r.maskRect)
+                const redactedBlob = await maskPdfPages(blob, maskRects)
+                zip.file(`source-statements/${safeName}-redacted.pdf`, await redactedBlob.arrayBuffer())
+                redactedPdfNames.push(imp.sourceFileName || importId)
+                redacted = true
+              }
+            } catch (err) {
+              console.warn('Could not produce a redacted statement PDF, CSV excerpt only:', imp.sourceFileName, err.message)
+            }
+          }
+          if (!redacted) csvOnlyNames.push(imp.sourceFileName || importId)
           continue
         }
+
+        if (!imp.sourceFileUrl) continue
         try {
           const res = await fetch('/api/download-receipt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: imp.sourceFileUrl }) })
           if (!res.ok) throw new Error(`HTTP ${res.status}`)
@@ -443,10 +501,17 @@ export default function CompanyReview() {
           console.warn('Could not download source statement:', imp.sourceFileName, err.message)
         }
       }
-      if (omittedPersonalStatements.length > 0) {
+      if (redactedPdfNames.length > 0 || csvOnlyNames.length > 0) {
         zip.file(
-          'source-statements/PERSONAL_ACCOUNT_STATEMENTS_OMITTED.txt',
-          `The following original statement files were intentionally left out of this package because they come from a personal account and would expose personal transactions alongside the company ones:\n\n${omittedPersonalStatements.join('\n')}\n\nEach included company transaction from these statements is still fully documented in expense-register.xlsx.`
+          'source-statements/PERSONAL_ACCOUNT_STATEMENTS_REDACTED.txt',
+          `Statements below come from a personal account and were NOT included as-is — they mix personal and company charges together, and including the original would expose personal transactions regardless of classification filtering.\n\n` +
+          (redactedPdfNames.length > 0
+            ? `The following have a "-redacted.pdf" copy: every non-included transaction row is painted over with a solid black box on the real statement page (a "-company-transactions-only.csv" excerpt is also included for each, as an independent backup record of exactly what's included):\n${redactedPdfNames.join('\n')}\n\n`
+            : '') +
+          (csvOnlyNames.length > 0
+            ? `The following could not be safely visually redacted (e.g. a CSV-sourced import, or a statement layout the parser couldn't confidently box every row on) — only a "-company-transactions-only.csv" excerpt is provided, listing exactly the company-classified transactions included in this export:\n${csvOnlyNames.join('\n')}\n\n`
+            : '') +
+          `This is an automated best-effort redaction — please do a quick visual spot-check of any "-redacted.pdf" file before sending it on, the same way you would review any auto-generated document.`
         )
       }
 
@@ -483,7 +548,8 @@ export default function CompanyReview() {
         missingReceiptCount: missingRows.length,
         includedStatuses: Object.entries(exportModal.include).filter(([, v]) => v).map(([k]) => k),
         sourceStatementIds: importIds,
-        personalAccountStatementsOmitted: omittedPersonalStatements.length,
+        personalAccountStatementsRedactedPdf: redactedPdfNames.length,
+        personalAccountStatementsCsvOnly: csvOnlyNames.length,
       }
       zip.file('manifest.json', JSON.stringify(manifest, null, 2))
 

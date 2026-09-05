@@ -6,6 +6,32 @@ Each entry says what happened, why it matters, and how to apply it going forward
 
 ---
 
+## A PDF text line's y is its baseline, not its visual top — pad asymmetrically
+
+Building visual PDF redaction (`src/lib/pdfRedaction.js` + the `maskRect`
+geometry in `src/lib/pdfStatementParser.js`), the first version padded a
+row's mask box by a small, symmetric ±3pt around each line's `y` from
+pdf.js. Visually verified against a rendered redacted page: the row's own
+text was still clearly visible peeking out both above and below the black
+box.
+
+**Why:** `item.transform[5]` (what this codebase calls a line's `y`) is the
+text's **baseline** — the line glyphs sit *on*, not their bounding box. A
+glyph's ascender/cap-height commonly extends 7-9pt above the baseline for a
+typical 9-11pt statement font, while descenders (g, j, p, q, y) only dip
+2-4pt below it. A symmetric pad sized for "a little extra margin" badly
+under-covers the top and only barely covers the bottom.
+
+**How to apply:** Any mask/highlight/crop box derived from pdf.js line
+positions needs asymmetric padding — generously more above the baseline
+than below (this codebase uses +10pt above / -4pt below, safe for fonts up
+to ~13pt, which covers effectively all statement body text). More broadly:
+this is exactly why the visual verification step in the plan for this
+feature existed — the math looked reasonable and the code had no bugs by
+inspection; only rendering the actual output caught it.
+
+---
+
 ## A classification filter on structured data doesn't protect the raw source file
 
 Company Package Export (Phase 3) filters the expense-register/CSVs by

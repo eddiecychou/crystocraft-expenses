@@ -54,7 +54,13 @@ some of these functions look the way they do, see [LESSONS_LEARNED.md](LESSONS_L
 | `parseSection(lines, columns, anchorDate, pageNumber, balanceMarkers)` | 330 | Internal — parses one page/section's lines into transaction row objects. |
 | `parseFallback(lines)` | 458 | Internal — best-effort parse when column detection fails entirely. |
 | `extractBalanceMarkersFromRawLines(lines)` | 493 | Internal — pulls opening/closing balance text from statement boilerplate lines. |
-| `parsePdfStatement(file)` | 515 | **Entry point.** Loads a PDF via `pdfjs-dist`, extracts text-position data, and returns parsed transaction rows + statement totals. |
+| `parsePdfStatement(file)` | 515 | **Entry point.** Loads a PDF via `pdfjs-dist`, extracts text-position data, and returns parsed transaction rows + statement totals. Each row also carries a `maskRect` (page + point-space bounding box, asymmetrically padded for baseline-vs-glyph-height — see LESSONS_LEARNED.md) used by `pdfRedaction.js` to black it out on the original PDF for personal-account exports. |
+
+### [pdfRedaction.js](src/lib/pdfRedaction.js)
+
+| Function | Purpose |
+|---|---|
+| `maskPdfPages(fileBlob, maskRects)` | Renders every page of a PDF to a canvas via `pdfjs-dist`, paints solid black rectangles over the given `maskRect`s (converted from PDF point space via the page's own viewport, handling pdf.js's y-flip correctly), and reassembles a new PDF from the rasterized page images via `pdf-lib`. Rasterizing is deliberate, not incidental — a rectangle drawn over live PDF text without flattening leaves the text still selectable underneath it. Returns the redacted PDF as a `Blob`. |
 
 ### [expenseClassification.js](src/lib/expenseClassification.js)
 
@@ -277,7 +283,7 @@ No functions — a pure dispatcher component (three link cards routing to Upload
 | `deleteRule(rule)` | Removes a merchant rule (with confirmation) — does not touch already-classified transactions. |
 | `openExportModal()` | Opens the Company Package export modal with today's month and all non-Personal/Rejected classifications pre-checked. |
 | `expenseFor(txn)` / `importFor(txn)` | Look up a transaction's linked Expense / source import record. |
-| `generateCompanyPackage()` | **Phase 3 entry point.** Filters transactions by the modal's period + selected classifications, builds `expense-register.xlsx`, three CSVs, `source-statements/`, `receipts/`, and `manifest.json`, zips them with JSZip, and triggers the download — see TECHNICAL.md's "Company Package Export" section for the full file list. |
+| `generateCompanyPackage()` | **Phase 3 entry point.** Filters transactions by the modal's period + selected classifications, builds `expense-register.xlsx`, three CSVs, `source-statements/` (visually redacted PDFs for personal-account statements via `pdfRedaction.js`, full originals for company accounts), `receipts/`, and `manifest.json`, zips them with JSZip, and triggers the download — see TECHNICAL.md's "Redacted Statement Excerpts" section. |
 
 ### [Settings.jsx](src/pages/Settings.jsx)
 
