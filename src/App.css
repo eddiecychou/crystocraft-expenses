@@ -1,8 +1,47 @@
 :root {
+  /* Per-project identity theme — set at runtime from PROJECT_COLORS
+     (see ProjectContext.jsx) via inline style on .app-layout. Drives the
+     sidebar and primary action color per active client/project. */
   --t-dark: #1a3a28;
   --t-mid: #2a5c3f;
   --t-btn: #38845a;
   --t-btn-hover: #2d6e4a;
+
+  /* Design tokens — a shared vocabulary so pages stop reinventing close-
+     but-not-quite spacing/radius/color values. Additive: nothing below
+     changes any existing rule's computed value by itself; component rules
+     opt in by referencing a var(). Semantic status colors are deliberately
+     separate from --t-* (project identity) — identity color must never
+     substitute for Matched/Needs Review/Error meaning. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-pill: 999px;
+
+  --shadow-sm: 0 1px 4px rgba(0,0,0,0.06);
+  --shadow-md: 0 8px 24px rgba(0,0,0,0.08);
+
+  /* Values matched to what's already on screen (success-msg green,
+     badge-warning amber, error-msg red) rather than a new palette, so this
+     centralizes existing colors instead of silently recoloring the app.
+     --color-info is reserved for a genuine future "processing/info" use —
+     nothing currently on screen is actually blue-info (the pre-existing
+     .info-msg is really a success confirmation; see below). */
+  --color-success: #276840;
+  --color-success-bg: #f0fff4;
+  --color-warning: #8a4a10;
+  --color-warning-bg: #fbe7d4;
+  --color-danger: #c53030;
+  --color-danger-bg: #fff5f5;
+  --color-info: #175cd3;
+  --color-info-bg: #eff6ff;
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -174,7 +213,10 @@ body {
   text-decoration: underline;
 }
 
-.info-msg { color: #276840; font-size: 13px; }
+/* Despite the name (kept as-is so Login.jsx doesn't need a rename), this
+   is a success confirmation (e.g. "password reset email sent"), not a
+   blue "info" state — colored accordingly. */
+.info-msg { color: var(--color-success); font-size: 13px; }
 
 .btn-google {
   width: 100%;
@@ -211,9 +253,12 @@ body {
   background: #e2e8f0;
 }
 
-.error-msg { color: #e53e3e; font-size: 13px; }
-.input-error { border-color: #e53e3e !important; background: #fff5f5 !important; }
-.field-error-msg { color: #e53e3e; font-size: 12px; margin-top: 3px; display: block; }
+/* .error-msg itself is defined once, further down (── Messages ──) with
+   its full boxed treatment — a second, weaker definition used to exist
+   here too, fully shadowed by that one since it comes later in the
+   cascade; removed rather than kept as dead, conflicting CSS. */
+.input-error { border-color: var(--color-danger) !important; background: var(--color-danger-bg) !important; }
+.field-error-msg { color: var(--color-danger); font-size: 12px; margin-top: 3px; display: block; }
 
 
 /* ── Page ── */
@@ -253,10 +298,10 @@ body {
 /* ── Cards ── */
 .card {
   background: #fff;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   padding: 20px 24px;
   margin-bottom: 20px;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+  box-shadow: var(--shadow-sm);
 }
 
 .card-header {
@@ -271,13 +316,13 @@ body {
 .stat-row { display: flex; gap: 16px; margin-bottom: 20px; }
 .stat-card {
   background: #fff;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   padding: 20px 24px;
   flex: 1;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+  box-shadow: var(--shadow-sm);
 }
 .stat-label { color: #718096; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
-.stat-value { font-size: 24px; font-weight: 700; color: var(--t-dark); }
+.stat-value { font-size: 24px; font-weight: 700; color: var(--t-dark); font-variant-numeric: tabular-nums; }
 
 /* ── Expense rows (dashboard) ── */
 .expense-row {
@@ -290,7 +335,7 @@ body {
 .expense-row:last-child { border-bottom: none; }
 .expense-row .date { color: #718096; width: 90px; flex-shrink: 0; }
 .expense-row .vendor { flex: 1; font-weight: 500; }
-.expense-row .amount { font-weight: 600; color: #2d3748; }
+.expense-row .amount { font-weight: 600; color: #2d3748; font-variant-numeric: tabular-nums; }
 
 /* ── Category breakdown ── */
 .category-row {
@@ -307,10 +352,10 @@ body {
 .badge {
   display: inline-block;
   padding: 2px 8px;
-  border-radius: 12px;
+  border-radius: var(--radius-pill);
   font-size: 12px;
   background: #e4f2e9;
-  color: #276840;
+  color: var(--color-success);
   font-weight: 500;
 }
 
@@ -325,7 +370,7 @@ body {
 .badge-professional-services  { background: #e8e0d4; color: #5c3a10; }
 .badge-equipment              { background: #e0eaf5; color: #1a3a6a; }
 .badge-bank-charges           { background: #f0f0e0; color: #5a5a10; }
-.badge-warning                { background: #fbe7d4; color: #8a4a10; }
+.badge-warning                { background: var(--color-warning-bg); color: var(--color-warning); }
 .badge-production             { background: #fde8d8; color: #8a3010; }
 .badge-other                  { background: #e8e8e8; color: #555555; }
 
@@ -334,7 +379,7 @@ body {
   background: var(--t-btn);
   color: #fff;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   padding: 9px 18px;
   font-size: 14px;
   font-weight: 600;
@@ -349,7 +394,7 @@ body {
   background: #fff;
   color: #4a5568;
   border: 1px solid #e2e8f0;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   padding: 9px 18px;
   font-size: 14px;
   cursor: pointer;
@@ -358,7 +403,7 @@ body {
 
 .btn-small {
   padding: 4px 10px;
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   font-size: 12px;
   cursor: pointer;
   border: 1px solid #e2e8f0;
@@ -370,16 +415,16 @@ body {
 .btn-small.btn-ghost { background: #fff; }
 .btn-danger {
   background: #fff;
-  color: #e53e3e;
+  color: var(--color-danger);
   border: 1px solid #feb2b2;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   padding: 9px 18px;
   font-size: 14px;
   cursor: pointer;
 }
-.btn-danger:hover { background: #fff5f5; }
-.btn-small.btn-danger { padding: 4px 10px; font-size: 12px; border-radius: 5px; }
-.btn-small.btn-danger:hover { background: #fff5f5; }
+.btn-danger:hover { background: var(--color-danger-bg); }
+.btn-small.btn-danger { padding: 4px 10px; font-size: 12px; border-radius: var(--radius-sm); }
+.btn-small.btn-danger:hover { background: var(--color-danger-bg); }
 
 .action-row { display: flex; gap: 12px; margin-top: 24px; }
 .export-row { display: flex; align-items: center; gap: 10px; margin: 12px 0; }
@@ -563,20 +608,20 @@ body {
 
 /* ── Messages ── */
 .error-msg {
-  color: #c53030;
-  background: #fff5f5;
+  color: var(--color-danger);
+  background: var(--color-danger-bg);
   border: 1px solid #feb2b2;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   padding: 8px 12px;
   font-size: 13px;
   margin-top: 8px;
 }
 
 .success-msg {
-  color: #276749;
-  background: #f0fff4;
+  color: var(--color-success);
+  background: var(--color-success-bg);
   border: 1px solid #9ae6b4;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   padding: 12px 16px;
   font-size: 14px;
   margin-bottom: 16px;
@@ -719,7 +764,7 @@ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
 }
 .mob-card-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; }
 .mob-card-vendor { font-weight: 600; color: var(--t-dark); font-size: 15px; flex: 1; margin-right: 8px; }
-.mob-card-amount { font-weight: 700; color: var(--t-dark); white-space: nowrap; }
+.mob-card-amount { font-weight: 700; color: var(--t-dark); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .mob-card-sub { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
 .mob-card-date { color: #718096; font-size: 13px; }
 .mob-card-payment { color: #718096; font-size: 12px; background: #f0f4f8; border-radius: 4px; padding: 1px 6px; }
@@ -1001,7 +1046,7 @@ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
 .recon-row:hover { background: #f7fbf8; }
 .recon-row.is-selected { background: #eaf5ee; border-left: 3px solid var(--t-btn); }
 .recon-row-top { display: flex; justify-content: space-between; font-size: 12px; color: #6b8577; margin-bottom: 2px; }
-.recon-row-amount { font-weight: 600; color: var(--t-dark); }
+.recon-row-amount { font-weight: 600; color: var(--t-dark); font-variant-numeric: tabular-nums; }
 .recon-row-merchant { font-weight: 500; margin-bottom: 2px; }
 .recon-row-source { font-size: 12px; color: #6b8577; margin-bottom: 6px; }
 .recon-row-tags { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -1013,7 +1058,7 @@ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
   border-radius: 10px;
   padding: 18px;
 }
-.recon-detail-amount { font-size: 18px; font-weight: 700; color: var(--t-dark); }
+.recon-detail-amount { font-size: 18px; font-weight: 700; color: var(--t-dark); font-variant-numeric: tabular-nums; }
 .recon-detail-section {
   margin-top: 14px;
   padding-top: 14px;
