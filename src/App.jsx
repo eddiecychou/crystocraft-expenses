@@ -4,6 +4,7 @@ import { ProjectProvider } from './contexts/ProjectContext'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import Upload from './pages/Upload'
+import Capture from './pages/Capture'
 import Expenses from './pages/Expenses'
 import PaymentSources from './pages/PaymentSources'
 import Reconciliation from './pages/Reconciliation'
@@ -34,6 +35,7 @@ export default function App() {
         >
           <Route index element={<Dashboard />} />
           <Route path="upload" element={<Upload />} />
+          <Route path="capture" element={<Capture />} />
           <Route path="expenses" element={<Expenses />} />
           <Route path="payment-sources" element={<PaymentSources />} />
           <Route path="reconciliation" element={<Reconciliation />} />

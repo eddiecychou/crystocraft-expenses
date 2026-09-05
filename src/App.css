@@ -717,42 +717,127 @@ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
 .mob-card-notes { color: #4a5568; font-size: 13px; margin-bottom: 8px; }
 .mob-card-actions { display: flex; gap: 8px; margin-top: 10px; }
 
+/* ── Mobile bottom navigation ──
+   A separate element from the desktop sidebar (rather than one nav that
+   morphs via CSS) so the two can show genuinely different destinations:
+   the sidebar lists everything at once (desktop has the room), the bottom
+   bar is capped at 4 top-level areas plus a More sheet for the rest — a
+   tab bar is for top-level navigation, not a dumping ground for every
+   route (and never for in-page actions like Confirm Match). */
+.mobile-bottom-nav {
+  display: none;
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  z-index: 100;
+  background: var(--t-dark);
+  border-top: 1px solid var(--t-mid);
+}
+.mobile-nav-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: 56px;
+  padding: 6px 4px;
+  color: #cfe0d5;
+  text-decoration: none;
+  font-size: 11px;
+  background: none;
+  border: none;
+  font-family: inherit;
+  cursor: pointer;
+}
+.mobile-nav-item.active, .mobile-nav-item.is-active { color: #fff; }
+.mobile-nav-icon { font-size: 20px; line-height: 1; }
+
+.mobile-sheet-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.35);
+  z-index: 101;
+}
+.mobile-sheet {
+  display: none;
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  z-index: 102;
+  background: #fff;
+  border-radius: 14px 14px 0 0;
+  padding: 8px 0 max(8px, env(safe-area-inset-bottom));
+  box-shadow: 0 -4px 20px rgba(0,0,0,0.15);
+}
+.mobile-sheet-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  font-size: 15px;
+  color: var(--t-dark);
+  text-decoration: none;
+  background: none;
+  border: none;
+  border-bottom: 1px solid #f0f4f1;
+  font-family: inherit;
+  cursor: pointer;
+}
+.mobile-sheet-item:last-child { border-bottom: none; }
+.mobile-sheet-danger { color: #e53e3e; }
+
+/* ── Capture entry cards ── */
+.capture-cards { display: flex; flex-direction: column; gap: 12px; margin-top: 16px; }
+.capture-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 72px;
+  padding: 14px 16px;
+  background: #fff;
+  border: 1px solid #e2ede4;
+  border-radius: 12px;
+  text-decoration: none;
+  color: inherit;
+}
+.capture-card:active { background: #f7fbf8; }
+.capture-card-icon { font-size: 28px; flex-shrink: 0; }
+.capture-card-title { display: block; font-weight: 600; color: var(--t-dark); font-size: 15px; }
+.capture-card-sub { display: block; color: #6b8577; font-size: 12px; margin-top: 2px; }
+
 /* ── Mobile ── */
 @media (max-width: 640px) {
-  .sidebar {
-    width: 100%;
-    flex-direction: row;
-    padding: 0;
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    z-index: 100;
-    border-top: 1px solid var(--t-mid);
-  }
-
-  .logo { display: none; }
-
-  .sidebar a {
-    flex: 1;
-    text-align: center;
-    padding: 16px 4px;
-    font-size: 13px;
-  }
-
-  .logout-btn {
-    flex: 0 0 auto;
-    width: auto;
-    padding: 16px 18px;
-    font-size: 13px;
-    margin-top: 0;
-    border-left: 1px solid var(--t-mid);
-  }
+  .desktop-only { display: none; }
+  .mobile-only { display: block; }
+  .mobile-bottom-nav { display: flex; }
+  .mobile-sheet-backdrop { display: block; }
+  .mobile-sheet { display: block; }
 
   .main-content {
     padding: 16px;
-    padding-bottom: 80px;
+    padding-bottom: 84px;
   }
+
+  /* Touch targets: buttons throughout the app default to a dense desktop
+     size (~32px, .btn-small ~20px) — bumped here to the 44-48px minimum
+     for phones, per Material/WCAG/Apple touch-target guidance, without
+     changing how they look or behave on desktop. */
+  .btn-primary, .btn-ghost, .btn-danger {
+    min-height: 48px;
+    padding: 12px 18px;
+    font-size: 15px;
+  }
+  .btn-small {
+    min-height: 44px;
+    padding: 10px 14px;
+    font-size: 13px;
+    margin-right: 6px;
+    margin-bottom: 6px;
+  }
+  .action-row { gap: 10px; }
 
   .stat-row { flex-direction: column; }
 
@@ -765,9 +850,6 @@ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
 
   .action-row { flex-direction: column; }
   .action-row .btn-primary, .action-row .btn-ghost { width: 100%; text-align: center; }
-
-  .mobile-only { display: block; }
-  .desktop-only { display: none; }
 
   .filter-row { flex-direction: column; align-items: stretch; gap: 10px; }
   .filter-search { width: 100%; }
