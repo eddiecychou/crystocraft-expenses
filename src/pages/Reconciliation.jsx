@@ -123,10 +123,21 @@ export default function Reconciliation() {
     setMatchProgress({ done: 0, total: candidates.length })
     for (let i = 0; i < candidates.length; i++) {
       const txn = candidates[i]
+      // A recurring same-merchant/same-amount charge (a monthly subscription,
+      // say) scores IDENTICALLY against every month's Expense record — the
+      // score alone can't tell June's charge from August's. Without a
+      // tiebreaker, `>` picks whichever candidate happens to come first in
+      // Firestore's arbitrary document order, not the one actually closest
+      // in date — verified: a same-day match sat unpicked while a 78-days-
+      // apart same-score "tie" won purely by iteration order.
       let best = null
+      let bestDays = Infinity
       for (const exp of expenses) {
         const result = scoreExpenseMatch(txn, exp)
-        if (result && (!best || result.score > best.score)) best = { ...result, expenseId: exp.id }
+        if (!result) continue
+        const days = Math.abs(Date.parse(txn.transactionDate) - Date.parse(exp.date)) / 86400000
+        const better = !best || result.score > best.score || (result.score === best.score && days < bestDays)
+        if (better) { best = { ...result, expenseId: exp.id }; bestDays = days }
       }
       if (best && best.score >= 50) {
         const unchanged = txn.status === 'suggested' && txn.matchedExpenseIds?.[0] === best.expenseId && txn.confidenceScore === best.score
@@ -171,10 +182,16 @@ export default function Reconciliation() {
     const bankDebits = transactions.filter(t => t.direction === 'debit' && t.transactionType !== 'payment' && !t.settlementGroupId && t.status !== 'ignored' && t.status !== 'matched')
     const out = []
     for (const card of cardPayments) {
+      // Same tiebreaker as the expense-match loop above — a recurring
+      // card-payment amount can tie in score against several bank debits.
       let best = null
+      let bestDays = Infinity
       for (const bank of bankDebits) {
         const result = scoreSettlementMatch(card, bank)
-        if (result && (!best || result.score > best.score)) best = { ...result, bankTxn: bank }
+        if (!result) continue
+        const days = Math.abs(Date.parse(card.transactionDate) - Date.parse(bank.transactionDate)) / 86400000
+        const better = !best || result.score > best.score || (result.score === best.score && days < bestDays)
+        if (better) { best = { ...result, bankTxn: bank }; bestDays = days }
       }
       if (best && best.score >= 50) out.push({ card, ...best })
     }
