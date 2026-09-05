@@ -165,21 +165,45 @@ export default function Reconciliation() {
     return m
   }, [settlementCandidates])
 
-  // A fingerprintLoose shared by more than one still-active row is a real
-  // signal of a possible duplicate — surfaced here in Exceptions, not just
-  // silently treated as another low-score expense candidate.
-  const duplicateLooseFingerprints = useMemo(() => {
-    const counts = new Map()
+  // Same account + amount + merchant, seen within a few days of another
+  // still-active row, is a real signal of a possible duplicate. Previously
+  // this grouped by the stored fingerprintLoose, which buckets by calendar
+  // month — two legitimate monthly charges landing in the same month (e.g.
+  // the 3rd and the 30th, 27 days apart, from a billing-date drift) shared
+  // a bucket and got flagged "Possible Duplicate" every month even though
+  // they're obviously separate charges. A tight day-window computed fresh
+  // from the actual dates catches genuine accidental re-imports/double
+  // charges without mislabeling routine recurring subscriptions.
+  const DUPLICATE_WINDOW_DAYS = 3
+  const riskyDuplicateIds = useMemo(() => {
+    const groups = new Map()
     for (const t of transactions) {
       if (t.status === 'ignored' || t.status === 'matched') continue
-      counts.set(t.fingerprintLoose, (counts.get(t.fingerprintLoose) || 0) + 1)
+      const key = [t.paymentAccountId, Math.abs(t.settlementAmount || 0).toFixed(2), (t.merchantNormalized || '').split(' ')[0], t.settlementCurrency].join('|')
+      if (!groups.has(key)) groups.set(key, [])
+      groups.get(key).push(t)
     }
-    return new Set([...counts.entries()].filter(([, n]) => n > 1).map(([fp]) => fp))
+    const risky = new Set()
+    for (const group of groups.values()) {
+      if (group.length < 2) continue
+      for (let i = 0; i < group.length; i++) {
+        for (let j = i + 1; j < group.length; j++) {
+          const a = Date.parse(group[i].transactionDate)
+          const b = Date.parse(group[j].transactionDate)
+          if (Number.isNaN(a) || Number.isNaN(b)) continue
+          if (Math.abs(a - b) / 86400000 <= DUPLICATE_WINDOW_DAYS) {
+            risky.add(group[i].id)
+            risky.add(group[j].id)
+          }
+        }
+      }
+    }
+    return risky
   }, [transactions])
 
   function categoryFor(txn) {
     if (txn.status !== 'suggested') return null
-    return classifyReviewCategory(txn, { hasDuplicate: duplicateLooseFingerprints.has(txn.fingerprintLoose) })
+    return classifyReviewCategory(txn, { hasDuplicate: riskyDuplicateIds.has(txn.id) })
   }
 
   function unresolvedDuplicateFlag(txn) {
@@ -229,7 +253,7 @@ export default function Reconciliation() {
       cardSettlements: settlementCandidates.length,
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [transactions, expenses, settlementCandidates, duplicateLooseFingerprints])
+  }, [transactions, expenses, settlementCandidates, riskyDuplicateIds])
 
   const filteredRows = useMemo(() => {
     let rows = transactions
@@ -263,7 +287,7 @@ export default function Reconciliation() {
       return (a.transactionDate || '').localeCompare(b.transactionDate || '')
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [transactions, accounts, topTab, exceptionFilter, sourceTypeFilter, searchText, settlementCandidateByCardId, duplicateLooseFingerprints])
+  }, [transactions, accounts, topTab, exceptionFilter, sourceTypeFilter, searchText, settlementCandidateByCardId, riskyDuplicateIds])
 
   const selected = filteredRows.find(t => t.id === selectedId) || null
   const selectedSettlement = selected ? settlementCandidateByCardId.get(selected.id) : null
@@ -692,6 +716,14 @@ export default function Reconciliation() {
                     <div className="recon-detail-label">
                       {selectedCategory ? REVIEW_CATEGORY_LABELS[selectedCategory] : 'No suggestion yet'}
                     </div>
+                    {selectedCategory === 'possible_duplicate' && (
+                      <p className="hint">
+                        Another transaction with the same amount and merchant was recorded within a few days
+                        of this one — worth a quick check that it isn't the same charge counted twice. This
+                        doesn't affect the expense match below: if it's a genuine separate charge, just confirm
+                        the match as normal.
+                      </p>
+                    )}
                     {selectedExpense && (
                       <>
                         <p>Suggested Expense: {selectedExpense.date} · {selectedExpense.vendor} · {selectedExpense.currency} {parseFloat(selectedExpense.amount).toFixed(2)} · {selectedExpense.category}</p>
