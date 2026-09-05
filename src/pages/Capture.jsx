@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { useProject } from '../contexts/ProjectContext'
 import ProjectBanner from '../components/ProjectBanner'
+import { ReceiptIcon, BankStatementIcon, CreditCardIcon, ICON_STROKE_WIDTH } from '../icons'
 
 // A dispatcher, not a new upload pipeline — each card routes to the
 // existing upload flow for that source type (Upload for receipts,
@@ -19,21 +20,21 @@ export default function Capture() {
       <p className="hint">What are you adding?</p>
       <div className="capture-cards">
         <Link to="/upload" className="capture-card">
-          <span className="capture-card-icon" aria-hidden="true">🧾</span>
+          <ReceiptIcon className="capture-card-icon" size={28} strokeWidth={ICON_STROKE_WIDTH} aria-hidden="true" />
           <span>
             <span className="capture-card-title">Upload Receipt</span>
             <span className="capture-card-sub">Photo or PDF — OCR reads the date, vendor, and amount</span>
           </span>
         </Link>
         <Link to="/payment-sources" className="capture-card">
-          <span className="capture-card-icon" aria-hidden="true">🏦</span>
+          <BankStatementIcon className="capture-card-icon" size={28} strokeWidth={ICON_STROKE_WIDTH} aria-hidden="true" />
           <span>
             <span className="capture-card-title">Upload Bank Statement</span>
             <span className="capture-card-sub">CSV or PDF — imported transactions go to Reconciliation</span>
           </span>
         </Link>
         <Link to="/payment-sources" className="capture-card">
-          <span className="capture-card-icon" aria-hidden="true">💳</span>
+          <CreditCardIcon className="capture-card-icon" size={28} strokeWidth={ICON_STROKE_WIDTH} aria-hidden="true" />
           <span>
             <span className="capture-card-title">Upload Credit Card Statement</span>
             <span className="capture-card-sub">CSV or PDF — imported transactions go to Reconciliation</span>

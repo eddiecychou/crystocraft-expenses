@@ -3,6 +3,7 @@ import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { signOut } from 'firebase/auth'
 import { auth } from '../firebase'
 import { useProject, PROJECT_COLORS } from '../contexts/ProjectContext'
+import { NavOverviewIcon, NavCaptureIcon, NavReconcileIcon, NavMoreIcon, ICON_STROKE_WIDTH } from '../icons'
 
 export default function Layout() {
   const navigate = useNavigate()
@@ -48,15 +49,15 @@ export default function Layout() {
           each page's own action bar). Everything else lives in More. */}
       <nav className="mobile-bottom-nav" style={{ borderTop: `4px solid ${identity.dot}` }}>
         <NavLink to="/" end className={navItemClass} onClick={() => setMoreOpen(false)}>
-          <span className="mobile-nav-icon" aria-hidden="true">🏠</span>
+          <NavOverviewIcon className="mobile-nav-icon" size={20} strokeWidth={ICON_STROKE_WIDTH} aria-hidden="true" />
           <span>Overview</span>
         </NavLink>
         <NavLink to="/capture" className={navItemClass} onClick={() => setMoreOpen(false)}>
-          <span className="mobile-nav-icon" aria-hidden="true">📸</span>
+          <NavCaptureIcon className="mobile-nav-icon" size={20} strokeWidth={ICON_STROKE_WIDTH} aria-hidden="true" />
           <span>Capture</span>
         </NavLink>
         <NavLink to="/reconciliation" className={navItemClass} onClick={() => setMoreOpen(false)}>
-          <span className="mobile-nav-icon" aria-hidden="true">✅</span>
+          <NavReconcileIcon className="mobile-nav-icon" size={20} strokeWidth={ICON_STROKE_WIDTH} aria-hidden="true" />
           <span>Reconcile</span>
         </NavLink>
         <button
@@ -66,7 +67,7 @@ export default function Layout() {
           aria-expanded={moreOpen}
           aria-label="More"
         >
-          <span className="mobile-nav-icon" aria-hidden="true">⋯</span>
+          <NavMoreIcon className="mobile-nav-icon" size={20} strokeWidth={ICON_STROKE_WIDTH} aria-hidden="true" />
           <span>More</span>
         </button>
       </nav>

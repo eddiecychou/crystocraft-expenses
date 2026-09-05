@@ -10,13 +10,16 @@ import { uploadReceiptImage, deleteReceiptImage, MAX_IMAGES } from '../receiptSt
 import { CATEGORIES, CURRENCIES, PAYMENT_METHODS } from '../constants'
 import ConfirmDialog from '../components/ConfirmDialog'
 import LoadingBar from '../components/LoadingBar'
+import { AttachIcon, CloseIcon, DownloadIcon, ICON_STROKE_WIDTH } from '../icons'
 
 function Lightbox({ expenseId, images, onClose, onAdd, onDelete, uploading }) {
   const canAdd = images.length < MAX_IMAGES
   return (
     <div className="lightbox-overlay" onClick={onClose}>
       <div className="lightbox-box" onClick={e => e.stopPropagation()}>
-        <button className="lightbox-close" onClick={onClose}>✕</button>
+        <button className="lightbox-close" onClick={onClose} aria-label="Close">
+          <CloseIcon size={18} strokeWidth={ICON_STROKE_WIDTH} aria-hidden="true" />
+        </button>
         <h3 className="lightbox-title">
           Receipts ({images.length}/{MAX_IMAGES})
         </h3>
@@ -370,10 +373,10 @@ export default function Expenses() {
       {filtered.length > 0 && (
         <div className="export-row">
           <button onClick={() => exportExcel(filtered)} disabled={exportingXls || exportingZip} className="btn-small btn-ghost">
-            {exportingXls ? 'Exporting…' : '⬇ Excel'}
+            <DownloadIcon size={14} strokeWidth={ICON_STROKE_WIDTH} aria-hidden="true" /> {exportingXls ? 'Exporting…' : 'Excel'}
           </button>
           <button onClick={() => exportZip(filtered)} disabled={exportingZip || exportingXls} className="btn-small btn-ghost">
-            {zipProgress ? `⬇ ${zipProgress}` : exportingZip ? 'Compressing…' : '⬇ Receipt ZIP'}
+            <DownloadIcon size={14} strokeWidth={ICON_STROKE_WIDTH} aria-hidden="true" /> {zipProgress ? zipProgress : exportingZip ? 'Compressing…' : 'Receipt ZIP'}
           </button>
           <span className="hint">{filtered.length} record{filtered.length !== 1 ? 's' : ''}</span>
         </div>
@@ -463,7 +466,7 @@ export default function Expenses() {
                     </td>
                     <td>
                       <button onClick={() => openLightbox(e)} className="btn-small" title="Manage receipts" aria-label={`Manage receipts, ${e.images?.length || 0} attached`}>
-                        📎 {e.images?.length || 0}
+                        <AttachIcon size={14} strokeWidth={ICON_STROKE_WIDTH} aria-hidden="true" /> {e.images?.length || 0}
                       </button>
                       <button onClick={() => startEdit(e)} className="btn-small">Edit</button>
                       <button onClick={() => deleteExpense(e.id)} className="btn-small btn-danger">Delete</button>
@@ -523,8 +526,8 @@ export default function Expenses() {
                 )}
                 {e.notes && <div className="mob-card-notes">{e.notes}</div>}
                 <div className="mob-card-actions">
-                  <button onClick={() => openLightbox(e)} className="btn-small">
-                    📎 {e.images?.length || 0}
+                  <button onClick={() => openLightbox(e)} className="btn-small" aria-label={`Manage receipts, ${e.images?.length || 0} attached`}>
+                    <AttachIcon size={14} strokeWidth={ICON_STROKE_WIDTH} aria-hidden="true" /> {e.images?.length || 0}
                   </button>
                   <button onClick={() => startEdit(e)} className="btn-small">Edit</button>
                   <button onClick={() => deleteExpense(e.id)} className="btn-small btn-danger">Delete</button>

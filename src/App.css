@@ -1,11 +1,14 @@
 :root {
-  /* Per-project identity theme — set at runtime from PROJECT_COLORS
-     (see ProjectContext.jsx) via inline style on .app-layout. Drives the
-     sidebar and primary action color per active client/project. */
-  --t-dark: #1a3a28;
-  --t-mid: #2a5c3f;
-  --t-btn: #38845a;
-  --t-btn-hover: #2d6e4a;
+  /* App-wide brand/action theme — deliberately neutral (near-black/gray,
+     no hue) rather than a brand color, per explicit direction: the app
+     should read calm and Apple-like, with color reserved for client
+     identity (PROJECT_COLORS: the sidebar accent strip, ProjectBanner,
+     badges) and semantic status (--color-success/warning/danger above).
+     No longer set per-project — see Layout.jsx. */
+  --t-dark: #1c1c1e;
+  --t-mid: #3a3a3c;
+  --t-btn: #1c1c1e;
+  --t-btn-hover: #000000;
 
   /* Design tokens — a shared vocabulary so pages stop reinventing close-
      but-not-quite spacing/radius/color values. Additive: nothing below
@@ -58,7 +61,7 @@ body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   font-size: 14px;
   color: var(--t-dark);
-  background: #f2f7f3;
+  background: #f5f5f7;
 }
 
 /* ── Layout ── */
@@ -124,7 +127,7 @@ body {
 /* ── Login ── */
 .login-page {
   min-height: 100vh;
-  background: #f2f7f3;
+  background: #f5f5f7;
   padding: 48px 16px;
 }
 
@@ -299,8 +302,8 @@ body {
 .card {
   background: #fff;
   border-radius: var(--radius-md);
-  padding: 20px 24px;
-  margin-bottom: 20px;
+  padding: var(--space-6) var(--space-6);
+  margin-bottom: var(--space-6);
   box-shadow: var(--shadow-sm);
 }
 
@@ -342,7 +345,7 @@ body {
   display: flex;
   justify-content: space-between;
   padding: 6px 0;
-  border-bottom: 1px solid #f2f7f3;
+  border-bottom: 1px solid #f5f5f7;
   color: #4a5568;
 }
 .category-row:last-child { border-bottom: none; }
@@ -409,7 +412,8 @@ body {
   border: 1px solid #e2e8f0;
   background: #fff;
   color: #4a5568;
-  margin-right: 4px;
+  margin-right: var(--space-2);
+  margin-bottom: var(--space-1);
 }
 .btn-small:hover { background: #f7f8fa; }
 .btn-small.btn-ghost { background: #fff; }
@@ -579,7 +583,7 @@ body {
 }
 .expense-table th {
   background: #f3f8f4;
-  padding: 10px 14px;
+  padding: var(--space-3) var(--space-4);
   text-align: left;
   font-size: 12px;
   color: #718096;
@@ -588,7 +592,7 @@ body {
   border-bottom: 1px solid #e2e8f0;
 }
 .expense-table td {
-  padding: 10px 14px;
+  padding: var(--space-3) var(--space-4);
   border-bottom: 1px solid #f0f0f0;
   color: #2d3748;
 }
@@ -757,19 +761,19 @@ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
 /* ── Mobile expense cards ── */
 .expense-mob-card {
   background: #fff;
-  border-radius: 10px;
-  padding: 14px 16px;
-  margin-bottom: 10px;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+  border-radius: var(--radius-md);
+  padding: var(--space-4) var(--space-4);
+  margin-bottom: var(--space-3);
+  box-shadow: var(--shadow-sm);
 }
-.mob-card-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; }
-.mob-card-vendor { font-weight: 600; color: var(--t-dark); font-size: 15px; flex: 1; margin-right: 8px; }
+.mob-card-header { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: var(--space-1); }
+.mob-card-vendor { font-weight: 600; color: var(--t-dark); font-size: 15px; flex: 1; margin-right: var(--space-2); }
 .mob-card-amount { font-weight: 700; color: var(--t-dark); white-space: nowrap; font-variant-numeric: tabular-nums; }
-.mob-card-sub { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.mob-card-sub { display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-2); }
 .mob-card-date { color: #718096; font-size: 13px; }
 .mob-card-payment { color: #718096; font-size: 12px; background: #f0f4f8; border-radius: 4px; padding: 1px 6px; }
-.mob-card-notes { color: #4a5568; font-size: 13px; margin-bottom: 8px; }
-.mob-card-actions { display: flex; gap: 8px; margin-top: 10px; }
+.mob-card-notes { color: #4a5568; font-size: 13px; margin-bottom: var(--space-2); }
+.mob-card-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-3); }
 
 /* ── Mobile bottom navigation ──
    A separate element from the desktop sidebar (rather than one nav that
@@ -844,7 +848,7 @@ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
 .mobile-sheet-danger { color: #e53e3e; }
 
 /* ── Capture entry cards ── */
-.capture-cards { display: flex; flex-direction: column; gap: 12px; margin-top: 16px; }
+.capture-cards { display: flex; flex-direction: column; gap: var(--space-4); margin-top: var(--space-4); }
 .capture-card {
   display: flex;
   align-items: center;
@@ -888,10 +892,10 @@ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
     min-height: 44px;
     padding: 10px 14px;
     font-size: 13px;
-    margin-right: 6px;
-    margin-bottom: 6px;
+    margin-right: var(--space-2);
+    margin-bottom: var(--space-2);
   }
-  .action-row { gap: 10px; }
+  .action-row { gap: var(--space-3); }
 
   .stat-row { flex-direction: column; }
 
@@ -957,7 +961,7 @@ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
 .settings-section-title {
   font-size: 16px; font-weight: 700; color: var(--t-dark); margin-bottom: 4px;
 }
-.project-list { display: flex; flex-direction: column; gap: 10px; margin-top: 16px; }
+.project-list { display: flex; flex-direction: column; gap: var(--space-3); margin-top: var(--space-4); }
 .project-card {
   border: 1px solid #e2e8f0;
   border-radius: 8px;
@@ -981,7 +985,7 @@ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
   border: 1px dashed #c6e0c0;
   border-radius: 8px; padding: 16px; margin-top: 12px;
 }
-.color-swatches { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
+.color-swatches { display: flex; flex-wrap: wrap; gap: var(--space-3); margin-bottom: var(--space-3); }
 .color-swatch {
   width: 36px; height: 36px; border-radius: 50%;
   border: 3px solid transparent; cursor: pointer; padding: 0;
@@ -998,8 +1002,8 @@ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
 .recon-cards {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
-  margin-bottom: 16px;
+  gap: var(--space-3);
+  margin-bottom: var(--space-5);
 }
 .recon-card {
   flex: 1 1 140px;
@@ -1054,7 +1058,7 @@ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
 .recon-row-amount { font-weight: 600; color: var(--t-dark); font-variant-numeric: tabular-nums; }
 .recon-row-merchant { font-weight: 500; margin-bottom: 2px; }
 .recon-row-source { font-size: 12px; color: #6b8577; margin-bottom: 6px; }
-.recon-row-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.recon-row-tags { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .recon-row-reason { font-size: 12px; color: #6b8577; margin-top: 6px; }
 
 .recon-detail {
@@ -1065,8 +1069,8 @@ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
 }
 .recon-detail-amount { font-size: 18px; font-weight: 700; color: var(--t-dark); font-variant-numeric: tabular-nums; }
 .recon-detail-section {
-  margin-top: 14px;
-  padding-top: 14px;
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
   border-top: 1px solid #eef4ef;
 }
 .recon-detail-label {

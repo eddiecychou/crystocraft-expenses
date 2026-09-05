@@ -140,6 +140,10 @@ function rowSignature(r) {
 // duplicate check — two genuinely identical transactions in the same
 // statement are expected to appear the same number of times on both sides
 // and net out to zero here.
+// A bare count of "N differ" isn't enough to act on — the caller (and
+// whoever's staring at the mismatch badge) needs to see WHICH rows, or
+// there's no way to tell a real gap from a rounding/normalization quirk
+// in the comparison itself. Returns up to 20 examples of each side.
 export function diffTransactionSets(reparsedRows, storedRows) {
   const counts = new Map()
   for (const r of storedRows) {
@@ -147,14 +151,24 @@ export function diffTransactionSets(reparsedRows, storedRows) {
     counts.set(key, (counts.get(key) || 0) + 1)
   }
   let missingFromRecords = 0
+  const missingRows = []
   for (const r of reparsedRows) {
     const key = rowSignature(r)
     const n = counts.get(key) || 0
     if (n > 0) counts.set(key, n - 1)
-    else missingFromRecords++
+    else {
+      missingFromRecords++
+      if (missingRows.length < 20) missingRows.push({ transactionDate: r.transactionDate, merchantRaw: r.merchantRaw, settlementAmount: r.settlementAmount, direction: r.direction })
+    }
   }
   const extraInRecords = [...counts.values()].reduce((a, b) => a + b, 0)
-  return { missingFromRecords, extraInRecords }
+  const extraRows = []
+  for (const [key, n] of counts) {
+    if (n <= 0) continue
+    const [transactionDate, merchantNormalized, settlementAmount, direction] = key.split('|')
+    for (let i = 0; i < n && extraRows.length < 20; i++) extraRows.push({ transactionDate, merchantRaw: merchantNormalized, settlementAmount: parseFloat(settlementAmount), direction })
+  }
+  return { missingFromRecords, extraInRecords, missingRows, extraRows }
 }
 
 export function validateStatementTotals({ openingBalance, closingBalance, rows, tolerance = 0.02 }) {

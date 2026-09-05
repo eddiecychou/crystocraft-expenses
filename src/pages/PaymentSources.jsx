@@ -15,6 +15,25 @@ const SOURCE_TYPES = [
   { value: 'credit_card', label: 'Credit Card' },
 ]
 
+// A sequential batch (Verify All / Fix All Mismatches) awaits one fetch at
+// a time — with no timeout, a single stalled request (slow cold start,
+// dropped connection) hangs the whole batch indefinitely with no visible
+// error, which looks exactly like "it fixes a few then just stops."
+// Aborting after 30s turns that into a per-item failure the loop can move
+// past, instead of a silent, unrecoverable stall.
+async function fetchWithTimeout(url, options, timeoutMs = 30000) {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    return await fetch(url, { ...options, signal: controller.signal })
+  } catch (err) {
+    if (err.name === 'AbortError') throw new Error(`timed out after ${Math.round(timeoutMs / 1000)}s`)
+    throw err
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 export default function PaymentSources() {
   const { activeProject } = useProject()
   const [accounts, setAccounts] = useState([])
@@ -189,6 +208,15 @@ export default function PaymentSources() {
       existingByFingerprint.set(data.fingerprintExact, list)
     }
 
+    // From here on, a thrown error (a bad field value Firestore rejects, a
+    // network drop mid-batch, anything) must never leave the import stuck
+    // at importStatus:'processing' forever with a lineCount that claims
+    // rows exist when the write never actually landed — that produces
+    // exactly the "did this actually work?" confusion this is guarding
+    // against. Anything that fails here marks the import 'error' with a
+    // visible reason instead of silently going quiet.
+    try {
+
     // Validates each row's printed balance against the previous row's
     // balance plus this row's own credit/debit, in the statement's own
     // original order — never re-sorted by date, since two same-day rows
@@ -297,6 +325,15 @@ export default function PaymentSources() {
     })
 
     return { written: rowsToWrite.length, flagged: counts.possible_duplicate + counts.confirmed_duplicate + counts.needs_review, counts, totalsCheck, importId: importRef.id }
+
+    } catch (err) {
+      await updateDoc(doc(db, 'paymentImports', importRef.id), {
+        importStatus: 'error',
+        errorMessage: err.message || 'unknown error',
+        updatedAt: serverTimestamp(),
+      }).catch(() => {}) // best-effort — the original error is what matters below
+      throw err
+    }
   }
 
   // Resolves a duplicate warning without ever deleting the transaction.
@@ -342,7 +379,7 @@ export default function PaymentSources() {
       // fetch() from the browser (same reason receipts are downloaded
       // through /api/download-receipt, not fetched directly) — route
       // through the same Netlify edge-function proxy.
-      const resp = await fetch('/api/download-receipt', {
+      const resp = await fetchWithTimeout('/api/download-receipt', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: imp.sourceFileUrl }),
@@ -358,7 +395,7 @@ export default function PaymentSources() {
       ))
       const storedRows = storedSnap.docs.map(d => d.data())
 
-      const { missingFromRecords, extraInRecords } = diffTransactionSets(reparsedRows, storedRows)
+      const { missingFromRecords, extraInRecords, missingRows, extraRows } = diffTransactionSets(reparsedRows, storedRows)
       const totalsCheck = validateStatementTotals({ openingBalance, closingBalance, rows: reparsedRows })
       const consistent = missingFromRecords === 0 && extraInRecords === 0 && (totalsCheck === null || totalsCheck.consistent)
 
@@ -368,6 +405,8 @@ export default function PaymentSources() {
         storedCount: storedRows.length,
         missingFromRecords,
         extraInRecords,
+        missingRows,
+        extraRows,
         totalsCheck,
         consistent,
       }
@@ -426,7 +465,7 @@ export default function PaymentSources() {
       const imp = eligible[i]
       setVerifyMsg(`Checking ${i + 1} of ${eligible.length} mismatched statements…`)
       try {
-        const resp = await fetch('/api/download-receipt', {
+        const resp = await fetchWithTimeout('/api/download-receipt', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ url: imp.sourceFileUrl }),
@@ -674,19 +713,35 @@ export default function PaymentSources() {
         openingBalance: pdfPreview.openingBalance,
         closingBalance: pdfPreview.closingBalance,
       }, reprocessImportId)
+      let recheckNote = ''
+      // Re-verify immediately so the ⚠ Mismatch badge clears (or shows what,
+      // if anything, is still off) without a separate manual step — and say
+      // so explicitly, rather than leaving the user to guess whether the
+      // fix actually landed by re-reading a badge that might not have
+      // refreshed yet.
+      if (reprocessImportId) {
+        const imp = imports.find(i => i.id === reprocessImportId)
+        if (imp) {
+          const result = await verifyImportAgainstSource({ ...imp, sourceFileName: pdfPreview.fileName })
+          recheckNote = result?.consistent
+            ? ' Re-checked: now matches the PDF.'
+            : result?.error
+              ? ` Re-checked: couldn't confirm (${result.error}).`
+              : ` Re-checked: still ${(result?.missingFromRecords || 0) + (result?.extraInRecords || 0)} row(s) differ — see the Mismatch details below.`
+        }
+        // Open the transaction list for this import right away — the whole
+        // point of "Fix from Stored PDF" is replacing what's on record, and
+        // the only way to actually see that happened is to look at it, not
+        // just read a success message.
+        setViewingImportId(reprocessImportId)
+      }
       setImportMsg(prev => (prev ? prev + ' ' : '') +
         (reprocessImportId
           ? `${pdfPreview.fileName}: re-processed from the stored PDF — ${written} transaction${written === 1 ? '' : 's'} now on record`
           : `${pdfPreview.fileName}: imported ${written} transaction${written === 1 ? '' : 's'} from PDF`) +
         (flagged ? ` (${flagged} flagged for duplicate review — see View/Edit below)` : '') +
-        '. Go to Reconciliation to review matches.'
+        (reprocessImportId ? recheckNote : ' Go to Reconciliation to review matches.')
       )
-      // Re-verify immediately so the ⚠ Mismatch badge clears (or shows what,
-      // if anything, is still off) without a separate manual step.
-      if (reprocessImportId) {
-        const imp = imports.find(i => i.id === reprocessImportId)
-        if (imp) await verifyImportAgainstSource({ ...imp, sourceFileName: pdfPreview.fileName })
-      }
     } catch (err) {
       setImportMsg(prev => (prev ? prev + ' ' : '') + `${pdfPreview.fileName}: ${reprocessImportId ? 're-processing' : 'import'} failed — ${err.message || 'unknown error'}`)
     }
@@ -705,7 +760,7 @@ export default function PaymentSources() {
     setImporting(true)
     setImportMsg('')
     try {
-      const resp = await fetch('/api/download-receipt', {
+      const resp = await fetchWithTimeout('/api/download-receipt', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: imp.sourceFileUrl }),
@@ -898,7 +953,12 @@ export default function PaymentSources() {
                       <td>{accounts.find(a => a.id === imp.paymentAccountId)?.label || '—'}</td>
                       <td>{imp.periodStart && imp.periodEnd ? `${imp.periodStart} – ${imp.periodEnd}` : '—'}</td>
                       <td>{imp.lineCount}</td>
-                      <td>{imp.importStatus}</td>
+                      <td>
+                        {imp.importStatus}
+                        {imp.importStatus === 'error' && imp.errorMessage && (
+                          <div className="hint" style={{ maxWidth: 160 }}>{imp.errorMessage}</div>
+                        )}
+                      </td>
                       <td style={{ minWidth: 220 }}>
                         {/* Fixed min-height regardless of content, so a check landing
                             mid-list (Verify All runs them one at a time) doesn't grow
@@ -926,6 +986,27 @@ export default function PaymentSources() {
                                     : null,
                                 ].filter(Boolean).join(' · ')}
                               </div>
+                              {(imp.verification.missingRows?.length > 0 || imp.verification.extraRows?.length > 0) && (
+                                <details style={{ marginTop: 4 }}>
+                                  <summary className="hint" style={{ cursor: 'pointer' }}>Show which rows differ</summary>
+                                  {imp.verification.missingRows?.length > 0 && (
+                                    <div className="hint" style={{ maxWidth: 260, marginTop: 4 }}>
+                                      <strong>In the PDF, not in records:</strong>
+                                      {imp.verification.missingRows.map((r, i) => (
+                                        <div key={i}>{r.transactionDate} · {r.merchantRaw} · {r.settlementAmount?.toFixed?.(2) ?? r.settlementAmount} · {r.direction}</div>
+                                      ))}
+                                    </div>
+                                  )}
+                                  {imp.verification.extraRows?.length > 0 && (
+                                    <div className="hint" style={{ maxWidth: 260, marginTop: 4 }}>
+                                      <strong>In records, not in the PDF:</strong>
+                                      {imp.verification.extraRows.map((r, i) => (
+                                        <div key={i}>{r.transactionDate} · {r.merchantRaw} · {r.settlementAmount?.toFixed?.(2) ?? r.settlementAmount} · {r.direction}</div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </details>
+                              )}
                               <button className="btn-small" style={{ marginTop: 4 }} disabled={importing || fixingAll || verifyingAll} onClick={() => reprocessFromStoredPdf(imp)}>
                                 Fix from Stored PDF
                               </button>
