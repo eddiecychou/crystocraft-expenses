@@ -57,7 +57,6 @@ export default function PaymentSources() {
   const [busyId, setBusyId] = useState(null)
   const [verifyingImportId, setVerifyingImportId] = useState(null)
   const [verifyingAll, setVerifyingAll] = useState(false)
-  const [fixingAll, setFixingAll] = useState(false)
   const [verifyMsg, setVerifyMsg] = useState('')
   // Transactions for whichever import the user has expanded to review/edit.
   const [viewingImportId, setViewingImportId] = useState(null)
@@ -98,6 +97,35 @@ export default function PaymentSources() {
     )
     return unsub
   }, [viewingImportId])
+
+  // Whatever opens the transaction list (View/Edit, or a "Fix from Stored
+  // PDF" auto-expanding its own result) also brings it on screen — the
+  // import table can be long, and "it opened somewhere I have to go
+  // hunting for" was exactly the confusing part of the fix workflow.
+  useEffect(() => {
+    if (!viewingImportId) return
+    // Deferred a tick so the just-expanded row (which grows once its
+    // transaction table renders) exists in the DOM before scrolling to it.
+    const t = setTimeout(() => {
+      const el = document.getElementById(`import-row-${viewingImportId}`)
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }, 50)
+    return () => clearTimeout(t)
+  }, [viewingImportId])
+
+  // "Fix from Stored PDF" can be clicked from a row far down a long imports
+  // table, but the review panel itself always renders up near the Import
+  // Statement controls — without this, confirming a fix means the entry
+  // point (deep in the table) and the review screen (back at the top) feel
+  // like two different, disconnected places. Scrolls to whichever file's
+  // review is currently showing, including each step of a queued batch.
+  useEffect(() => {
+    if (!pdfPreview) return
+    const t = setTimeout(() => {
+      document.getElementById('pdf-preview-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }, 50)
+    return () => clearTimeout(t)
+  }, [pdfPreview?.fileName, pdfPreview?.reprocessImportId])
 
   async function createAccount() {
     if (!newAccount.label.trim()) return
@@ -205,7 +233,7 @@ export default function PaymentSources() {
     for (const d of existingSnap.docs) {
       const data = d.data()
       const list = existingByFingerprint.get(data.fingerprintExact) || []
-      list.push({ id: d.id, rawRowText: data.rawRowText, balanceAfter: data.balanceAfter, merchantRaw: data.merchantRaw })
+      list.push({ id: d.id, importId: data.importId, rawRowText: data.rawRowText, balanceAfter: data.balanceAfter, merchantRaw: data.merchantRaw })
       existingByFingerprint.set(data.fingerprintExact, list)
     }
 
@@ -246,7 +274,7 @@ export default function PaymentSources() {
       const collisionRows = existingByFingerprint.get(fingerprintExact) || []
       let duplicateStatus = null, duplicateReason = null, duplicateEvidence = null, duplicateOfTransactionId = null
       if (collisionRows.length) {
-        const result = classifyFingerprintCollision(t, collisionRows, account.sourceType)
+        const result = classifyFingerprintCollision(t, collisionRows, account.sourceType, importRef.id)
         duplicateStatus = result.status
         duplicateReason = result.reason
         duplicateEvidence = result.evidence
@@ -300,7 +328,7 @@ export default function PaymentSources() {
       if (duplicateStatus) counts[duplicateStatus]++
       // Add this row itself to the collision pool so a later row in the
       // same batch sees it too (e.g. a third same-day repeat).
-      existingByFingerprint.set(fingerprintExact, [...collisionRows, { rawRowText: t.rawRowText, balanceAfter: t.balanceAfter, merchantRaw: t.merchantRaw }])
+      existingByFingerprint.set(fingerprintExact, [...collisionRows, { importId: importRef.id, rawRowText: t.rawRowText, balanceAfter: t.balanceAfter, merchantRaw: t.merchantRaw }])
       rowsToWrite.push(rowDoc)
     }
 
@@ -348,7 +376,11 @@ export default function PaymentSources() {
       duplicateStatus: newStatus,
       duplicateReviewedBy: auth.currentUser.email,
       duplicateReviewedAt: serverTimestamp(),
-      ...(newStatus === 'confirmed_duplicate' ? { status: 'ignored' } : {}),
+      // Correcting an earlier "Confirm Duplicate" back to "Keep as
+      // Separate" must restore the transaction to active — otherwise it
+      // stays hidden as 'ignored' forever even after being vindicated as
+      // real, with no visible sign anything is wrong.
+      ...(newStatus === 'confirmed_duplicate' ? { status: 'ignored' } : txn.status === 'ignored' ? { status: 'unmatched' } : {}),
       updatedAt: serverTimestamp(),
     })
     setBusyId(null)
@@ -444,58 +476,6 @@ export default function PaymentSources() {
     setVerifyingAll(false)
   }
 
-  // Bulk version of "Fix from Stored PDF" (below), for when a batch of
-  // statements imported under an earlier parser version all come back
-  // mismatched at once. Only auto-commits a re-parse when its OWN
-  // statement-totals check comes back clean — that's independent evidence
-  // (from the bank's own printed opening/closing balance) the new parse is
-  // actually correct, not just different. Anything without that evidence
-  // (no printed balance to check, or the fresh parse still doesn't
-  // reconcile) is left exactly as-is for manual "Fix from Stored PDF"
-  // review — this never silently overwrites a transaction record without
-  // a reason to trust the replacement more than what's already there.
-  async function fixAllMismatches() {
-    const eligible = imports.filter(imp => imp.sourceType === 'pdf' && imp.sourceFileUrl && imp.verification && !imp.verification.error && !imp.verification.consistent)
-    if (!eligible.length) {
-      setVerifyMsg('No mismatched imports to fix.')
-      return
-    }
-    setFixingAll(true)
-    let fixed = 0, leftForReview = 0, failed = 0
-    for (let i = 0; i < eligible.length; i++) {
-      const imp = eligible[i]
-      setVerifyMsg(`Checking ${i + 1} of ${eligible.length} mismatched statements…`)
-      try {
-        const resp = await fetchWithTimeout('/api/download-receipt', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url: imp.sourceFileUrl }),
-        })
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
-        const blob = await resp.blob()
-        const file = new File([blob], imp.sourceFileName || 'statement.pdf', { type: blob.type })
-        const { rows, openingBalance, closingBalance } = await parsePdfStatement(file)
-        if (!rows.length) { leftForReview++; continue }
-        const totalsCheck = validateStatementTotals({ openingBalance, closingBalance, rows })
-        if (totalsCheck && totalsCheck.consistent) {
-          const account = accounts.find(a => a.id === imp.paymentAccountId)
-          await commitRows(rows, account, file, 'pdf', { openingBalance, closingBalance }, imp.id)
-          await verifyImportAgainstSource({ ...imp, sourceFileName: imp.sourceFileName })
-          fixed++
-        } else {
-          leftForReview++
-        }
-      } catch (err) {
-        failed++
-      }
-    }
-    setVerifyMsg(
-      `Auto-fixed ${fixed} of ${eligible.length} mismatched statement${eligible.length === 1 ? '' : 's'} (confirmed against their own printed balance).` +
-      (leftForReview ? ` ${leftForReview} still need manual review via "Fix from Stored PDF" — no clean totals check to confirm the re-parse.` : '') +
-      (failed ? ` ${failed} couldn't be re-fetched.` : '')
-    )
-    setFixingAll(false)
-  }
 
   // Editing or deleting a transaction that's already confirmed against an
   // expense (or linked as a card-payment/bank-debit settlement) would
@@ -747,7 +727,7 @@ export default function PaymentSources() {
       setImportMsg(prev => (prev ? prev + ' ' : '') + `${pdfPreview.fileName}: ${reprocessImportId ? 're-processing' : 'import'} failed — ${err.message || 'unknown error'}`)
     }
     setImporting(false)
-    await advancePdfQueue(queueAfter, accountId)
+    if (!reprocessImportId) await advancePdfQueue(queueAfter, accountId)
   }
 
   // One-click fix for a "Verify Against PDF" mismatch: the bank's PDF is
@@ -755,7 +735,10 @@ export default function PaymentSources() {
   // ALREADY-stored original file (no re-upload from the user's computer)
   // and shows it in the normal review screen, tagged so confirming it
   // replaces this import's transactions in place instead of creating a
-  // second, duplicate import.
+  // second, duplicate import. Deliberately one file at a time with an
+  // explicit "Import N Row(s)" click — no automatic multi-file batch, per
+  // explicit direction that changing financial records needs a review
+  // step every time, not just when the totals happen to check out clean.
   async function reprocessFromStoredPdf(imp) {
     if (!imp.sourceFileUrl) return
     setImporting(true)
@@ -789,7 +772,8 @@ export default function PaymentSources() {
   }
 
   function skipPdfPreview() {
-    advancePdfQueue(pdfQueue, pdfPreview.accountId)
+    if (pdfPreview.reprocessImportId) setPdfPreview(null)
+    else advancePdfQueue(pdfQueue, pdfPreview.accountId)
   }
 
   if (!activeProject) return <div className="page"><p className="loading">Loading…</p></div>
@@ -882,7 +866,7 @@ export default function PaymentSources() {
         )}
 
         {pdfPreview && (
-          <div className="card" style={{ marginTop: 16, background: '#fafbfc' }}>
+          <div id="pdf-preview-panel" className="card" style={{ marginTop: 16, background: '#fafbfc' }}>
             <div className="card-header">
               <h3>Review parsed rows — {pdfPreview.fileName}</h3>
               <span className="hint">{pdfPreview.rows.filter(r => r.include).length} of {pdfPreview.rows.length} selected</span>
@@ -898,10 +882,15 @@ export default function PaymentSources() {
                   : `Statement totals check FAILED: opening ${pdfPreview.totalsCheck.openingBalance.toFixed(2)} + these transactions should total ${pdfPreview.totalsCheck.expectedClosingBalance.toFixed(2)}, but the statement prints closing ${pdfPreview.totalsCheck.closingBalance.toFixed(2)} (difference ${pdfPreview.totalsCheck.difference.toFixed(2)}). This usually means a row was missed or misread — check carefully before importing.`}
               </p>
             )}
-            <div className="table-wrap">
-              <table className="expense-table">
+            <div className="table-wrap review-scroll-box">
+              <table className="expense-table review-compact-table">
                 <thead>
-                  <tr><th></th><th>Date</th><th>Description</th><th>Amount</th><th>Direction</th><th>Balance</th></tr>
+                  {/* Amount and Direction merged into one signed column
+                      (-debit / +credit) — five columns instead of six, so
+                      Date and Description get enough width to render on
+                      one line at phone widths instead of every column
+                      being squeezed down to a couple of characters. */}
+                  <tr><th></th><th>Date</th><th>Description</th><th>Amount</th><th>Balance</th></tr>
                 </thead>
                 <tbody>
                   {pdfPreview.rows.map((r, i) => (
@@ -909,14 +898,17 @@ export default function PaymentSources() {
                       <td><input type="checkbox" checked={r.include} onChange={() => togglePreviewRow(i)} /></td>
                       <td>{r.transactionDate}</td>
                       <td>{r.merchantRaw}</td>
-                      <td>{r.settlementAmount.toFixed(2)}</td>
-                      <td>{r.direction}</td>
-                      <td>{r.balanceAfter != null ? r.balanceAfter.toFixed(2) : '—'}</td>
+                      <td data-amount="true">{r.direction === 'debit' ? '-' : '+'}{r.settlementAmount.toFixed(2)}</td>
+                      <td data-amount="true">{r.balanceAfter != null ? r.balanceAfter.toFixed(2) : '—'}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+            {/* Fixed just below the (internally scrolling) row list, never
+                pushed off screen by a long statement — the whole point of
+                reviewing rows before writing them is defeated if finding
+                the confirm button needs its own scrolling. */}
             <div className="action-row" style={{ marginTop: 12 }}>
               <button className="btn-primary" disabled={importing || !pdfPreview.rows.some(r => r.include)} onClick={confirmPdfImport}>
                 {importing ? 'Importing…' : `Import ${pdfPreview.rows.filter(r => r.include).length} Row(s)`}
@@ -929,17 +921,14 @@ export default function PaymentSources() {
         {imports.length > 0 && (
           <div style={{ marginTop: 16 }}>
             <div className="action-row" style={{ alignItems: 'center' }}>
-              <button className="btn-primary btn-small" disabled={verifyingAll || fixingAll || verifyingImportId} onClick={verifyAllImports}>
+              <button className="btn-primary btn-small" disabled={verifyingAll || !!pdfPreview || verifyingImportId} onClick={verifyAllImports}>
                 {verifyingAll ? 'Verifying…' : 'Verify All Against PDFs'}
-              </button>
-              <button className="btn-ghost btn-small" disabled={verifyingAll || fixingAll || verifyingImportId} onClick={fixAllMismatches}>
-                {fixingAll ? 'Fixing…' : 'Fix All Mismatches'}
               </button>
               {verifyMsg && <span className="hint">{verifyMsg}</span>}
             </div>
             <p className="hint">
               Re-parses each PDF import's stored original file from scratch and checks it against what's recorded — catches a misread row or a parser fix that changes results, independent of the one-time review at import.
-              "Fix All Mismatches" only auto-replaces a statement's transactions when the fresh re-parse's own printed balance confirms it's correct — anything less certain is left for manual review below.
+              Fixing a mismatch always goes through the same review screen as a normal import — use "Fix from Stored PDF" on the row below.
             </p>
           <div className="table-wrap">
             <table className="expense-table">
@@ -949,7 +938,7 @@ export default function PaymentSources() {
               <tbody>
                 {imports.map(imp => (
                   <Fragment key={imp.id}>
-                    <tr style={imp.lineCount === 0 ? { opacity: 0.55 } : undefined}>
+                    <tr id={`import-row-${imp.id}`} style={imp.lineCount === 0 ? { opacity: 0.55 } : undefined}>
                       <td>{imp.sourceFileName}{imp.lineCount === 0 && <span className="hint"> (empty — safe to delete)</span>}</td>
                       <td>{accounts.find(a => a.id === imp.paymentAccountId)?.label || '—'}</td>
                       <td>{imp.periodStart && imp.periodEnd ? `${imp.periodStart} – ${imp.periodEnd}` : '—'}</td>
@@ -1008,7 +997,7 @@ export default function PaymentSources() {
                                   )}
                                 </details>
                               )}
-                              <button className="btn-small" style={{ marginTop: 4 }} disabled={importing || fixingAll || verifyingAll} onClick={() => reprocessFromStoredPdf(imp)}>
+                              <button className="btn-small" style={{ marginTop: 4 }} disabled={importing || !!pdfPreview || verifyingAll} onClick={() => reprocessFromStoredPdf(imp)}>
                                 Fix from Stored PDF
                               </button>
                             </>
@@ -1025,7 +1014,7 @@ export default function PaymentSources() {
                               {attachingImportId === imp.id ? 'Uploading…' : 'Attach Original'}
                             </button>}
                         {imp.sourceType === 'pdf' && imp.sourceFileUrl && (
-                          <button className="btn-small" style={{ minWidth: 130, display: 'inline-block' }} disabled={verifyingImportId === imp.id || verifyingAll || fixingAll} onClick={() => verifyImportAgainstSource(imp)}>
+                          <button className="btn-small" style={{ minWidth: 130, display: 'inline-block' }} disabled={verifyingImportId === imp.id || verifyingAll || !!pdfPreview} onClick={() => verifyImportAgainstSource(imp)}>
                             {verifyingImportId === imp.id ? 'Checking…' : 'Verify Against PDF'}
                           </button>
                         )}
@@ -1080,18 +1069,26 @@ export default function PaymentSources() {
                                                 {DUPLICATE_STATUS_LABELS[txn.duplicateStatus] || txn.duplicateStatus}
                                               </span>
                                               {txn.duplicateReason && <div className="hint" style={{ maxWidth: 220 }}>{txn.duplicateReason}</div>}
-                                              {!['verified_separate', 'confirmed_duplicate'].includes(txn.duplicateStatus) && (
-                                                <div style={{ marginTop: 4 }}>
+                                              {/* Always shown, even once a status is already set — an automatic
+                                                  classification (especially Confirmed Duplicate Import) is a
+                                                  best-effort guess, not a locked verdict, and the accounting
+                                                  rule this app follows throughout is that the user can always
+                                                  override it. Previously this was hidden once resolved, which
+                                                  left no way to correct a wrong auto-classification at all. */}
+                                              <div style={{ marginTop: 4 }}>
+                                                {txn.duplicateStatus !== 'verified_separate' && (
                                                   <button className="btn-small" disabled={busyId === txn.id} onClick={() => resolveDuplicate(txn, 'verified_separate')}>Keep as Separate</button>
+                                                )}
+                                                {txn.duplicateStatus !== 'confirmed_duplicate' && (
                                                   <button className="btn-small btn-danger" disabled={busyId === txn.id} onClick={() => resolveDuplicate(txn, 'confirmed_duplicate')}>Confirm Duplicate</button>
-                                                  {!txn.duplicateReviewedAt && (
-                                                    <button className="btn-small btn-ghost" disabled={busyId === txn.id} onClick={() => dismissDuplicateWarning(txn)}>Ignore Warning</button>
-                                                  )}
-                                                  {imp.sourceFileUrl && (
-                                                    <a href={imp.sourceFileUrl} target="_blank" rel="noreferrer" className="btn-small btn-ghost">Open Source Row</a>
-                                                  )}
-                                                </div>
-                                              )}
+                                                )}
+                                                {!txn.duplicateReviewedAt && (
+                                                  <button className="btn-small btn-ghost" disabled={busyId === txn.id} onClick={() => dismissDuplicateWarning(txn)}>Ignore Warning</button>
+                                                )}
+                                                {imp.sourceFileUrl && (
+                                                  <a href={imp.sourceFileUrl} target="_blank" rel="noreferrer" className="btn-small btn-ghost">Open Source Row</a>
+                                                )}
+                                              </div>
                                             </>
                                           ) : '—'}
                                         </td>

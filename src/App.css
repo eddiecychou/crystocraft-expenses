@@ -573,6 +573,44 @@ body {
 /* ── Expense table ── */
 .table-wrap { overflow-x: auto; }
 
+/* Statement-review table (PDF preview before import/reprocess): bounded
+   height with its OWN vertical scroll, so a long statement scrolls inside
+   this box instead of pushing the confirm button off the page — the whole
+   point of reviewing rows is defeated if finding the button to act on that
+   review needs a separate scroll of its own. table-layout:fixed + wrapping
+   text (rather than horizontal overflow) is what actually stops a long
+   merchant description from forcing side-to-side scrolling. */
+.review-scroll-box { max-height: 50vh; overflow-y: auto; overflow-x: hidden; }
+.review-compact-table { table-layout: fixed; width: 100%; }
+/* Only Description has genuinely variable-length content — Date, Amount,
+   Direction, Balance are short and near-fixed-width, so they should clip
+   rather than wrap; wrapping a column too narrow for even one word of its
+   own content breaks onto one character per line (verified at a real
+   mobile viewport width, not just in a wide desktop preview). */
+.review-compact-table th, .review-compact-table td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.review-compact-table th:nth-child(3), .review-compact-table td:nth-child(3) { white-space: normal; overflow-wrap: break-word; }
+/* table-layout:fixed distributes width per-column from these — every
+   column needs an explicit share summing to 100%, or an unspecified one
+   (verified: Description, left without a width) can collapse to almost
+   nothing while a neighboring column balloons to fill the gap. */
+.review-compact-table th:first-child, .review-compact-table td:first-child { width: 6%; }
+.review-compact-table th:nth-child(2), .review-compact-table td:nth-child(2) { width: 16%; }
+.review-compact-table th:nth-child(3), .review-compact-table td:nth-child(3) { width: 44%; }
+.review-compact-table th:nth-child(4), .review-compact-table td:nth-child(4) { width: 17%; }
+.review-compact-table th:nth-child(5), .review-compact-table td:nth-child(5) { width: 17%; }
+
+@media (max-width: 640px) {
+  /* Balance is "—" for the vast majority of rows (only bank statements
+     with a per-row printed balance ever populate it) — dropped on mobile
+     so Date/Description/Amount get enough width to render on one line
+     instead of every column being squeezed into a ~350px table. */
+  .review-compact-table th:nth-child(5), .review-compact-table td:nth-child(5) { display: none; }
+  .review-compact-table th:first-child, .review-compact-table td:first-child { width: 8%; }
+  .review-compact-table th:nth-child(2), .review-compact-table td:nth-child(2) { width: 30%; }
+  .review-compact-table th:nth-child(3), .review-compact-table td:nth-child(3) { width: 38%; }
+  .review-compact-table th:nth-child(4), .review-compact-table td:nth-child(4) { width: 24%; }
+}
+
 .expense-table {
   width: 100%;
   border-collapse: collapse;

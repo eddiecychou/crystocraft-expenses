@@ -49,7 +49,9 @@ export function annotateBalanceSequence(rows, tolerance = 0.02) {
 // direction, currency on the same account). `sourceType` is the payment
 // account's sourceType ('bank' or 'credit_card') since the evidence
 // available differs between the two per the accounting spec.
-export function classifyFingerprintCollision(candidate, collisionRows, sourceType) {
+// `candidateImportId` is the import this row is being written under
+// (undefined/null when not yet known) — see crossImportSameRow below.
+export function classifyFingerprintCollision(candidate, collisionRows, sourceType, candidateImportId = null) {
   const evidence = {
     sameDate: true, // guaranteed by fingerprintExact already including the date
     sameAmount: true, // guaranteed by fingerprintExact already including the amount
@@ -63,10 +65,26 @@ export function classifyFingerprintCollision(candidate, collisionRows, sourceTyp
   // The exact same source row appearing twice is the one case with genuine
   // "this looks like a repeated upload" evidence, regardless of statement
   // type — but it's still surfaced for review, never auto-deleted.
-  if (evidence.sameSourceRow) {
+  //
+  // Only counts as evidence of a REPEATED UPLOAD when the matching row
+  // belongs to a DIFFERENT import than the one being written now. Two
+  // genuinely separate transactions inside the SAME statement (e.g. two
+  // purchases at the same merchant for the same amount on the same day)
+  // can print byte-identical line text when the layout has no per-row
+  // reference/authorization number to tell them apart — that identical
+  // text is a fact about the statement's printing, not evidence either
+  // row was ever imported before. Verified against a real HSBC Red Credit
+  // Card statement: two "SUN HUNG KAI EAST POINT" $54.00 charges on the
+  // same day, printed identically, were both genuine — auto-flagging the
+  // second one as an unresolvable "confirmed duplicate" was simply wrong.
+  const crossImportSameRow = collisionRows.some(r =>
+    r.rawRowText && candidate.rawRowText && r.rawRowText === candidate.rawRowText &&
+    r.importId != null && candidateImportId != null && r.importId !== candidateImportId
+  )
+  if (crossImportSameRow) {
     return {
       status: 'confirmed_duplicate',
-      reason: 'Identical row text already imported on this account — this looks like a repeated upload of the same statement, not two separate transactions.',
+      reason: 'Identical row text already imported on this account in a different statement upload — this looks like a repeated upload of the same statement, not two separate transactions.',
       evidence,
     }
   }
