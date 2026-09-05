@@ -29,7 +29,7 @@ export default function Layout() {
       {/* Desktop sidebar — every destination visible at once; desktop has
           the room, so this is left as-is. */}
       <nav className="sidebar desktop-only" style={{ borderTop: `4px solid ${identity.dot}` }}>
-        <div className="logo">Expense<br />Organiser</div>
+        <div className="logo">Expense<br />Ops Center</div>
         <NavLink to="/" end>Dashboard</NavLink>
         <NavLink to="/upload">Upload</NavLink>
         <NavLink to="/expenses">Records</NavLink>

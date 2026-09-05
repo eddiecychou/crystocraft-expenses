@@ -1,8 +1,18 @@
-# Expense Organiser — Technical Documentation
+# Expense Operations Center — Technical Documentation
+
+_Current release: **V1.0** (see [CHANGELOG.md](CHANGELOG.md)). Formerly named "Expense Organiser" — some historical docs, spec files, and Firebase project names still use the old name; the running app, its title bar, and this document use the new one._
 
 ## Overview
 
-Expense Organiser is a multi-user web application for capturing, categorising, and exporting business receipts. Users upload receipt images or PDFs, which are scanned by AI to extract key fields (date, vendor, amount, currency, category). Expenses are organised into projects (e.g. one per company), stored in Firestore, and can be exported to Excel or a ZIP of receipt images.
+Expense Operations Center is a multi-user bookkeeping web application. It covers three workflows:
+
+1. **Receipt capture** — upload a receipt photo/PDF, AI extracts date/vendor/amount/currency/category, save to the expense ledger.
+2. **Payment source import** — upload bank or credit-card statements (CSV/PDF), parse them into individual transactions, detect duplicates against prior imports.
+3. **Reconciliation** — match imported bank/card transactions against expense records (or create new expenses from unmatched transactions), link credit-card settlements to their originating card charges, and maintain an append-only audit log of every reconciliation action.
+
+Data is organized into **projects** (e.g. one per company); each user can belong to multiple projects and switches between them via a persistent active-project selector.
+
+For the specific bugs, dead ends, and design decisions that shaped the current implementation, see [LESSONS_LEARNED.md](LESSONS_LEARNED.md). For a function-by-function map of the codebase, see [FUNCTION_INDEX.md](FUNCTION_INDEX.md).
 
 ---
 
@@ -16,7 +26,9 @@ Expense Organiser is a multi-user web application for capturing, categorising, a
 | File Storage | Firebase Storage |
 | Serverless Functions | Netlify Edge Functions (Deno runtime) + Netlify Functions (Node.js) |
 | AI | Google Gemini API (`gemini-2.5-flash`, `gemini-2.5-pro` fallback) |
+| PDF parsing | `pdfjs-dist` (client-side, for statement PDF table extraction) |
 | Export | ExcelJS (`.xlsx`), JSZip (`.zip`) |
+| Icons | `lucide-react` |
 | Hosting | Netlify |
 
 ---
@@ -27,12 +39,15 @@ Expense Organiser is a multi-user web application for capturing, categorising, a
 Browser (React SPA)
 │
 ├── Firebase Auth          — sign-in / sign-out / session state
-├── Firestore              — projects and expenses data
-├── Firebase Storage       — receipt images and PDFs
+├── Firestore              — projects, expenses, payment accounts/imports/
+│                             transactions, reconciliation action log
+├── Firebase Storage       — receipt images/PDFs, original statement files
 │
 └── Netlify (edge/serverless)
     ├── /api/process-receipt   — Edge Function (Deno): calls Gemini AI to extract receipt data
-    ├── /api/download-receipt  — Edge Function (Deno): CORS proxy for downloading storage images
+    ├── /api/download-receipt  — Edge Function (Deno): CORS proxy for downloading storage files
+    │                            (despite the name, used generically for any stored file —
+    │                            receipts AND statement PDFs — see LESSONS_LEARNED.md)
     └── /.netlify/functions/export-excel  — Node Function: (legacy path, kept for routing)
 ```
 
@@ -45,42 +60,54 @@ The frontend is a pure SPA deployed to Netlify. All API calls stay within the sa
 ```
 /
 ├── index.html
-├── vite.config.js
+├── vite.config.js                — also injects __APP_VERSION__ (git SHA), __APP_RELEASE__ (from package.json), __BUILD_TIME__
 ├── netlify.toml
 ├── package.json
 │
 ├── src/
 │   ├── main.jsx                  — app entry point
 │   ├── App.jsx                   — router, auth guard, ProjectProvider wrapper
-│   ├── App.css                   — all styles (single file)
-│   ├── firebase.js               — Firebase app init with IndexedDB persistence (auth, db, storage exports)
-│   ├── constants.js              — CATEGORIES and CURRENCIES arrays
+│   ├── App.css                   — all styles + design tokens (single file, ~1300+ lines)
+│   ├── firebase.js                — Firebase app init with IndexedDB persistence (auth, db, storage exports)
+│   ├── constants.js               — CATEGORIES, CURRENCIES, PAYMENT_METHODS arrays
+│   ├── icons.js                   — centralized lucide-react icon map + ICON_STROKE_WIDTH
+│   ├── receiptStorage.js          — upload/delete receipt images (Storage, compressed)
+│   ├── statementStorage.js        — upload/delete original statement files (Storage, uncompressed)
 │   │
 │   ├── hooks/
-│   │   └── useAuthState.js       — wraps onAuthStateChanged as a React hook
+│   │   └── useAuthState.js        — wraps onAuthStateChanged as a React hook
 │   │
 │   ├── contexts/
-│   │   └── ProjectContext.jsx    — project list, active project, color themes
+│   │   └── ProjectContext.jsx     — project list, active project, color themes, expense migration
+│   │
+│   ├── lib/
+│   │   ├── duplicateDetection.js  — fingerprint-collision classification for statement imports
+│   │   ├── paymentMatching.js     — CSV parsing, merchant normalization, expense/settlement match scoring
+│   │   └── pdfStatementParser.js  — PDF table extraction for bank/credit-card statements (pdf.js-based)
 │   │
 │   ├── components/
-│   │   ├── Layout.jsx            — sidebar nav, logout, CSS variable injection
-│   │   ├── ProjectBanner.jsx     — active project name/dot shown on each page
-│   │   ├── ConfirmDialog.jsx     — in-app confirmation modal (replaces browser confirm())
-│   │   └── LoadingBar.jsx        — animated progress bar shown during all loading states
+│   │   ├── Layout.jsx              — sidebar nav (desktop), bottom nav + More sheet (mobile), logout
+│   │   ├── ProjectBanner.jsx       — active project name/dot shown on each page
+│   │   ├── ConfirmDialog.jsx       — in-app confirmation modal (replaces browser confirm())
+│   │   └── LoadingBar.jsx          — animated progress bar shown during all loading states
 │   │
 │   └── pages/
-│       ├── Login.jsx             — sign in / sign up / forgot password
-│       ├── Dashboard.jsx         — summary stats and expense list with date filters
-│       ├── Upload.jsx            — receipt upload, AI extraction, save flow
-│       ├── Expenses.jsx          — full records table, edit, delete, export
-│       └── Settings.jsx          — project management (create, rename, recolor, delete)
+│       ├── Login.jsx               — sign in / sign up / forgot password
+│       ├── Dashboard.jsx           — date-filtered totals, category breakdown, recent expenses (route: /)
+│       ├── Capture.jsx             — mobile dispatcher: routes to Upload or Payment Sources (route: /capture)
+│       ├── Upload.jsx              — receipt upload, AI extraction, save flow (route: /upload)
+│       ├── Expenses.jsx            — full records table/cards, edit, delete, export (route: /expenses)
+│       ├── PaymentSources.jsx      — account management + statement import + duplicate review (route: /payment-sources)
+│       ├── Reconciliation.jsx      — transaction matching workspace (route: /reconciliation)
+│       ├── Settings.jsx            — project management (route: /settings)
+│       └── Export.jsx              — standalone Excel export utility; NOT routed in App.jsx, currently orphaned
 │
 └── netlify/
     ├── edge-functions/
-    │   ├── process-receipt.js    — Gemini AI receipt parser (Deno)
-    │   └── download-receipt.js   — CORS proxy for Firebase Storage URLs (Deno)
+    │   ├── process-receipt.js     — Gemini AI receipt parser (Deno)
+    │   └── download-receipt.js    — CORS proxy for Firebase Storage URLs (Deno)
     └── functions/
-        ├── export-excel.js       — (legacy) Node.js function
+        ├── export-excel.js        — (legacy) Node.js function
         └── package.json
 ```
 
@@ -93,8 +120,8 @@ The frontend is a pure SPA deployed to Netlify. All API calls stay within the sa
 | Service | Purpose |
 |---|---|
 | Authentication | User sign-in (email + Google) |
-| Firestore | `projects` and `expenses` collections |
-| Storage | Receipt images at `receipts/{uid}/{expenseId}/image{n}.{ext}` |
+| Firestore | `projects`, `expenses`, `paymentAccounts`, `paymentImports`, `paymentTransactions`, `reconciliationActions` collections |
+| Storage | Receipt images at `receipts/{uid}/{expenseId}/image{n}.{ext}`; original statement files at `statements/{uid}/{importId}/{filename}` |
 
 ### Firestore Collections
 
@@ -103,7 +130,7 @@ The frontend is a pure SPA deployed to Netlify. All API calls stay within the sa
 {
   userId: string,       // Firebase Auth UID
   name: string,
-  color: string,        // one of 10 color keys (see ProjectContext)
+  color: string,        // one of 24 color keys (see ProjectContext PROJECT_COLORS)
   createdAt: Timestamp
 }
 ```
@@ -114,32 +141,107 @@ The frontend is a pure SPA deployed to Netlify. All API calls stay within the sa
   userId: string,
   userEmail: string,
   projectId: string,
-  date: string,         // YYYY-MM-DD
+  date: string,          // YYYY-MM-DD
   vendor: string,
   amount: number,
-  currency: string,     // HKD | RMB | USD | EUR | JPY | AUD | GBP | SGD | CAD | KRW | Other
-  category: string,     // Travel | Meals | Office | Software | Utilities | Development |
-                        // Marketing | Professional Services | Equipment | Bank Charges | Other
+  currency: string,      // HKD | RMB | USD | EUR | JPY | AUD | GBP | SGD | CAD | KRW | Other
+  category: string,      // see CATEGORIES table below
   notes: string,
+  paymentMethod: string,
   images: [{ url: string, path: string, name: string }],
+  reconciliationStatus: string,  // set when created from a matched statement transaction
+  receiptStatus: string,         // e.g. 'missing' when created_from_statement with no receipt yet
+  createdAt: Timestamp
+}
+```
+
+**`paymentAccounts`**
+```
+{
+  userId: string,
+  projectId: string,
+  name: string,
+  sourceType: string,   // 'bank' | 'credit_card'
+  createdAt: Timestamp
+}
+```
+
+**`paymentImports`** — one doc per import attempt (including failed/empty re-attempts; see LESSONS_LEARNED.md on why these are never deleted automatically)
+```
+{
+  userId: string,
+  projectId: string,
+  paymentAccountId: string,
+  sourceFileName: string,
+  sourceFileUrl: string | null,   // Firebase Storage download URL for the original file
+  sourceStoragePath: string | null,
+  lineCount: number,
+  importStatus: string,           // 'processing' | 'complete' | 'error' | 'verified' | 'needs_review'
+  errorMessage: string | null,
+  statementTotals: { openingBalance, closingBalance } | null,
+  createdAt: Timestamp
+}
+```
+
+**`paymentTransactions`** — one doc per parsed statement row; every row is written unconditionally, never held back pending duplicate review (see LESSONS_LEARNED.md)
+```
+{
+  userId: string,
+  projectId: string,
+  paymentAccountId: string,
+  importId: string,
+  transactionDate: string,
+  rawDateText: string,
+  postDate: string | null,
+  merchantRaw: string,
+  merchantNormalized: string,
+  settlementAmount: number,
+  settlementCurrency: string,
+  direction: string,       // 'debit' | 'credit'
+  balanceAfter: number | null,
+  transactionType: string,
+  rawRowText: string,
+  fingerprint: string,
+  duplicateStatus: string,        // 'verified_separate' | 'possible_duplicate' | 'confirmed_duplicate' | 'needs_review'
+  duplicateReason: string | null,
+  duplicateEvidence: object | null,
+  duplicateOfTransactionId: string | null,
+  duplicateReviewedAt: Timestamp | null,
+  status: string,                 // 'unmatched' | 'matched' | 'ignored'
+  matchedExpenseId: string | null,
+  createdAt: Timestamp
+}
+```
+
+**`reconciliationActions`** — append-only log, never mutated or deleted
+```
+{
+  userId: string,
+  transactionId: string,
+  expenseId: string | null,
+  actionType: string,   // 'confirm_match' | 'ignore' | 'undo_ignore' | 'unmatch' | 'link_settlement' | ...
+  beforeState: object,
+  afterState: object,
   createdAt: Timestamp
 }
 ```
 
 ### Security Rules
 
-Firestore rules should restrict read/write to `userId == request.auth.uid`. Storage rules should restrict access to `receipts/{userId}/**` paths matching the authenticated user.
+**This repo has no `firestore.rules` or `storage.rules` file — rules exist only in the Firebase Console.** Every collection and Storage path above needs its own rule published there before the feature works; a missing rule fails silently with `permission-denied` even though the code looks complete. See [LESSONS_LEARNED.md](LESSONS_LEARNED.md#firebase-rules-live-outside-the-repo) before adding anything new.
+
+General pattern: `allow read, write: if request.auth != null && request.auth.uid == resource.data.userId` for Firestore per-user collections; `allow read, write: if request.auth != null && request.auth.uid == userId` for Storage per-user paths.
 
 ### Required Firestore Indexes
 
-No composite indexes are required. All queries use `where('userId', '==', uid)` which is automatically indexed. Project filtering is done client-side.
+No composite indexes are required. All queries use `where('userId', '==', uid)` which is automatically indexed. Project and status filtering is done client-side.
 
 ### Authorized Domains
 
 Add all deployment domains to Firebase → Authentication → Settings → Authorized domains:
 - `localhost`
-- `ua-expense-tool.netlify.app` (production)
-- Any Netlify branch preview domains (e.g. `feature-*--ua-expense-tool.netlify.app`)
+- Production Netlify domain
+- Any Netlify branch preview domains
 
 ---
 
@@ -176,7 +278,7 @@ This key is only accessed inside the Deno edge function and is never sent to the
 - Google OAuth via `signInWithPopup`
 - Forgot password via `sendPasswordResetEmail`
 - Session persisted automatically by Firebase SDK
-- `useAuthState` hook wraps `onAuthStateChanged` and drives the `ProtectedRoute` guard
+- `useAuthState` hook wraps `onAuthStateChanged` and drives the `ProtectedRoute` guard in `App.jsx`
 
 ### Multi-Project Support
 
@@ -186,18 +288,7 @@ Project selection is instant — `selectProject` updates `localStorage` and Reac
 
 ### Color Theming
 
-Ten color themes are defined in `PROJECT_COLORS` (green, blue, amber, purple, slate, teal, rose, orange, indigo, brown). When a project is active, `Layout.jsx` injects four CSS custom properties on the `.app-layout` wrapper:
-
-```jsx
-style={{
-  '--t-dark': c.dark,
-  '--t-mid': c.mid,
-  '--t-btn': c.btn,
-  '--t-btn-hover': c.btnHover,
-}}
-```
-
-All themed UI elements (sidebar, buttons, badges) reference these variables via `var(--t-btn)` etc. The `:root` block in `App.css` provides green fallback values for the login page, which sits outside `.app-layout`.
+24 color identities are defined in `PROJECT_COLORS` (10 original + 14 muted additions). A project's color is purely an **identity accent** — a 4px top border on the sidebar/mobile-nav and the `ProjectBanner` dot/badge — not the app's brand/action color. The app's brand color (`--t-dark`/`--t-mid`/`--t-btn`/`--t-btn-hover`) is a single fixed neutral theme set once in `App.css` `:root`, deliberately not overridden per project, so status colors (amber "Needs Review", red "Error") stay legible regardless of which client's data is on screen.
 
 ### Expense Categories
 
@@ -235,12 +326,10 @@ Badge CSS class names are generated by converting the category to lowercase with
 **Upload flow UX:**
 
 1. User selects or drops files — the dropzone is hidden immediately so it cannot be accidentally re-tapped
-2. **Single file:** AI extraction starts automatically — no button press required. **Multiple files:** a file list appears with individual Remove buttons so the user can review before pressing "Extract Data with AI"
-3. Each file item carries a stable numeric `_id` (from a `fileIdRef` counter) so Remove works correctly even when multiple mobile photos share the same generic filename (`image.jpg`)
-4. During extraction a sliding indeterminate progress bar appears below the button. For multi-file batches the button also shows a counter (`Extracting 2 of 5…`). The same bar appears during "+ Scan More" processing in the results view
-5. Results cards appear for review; each card shows a 60px thumbnail of the scanned receipt (PDF files show a 📄 icon). Tapping the thumbnail opens a full-size lightbox overlay. Required fields (Date, Vendor, Amount) are highlighted in red if empty on save
-
-**Mobile date input:** `input[type="date"]` in result cards has `-webkit-appearance: none` to normalise its width alongside other inputs, plus `min-height: 36px` and `line-height: 1.4` to prevent it collapsing to a thin strip when the value is empty (a WebKit bug with appearance reset on iOS).
+2. **Single file:** AI extraction starts automatically. **Multiple files:** a file list appears with individual Remove buttons for review before pressing "Extract Data with AI"
+3. Each file item carries a stable numeric `_id` so Remove works correctly even when multiple mobile photos share the same generic filename
+4. During extraction a sliding indeterminate progress bar appears, with a counter for multi-file batches (`Extracting 2 of 5…`)
+5. Results cards appear for review with a thumbnail; tapping opens a lightbox. Required fields (Date, Vendor, Amount) highlight red if empty on save
 
 **Two-image pipeline summary:**
 
@@ -249,22 +338,79 @@ Badge CSS class names are generated by converting the category to lowercase with
 | Colour JPEG (93%) | `image/jpeg` | Firebase Storage, receipt lightbox |
 | Greyscale PNG (lossless) | `image/png` | Gemini API only, discarded after extraction |
 
-**PDF extraction shortcut:** PDFs skip the transcription step entirely and go straight to the extraction call. A digital PDF already has machine-readable text embedded so a separate OCR pass adds no value — skipping it saves one full Gemini round-trip per PDF file.
+**PDF extraction shortcut:** PDFs skip the transcription step entirely and go straight to the extraction call — a digital PDF already has machine-readable text embedded.
 
-**Multi-file processing:** files are processed sequentially (one at a time). The button shows a live counter (`Extracting 2 of 5…`) so the user can see progress. Parallel processing was attempted but caused issues with Netlify edge function concurrency limits, so sequential was retained. **Important:** the Extract button must use `onClick={() => processFiles()}` (arrow wrapper), not `onClick={processFiles}` directly — the bare reference passes the click event as the first argument, which shadows the `fileItems` fallback and silently breaks multi-file extraction.
+**Multi-file processing:** files are processed sequentially. **Important:** the Extract button must use `onClick={() => processFiles()}`, not `onClick={processFiles}` directly — the bare reference passes the click event as the first argument, which shadows the `fileItems` fallback and silently breaks multi-file extraction.
 
-**Gemini model fallback:** tries `gemini-2.5-flash` first, falls back to `gemini-2.5-pro`. On high-demand errors, retries once after 3 seconds.
+**Gemini model fallback:** tries `gemini-2.5-flash` first, falls back to `gemini-2.5-pro`. On high-demand errors, retries once after 3 seconds. `thinkingConfig.thinkingBudget` must be set to `0` — see [LESSONS_LEARNED.md](LESSONS_LEARNED.md#gemini-thinking-budget).
 
-**AI prompt design:** The prompt instructs Gemini to return only a JSON object with explicit rules for each field — amount is defined as the final total paid (not subtotal), currency detection covers 10 currencies with symbol mappings, and category rules give concrete examples for each option.
+### Payment Source Import & Duplicate Detection
+
+Accounts (bank or credit-card) are created in **Payment Sources**, then CSV or PDF statements are uploaded and parsed:
+
+- **CSV**: `parseCSV` + `mapCsvRecords` in `paymentMatching.js` handle header-alias detection and column mapping.
+- **PDF**: `parsePdfStatement` in `pdfStatementParser.js` extracts a transaction table from PDF text-position data (via `pdfjs-dist`), calibrating column boundaries from the *data's* x-clustering rather than trusting header label positions — see [LESSONS_LEARNED.md](LESSONS_LEARNED.md#pdf-statement-parsing-is-fragile) for why this matters.
+
+Every parsed row is written to `paymentTransactions` **unconditionally** — duplicate detection only annotates rows with a `duplicateStatus`, it never withholds or silently drops them (this is a hard accounting-correctness requirement; see [LESSONS_LEARNED.md](LESSONS_LEARNED.md#duplicates-must-surface-never-silently-skip)). `classifyFingerprintCollision` in `duplicateDetection.js` is the classifier:
+
+- Bank statements: `annotateBalanceSequence` (previous row's balance + this row's debit/credit vs. its reported balance, in original statement order) is the strongest evidence.
+- Credit-card statements (no per-row balance): falls back to merchant-description comparison, defaulting to keeping both rows.
+- An **identical `rawRowText` match across two different imports** (`candidateImportId` differs from the collision row's `importId`) is the only case classified `confirmed_duplicate` automatically — a genuine re-upload of the same statement. Identical text *within the same import* (two real transactions the statement happened to print identically) is never auto-confirmed; it falls through to the normal evidence hierarchy.
+
+Users resolve flagged rows via **Keep as Separate / Confirm Duplicate / Ignore Warning** — never a silent auto-merge or delete. Once resolved, the row collapses to a compact "Resolved" badge with a "Change" link to reopen it, rather than staying expanded forever or hiding the resolve action entirely.
+
+The **original uploaded file** (CSV or PDF) is stored via `statementStorage.js` uncompressed, alongside the parsed transactions, so any imported row can be traced back to its source document — a hard requirement for bookkeeping, not a "phase 2" nice-to-have.
+
+**Verify / Fix from Stored PDF**: `verifyImportAgainstSource` re-downloads the stored original (via the `/api/download-receipt` proxy — a direct browser `fetch()` of a Firebase Storage URL fails, see [LESSONS_LEARNED.md](LESSONS_LEARNED.md#storage-fetch-needs-a-proxy)), re-parses it, and diffs the result against what's stored (`diffTransactionSets`). `reprocessFromStoredPdf` re-imports from the stored file when a mismatch is found, replacing the previously-parsed rows.
+
+### Reconciliation
+
+`runMatching` scores every unmatched `paymentTransactions` row against candidate expenses (`scoreExpenseMatch`) and against other transactions for credit-card settlement pairs (`scoreSettlementMatch`), using normalized merchant name (`normalizeMerchant`), date proximity, and amount. Matches above a confidence threshold are presented for one-click **Confirm Match**; everything else needs manual action (**Ignore**, **Unmatch**, **Link Settlement**, or **Create Expense from Transaction**).
+
+Every state-changing action (`confirmMatch`, `ignoreTxn`, `undoIgnore`, `unmatchTxn`, `linkSettlement`, `resolveDuplicate`) writes an entry to `reconciliationActions` via `logAction` — an append-only audit trail, never mutated after the fact.
 
 ### Export
 
 - **Excel (`.xlsx`)**: Built client-side with ExcelJS. Columns: Date, Vendor, Amount, Currency, Category, Notes, Receipts (image URLs). Includes per-currency totals row.
-- **Receipt ZIP**: Images are downloaded via the `/api/download-receipt` CORS proxy (since Firebase Storage URLs require authenticated requests), then packed with JSZip. Files are organised as `YYYY-MM/Category/date_vendor_amount_currency.ext`. Downloads in batches of 6 with progress counter.
+- **Receipt ZIP**: Images are downloaded via the `/api/download-receipt` CORS proxy, then packed with JSZip. Files are organised as `YYYY-MM/Category/date_vendor_amount_currency.ext`. Downloads in batches of 6 with progress counter.
 
 ### Confirmation Dialogs
 
-All destructive actions (delete expense, delete receipt image, delete project) use a custom `ConfirmDialog` React component instead of the browser's native `confirm()`. The native dialog shows a "Block this pop-up" option on mobile Chrome which is confusing. The in-app modal renders a message with **Cancel** and **Delete** buttons, tapping the overlay also cancels.
+All destructive actions use a custom `ConfirmDialog` React component instead of the browser's native `confirm()` (which shows a confusing "Block this pop-up" option on mobile Chrome).
+
+---
+
+## Design System
+
+Established across this app's typography/container/spacing pass (see [CHANGELOG.md](CHANGELOG.md)).
+
+### Typography tokens
+
+CSS custom properties (`--type-display/-page-title/-section-title/-card-title/-body/-body-small/-label/-caption/-amount`, each with `-size`/`-line`/`-weight`) in `App.css` `:root`, with a mobile override block shrinking display/page-title/section-title/amount sizes below 768px. Two fonts: `Questrial` (`--font-brand`, logo wordmark only) and `Work Sans` (`--font-ui`, everything else), loaded via Google Fonts `<link>` in `index.html` with a system-font fallback chain.
+
+Applied via semantic utility classes (`.type-display`, `.type-page-title`, etc.) and baked directly into existing component classes (`.page h2`/`.page h3`, `.hint`, `.lightbox-title`, `.settings-section-title`, `.stat-label`, `.meta-field-label`/`.meta-field-value`) so most of the app inherits correct sizing without per-element classes in JSX.
+
+### Container system
+
+Four opt-in max-width modifiers, combined with the base `.page` class (900px default): `.page-narrow` (720px, single-record/OCR-review flows — Upload, Capture), `.page-reading` (880px, detail/settings pages — Settings), `.page-standard` (1120px, list-shaped pages — Dashboard, Expenses, PaymentSources), `.page-wide` (1280px, the Reconciliation desktop workspace). **Must stay defined after `.page` in the cascade** for the override to win (equal specificity, later wins).
+
+### 12-column dashboard grid
+
+`.dashboard-grid` + `.dashboard-span-4/-6/-8/-12`, for multi-column card layouts. Collapses spans to 6-col behavior below 1024px, single column below 768px. Currently used on Dashboard for the "By Category" (span-4) / "Expenses" (span-8) split.
+
+### Metadata field grid
+
+`.meta-grid` (2 columns desktop, 1 column mobile via `.meta-field`/`.meta-field-label`/`.meta-field-value`), used for label/value detail sections (e.g. Reconciliation's Transaction detail panel).
+
+### Icons
+
+All emoji replaced with `lucide-react` components via the centralized `src/icons.js` map (`ReceiptIcon`, `BankStatementIcon`, `CreditCardIcon`, `WarningIcon`, `MatchedIcon`, nav icons, etc.), each rendered with a shared `ICON_STROKE_WIDTH`.
+
+### Mobile patterns
+
+`.desktop-only`/`.mobile-only` toggle classes at `max-width: 640px`; card-based lists (`.expense-mob-card`, `.capture-cards`) as an alternative to compressed tables at phone widths; 44–48px touch targets; `input, select, textarea { font-size: 16px }` on mobile to prevent iOS Safari auto-zoom.
+
+**`table-layout: fixed` pitfall** (hit twice in this codebase — PDF review table, then transaction detail table): an unspecified column's width can silently collapse to near-zero while a neighbor absorbs the space. Every column needs an explicit percentage width summing to 100%; only genuinely variable-length columns (Description) get `white-space: normal; overflow-wrap: break-word` — everything else uses `white-space: nowrap; overflow: hidden; text-overflow: ellipsis`.
 
 ---
 
@@ -280,29 +426,27 @@ export const db = initializeFirestore(app, {
 })
 ```
 
-This writes every Firestore snapshot to the browser's IndexedDB. On subsequent page loads the data is served from the local cache immediately, with any server-side changes applied silently in the background. Without this, every refresh performs a full network round-trip regardless of caching headers.
+This writes every Firestore snapshot to the browser's IndexedDB. On subsequent page loads the data is served from the local cache immediately, with any server-side changes applied silently in the background.
 
 ### Real-time Listeners (`onSnapshot`)
 
-All three Firestore queries — projects (in `ProjectContext`), expenses on Dashboard, and expenses on Expenses — use `onSnapshot` instead of `getDocs`. Combined with `persistentLocalCache`, the first `onSnapshot` callback fires instantly from IndexedDB on repeat loads.
+Every Firestore query in the app (projects, expenses, payment accounts/imports/transactions) uses `onSnapshot` instead of `getDocs`. Combined with `persistentLocalCache`, the first callback fires instantly from IndexedDB on repeat loads, and mutations propagate back to component state automatically — no manual reload calls needed. Each listener is cleaned up via `return unsubscribe` inside `useEffect`.
 
-`onSnapshot` also auto-pushes any document changes (edits, deletes, new images) back to the component state, so no manual reload calls are needed after mutations. Each listener is properly cleaned up via the `return unsubscribe` pattern inside `useEffect`.
-
-**Dashboard date filters** are applied entirely in memory — changing the date range or preset does not trigger a new query. All expenses for the active project are stored in `allExpenses` state; the rendered `expenses` variable is a filtered derivation.
+**Dashboard date filters** are applied entirely in memory — changing the date range does not trigger a new query.
 
 ### Loading State Sequence
 
-Every loading phase shows the same `LoadingBar` animated progress component — there is no plain "Loading…" text at any point:
+Every loading phase shows the same `LoadingBar` animated progress component:
 
-1. **Auth initialisation** (`ProtectedRoute` in `App.jsx`) — while `useAuthState` resolves the Firebase Auth session from IndexedDB
-2. **Project loading** (`ProjectContext`) — while the projects `onSnapshot` fires for the first time
-3. **Expense loading** (Dashboard / Expenses) — while the expenses `onSnapshot` fires for the first time
+1. **Auth initialisation** (`ProtectedRoute` in `App.jsx`)
+2. **Project loading** (`ProjectContext`)
+3. **Expense/transaction loading** (per-page `onSnapshot`)
 
-On a warm cache (any refresh after the first load), steps 2 and 3 resolve in milliseconds from IndexedDB, making the visible loading time effectively just the auth initialisation step.
+On a warm cache, steps 2–3 resolve in milliseconds from IndexedDB.
 
 ### Migration Guard
 
-On first load `ProjectContext` runs `migrateExpenses` to backfill `projectId` on legacy expenses. This is guarded by a `localStorage` flag (`expenses_migrated_{uid}`) so the Firestore batch query only runs once per user per browser, not on every login.
+On first load `ProjectContext` runs `migrateExpenses` to backfill `projectId` on legacy expenses, guarded by a `localStorage` flag (`expenses_migrated_{uid}`) so it only runs once per user per browser.
 
 ---
 
@@ -334,7 +478,7 @@ On first load `ProjectContext` runs `migrateExpenses` to backfill `projectId` on
   status = 200
 ```
 
-The wildcard redirect at the bottom enables client-side routing (React Router) on direct URL loads and refreshes.
+The wildcard redirect enables client-side routing (React Router) on direct URL loads and refreshes.
 
 ---
 
@@ -358,7 +502,9 @@ npm install -g netlify-cli
 netlify dev
 ```
 
-Set `GEMINI_API_KEY` in a `.env` file or via `netlify env:import`. The CLI will inject it into the Deno edge function at runtime.
+Set `GEMINI_API_KEY` in a `.env` file or via `netlify env:import`.
+
+To bump the release version shown in the app footer, update `"version"` in `package.json` (e.g. `"1.1.0"` → shown as `V1.1`).
 
 ---
 
@@ -366,8 +512,8 @@ Set `GEMINI_API_KEY` in a `.env` file or via `netlify env:import`. The CLI will 
 
 The app deploys automatically via Netlify's Git integration.
 
-1. Push to `main` → triggers a production build → deploys to `https://ua-expense-tool.netlify.app`
-2. Push to a feature branch → triggers a branch preview build (if branch deploys are enabled in Netlify settings) → deploys to `https://<branch-name>--ua-expense-tool.netlify.app`
+1. Push to `main` → triggers a production build → deploys to production
+2. Push to a feature branch → triggers a branch preview build (if enabled) → deploys to a preview URL
 
 When testing a new feature branch that uses Firebase Auth, add the branch preview URL to Firebase → Authentication → Authorized domains before testing Google sign-in.
 
@@ -375,4 +521,4 @@ When testing a new feature branch that uses Firebase Auth, add the branch previe
 
 ## Data Migration
 
-On first sign-in, `ProjectContext` runs `migrateExpenses` — an idempotent batch operation that sets `projectId` on any expenses saved before multi-project support was added. Expenses without a `projectId` are assigned to the user's Default project. After running, a `localStorage` flag (`expenses_migrated_{uid}`) prevents it from running again on subsequent logins.
+On first sign-in, `ProjectContext` runs `migrateExpenses` — an idempotent batch operation that sets `projectId` on any expenses saved before multi-project support was added. After running, a `localStorage` flag (`expenses_migrated_{uid}`) prevents it from running again.

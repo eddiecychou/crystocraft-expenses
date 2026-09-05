@@ -1,0 +1,246 @@
+# Lessons Learned
+
+Non-obvious bugs, dead ends, and decisions from building Expense Operations Center
+(formerly Expense Organiser), kept here so the reasoning isn't lost to git history.
+Each entry says what happened, why it matters, and how to apply it going forward.
+
+---
+
+## Duplicates must surface, never silently skip
+
+`commitRows()` in [PaymentSources.jsx](src/pages/PaymentSources.jsx) went through three
+designs: (1) silently skip fingerprint-matching rows, (2) hold them in a separate
+staging panel pending manual promotion, (3) the current model — **write every parsed
+row unconditionally**, and only annotate it with a `duplicateStatus` for review.
+
+**Why:** For a bookkeeping tool, both silent data loss and silently withholding a real
+transaction from the ledger (even temporarily) are unacceptable. The user pushed back
+hard on this after seeing genuine same-day repeat transactions wrongly flagged:
+*"it is possible to have 2 same amount of transaction in the same day... you need to
+check for the balance as well... this is accounting software, so it has to be very
+precise."*
+
+**How to apply:** [duplicateDetection.js](src/lib/duplicateDetection.js)'s
+`classifyFingerprintCollision` uses `annotateBalanceSequence` (previous balance + this
+row's debit/credit vs. reported balance, in original statement order — never resorted)
+as the strongest evidence for bank statements; credit-card statements (no per-row
+balance) fall back to merchant comparison and default to keeping both rows. Only an
+**identical `rawRowText` match across two different imports** counts as
+`confirmed_duplicate` automatically — identical text within the *same* import (two
+real transactions the statement happened to print identically) must not be
+auto-confirmed. Resolution is always Keep as Separate / Confirm Duplicate / Ignore
+Warning — never a delete. Any future ambiguous-classification step in this app should
+default to "write + flag for review," not "hold back until confirmed."
+
+---
+
+## Financial imports need audit-trail storage from day one
+
+Phase 1 of payment reconciliation originally only saved *parsed* transaction rows to
+Firestore — the uploaded CSV/PDF was read in-browser and discarded, with
+`sourceFileUrl: null` left as a "later phase" placeholder.
+
+**Why:** The user caught this directly: *"we are doing accounting here"* — for real
+bookkeeping, the original source document must be retrievable to trace any recorded
+transaction back to its evidence, the same way receipts are already stored for
+expenses ([receiptStorage.js](src/receiptStorage.js)). Deferring audit-trail storage
+is a reasonable simplification for a demo, but wrong for an accounting tool from the
+start.
+
+**How to apply:** Any feature that imports or derives records from a financial source
+document must store the original file in Firebase Storage and link it on the record
+from the first version — see [statementStorage.js](src/statementStorage.js) (upload
+raw bytes, no compression — fidelity matters for source-of-record documents, unlike
+`receiptStorage.js`'s JPEG compression which is fine for receipt thumbnails).
+
+---
+
+## Firebase rules live outside the repo
+
+This repo has no `firestore.rules` or `storage.rules` file — security rules exist only
+in the Firebase Console, edited from rule text provided in chat.
+
+**Why:** This has bitten the payment reconciliation feature twice: new Firestore
+collections (`paymentAccounts`, `paymentImports`, `paymentTransactions`,
+`reconciliationActions`) needed rules added before the feature worked at all, and
+later a new Storage path (`statements/{userId}/...`) needed its own rule before
+uploads would succeed. In both cases the code shipped and *looked* done, but silently
+failed with `permission-denied` until rules were manually published.
+
+**How to apply:** Whenever adding a new Firestore collection or Storage path: ask for
+the current rules file, return the full file with the new `match` block merged in
+(existing pattern: `allow read, write: if request.auth != null && request.auth.uid ==
+resource.data.userId` for Firestore; `... == userId` for Storage per-user paths), and
+say explicitly to publish it before testing — don't let the user discover the silent
+failure themselves.
+
+---
+
+## Storage fetch needs a proxy
+
+A Firebase Storage download URL cannot be `fetch()`'d directly from the browser in
+this app.
+
+**Why:** `<a href>`/`<img src>` to a Storage URL works fine (native browser
+navigation isn't subject to the restriction), but a JS-initiated `fetch()`/XHR to
+re-read the bytes fails — this app has no Storage bucket CORS configured for that.
+This surfaced building "re-verify a stored PDF statement against its original file":
+`fetch(imp.sourceFileUrl)` failed with an opaque error.
+
+**How to apply:** [download-receipt.js](netlify/edge-functions/download-receipt.js)
+is a CORS proxy built for exactly this (despite its receipt-specific name, it proxies
+any `firebasestorage.googleapis.com` URL). Any feature that needs to programmatically
+re-read an already-stored file (statements, receipts) must go through
+`POST /api/download-receipt` with `{ url }`, not a direct `fetch(url)`.
+
+---
+
+## PDF statement parsing is fragile — verify against real files
+
+[pdfStatementParser.js](src/lib/pdfStatementParser.js) went through many rounds of
+real bugs that hand-written synthetic test lines never would have caught:
+
+- **Header label x-position ≠ data x-position** for wide columns (e.g. a
+  "Description of transaction" header centered well right of where every real value
+  actually starts). Column boundaries must be calibrated from the *data's*
+  x-clustering — the header is only for column names/order, never for boundaries.
+- **The same bank uses different date formats across statements**: "23 Jul" vs
+  "18JUL", full vs. abbreviated month names for the statement-date anchor used to
+  infer missing years.
+- **Page furniture pollutes detection** — a sidebar summary box or footer address
+  block can share the transaction table's y-range, or even start at the exact same
+  left margin as the Date column. Filtering by "does this line contain a date/money
+  token" isn't enough; a populated date-shaped bucket must actually *parse* as a real
+  date, and a date-less line's leftmost item must sit near the description column's
+  calibrated start.
+- **Multi-word descriptions merge or split differently depending on the PDF
+  text-extraction library** (see next entry) — column clustering must only pool items
+  that are themselves date-shaped or money-shaped, never plain text.
+- **A foreign-currency sub-amount embedded in the description** (e.g. "USD 10.00"
+  before the real HKD amount) can get misidentified as the real amount if the
+  description/amount boundary is a naive midpoint-of-means instead of the amount
+  column's own observed left edge.
+
+**How to apply:** Before considering a parser fix "done," get the user's real
+statement file(s), extract exact text coordinates via the actual runtime library, and
+verify row-by-row — including that non-transaction lines (summary boxes, footers) are
+correctly *excluded*, not just that real transactions are correctly included. Getting
+the happy path right while leaking 2-3 phantom rows from page furniture is not done.
+
+---
+
+## pdf.js vs. PyMuPDF tokenize differently — don't cross-verify against the wrong one
+
+PyMuPDF (handy for local dev-time inspection) often merges a multi-word text run into
+one span, while `pdfjs-dist` (the actual library this app uses in-browser) splits the
+same content into one item per word. Column-detection logic built assuming one item
+per column value broke badly against real pdf.js output despite passing against
+PyMuPDF coordinates for the same file.
+
+**How to apply:** Test PDF-table-extraction logic with a Node script that runs
+`pdfjs-dist/legacy/build/pdf.mjs` directly, not a PyMuPDF stand-in. Also note:
+`item.transform` in pdf.js uses a bottom-left origin (y increases upward), while
+PyMuPDF uses top-left (y increases downward) — flip sort order when switching
+between them.
+
+---
+
+## Import lists must group by identity, not creation time
+
+[PaymentSources.jsx](src/pages/PaymentSources.jsx) creates a new `paymentImports` doc
+on every import attempt, including failed/duplicate re-imports that produce a 0-row
+entry with the same filename as an earlier successful import. Sorting purely by
+`createdAt` scattered an empty duplicate far from the real one — which directly
+caused the user to click "Attach Original" on the empty stub instead of the real
+47-row import sitting elsewhere in the list. Concrete, observed mistake, not
+hypothetical.
+
+**How to apply:** Sort/group such lists by content identity first (filename), then by
+a tiebreaker (row count descending), and visually dim/label empty or failed entries
+inline rather than relying on the user to compare row-count columns across a
+scattered list. Generalizes to any future list where retries/duplicates can
+accumulate.
+
+---
+
+## Expandable row detail must render inline, not after the whole list
+
+The first version of "View/Edit" on the import table rendered the expanded
+transaction editor once, after the entire `imports.map(...)` body — not next to the
+clicked row. With more than a couple of imports, clicking an early row put the
+content far below the visible screen; the user reported "the view and edit is not
+working" when it was actually working, just invisible.
+
+**How to apply:** For a table where any row can expand, render the expansion as an
+actual sibling `<tr>` immediately after that row inside the same `.map()`, using a
+`Fragment` with an explicit `key` (the `<>` shorthand can't carry a `key`, needed
+since each iteration now returns two elements). Never place the expansion output
+elsewhere in the tree "for convenience."
+
+---
+
+## `table-layout: fixed` can silently collapse a column to near-zero
+
+Hit twice: first in the PDF import review table, then in the transaction detail
+table. An unspecified column's width can collapse to near-zero while a neighbor
+absorbs the space, producing catastrophic character-per-line wrapping — invisible
+until checked at the pane's *actual* CSS width (device pixel ratio can make a
+screenshot's apparent width very different from the real viewport).
+
+**How to apply:** Every column needs an explicit percentage width summing to 100%.
+Only genuinely variable-length columns (Description) get `white-space: normal;
+overflow-wrap: break-word`; everything else gets `white-space: nowrap; overflow:
+hidden; text-overflow: ellipsis`. When even a reduced column count won't fit phone
+width, switch to a mobile card list instead of continuing to fight the table layout
+(done for the transaction detail table via `.expense-mob-card`).
+
+---
+
+## Gemini thinking-budget gotcha
+
+`gemini-2.5-flash` is a thinking model: with a modest `maxOutputTokens` and no
+thinking cap, it can spend the entire output budget on internal reasoning and return
+an empty response (`finishReason: MAX_TOKENS`) — looks like a silent OCR/parse
+failure. This caused intermittent "no data extracted" in the receipt upload flow.
+
+**How to apply:** For any Gemini call in this app, set
+`generationConfig.thinkingConfig = { thinkingBudget: 0 }`, add
+`responseMimeType: 'application/json'` when JSON is needed, and give a generous
+`maxOutputTokens`.
+
+---
+
+## Debug "why isn't my data showing" mysteries with direct DB access, not endless UI guessing
+
+A "47 rows flagged as duplicate but nothing shows 47 rows anywhere" mystery went
+through several rounds of asking the user to click through the UI and report row
+counts, without resolving it — the actual cause (two separate `paymentImports` docs
+for the same filename, one real, one an empty re-attempt) was invisible from the
+app's own UI. Resolved in one query with a temporary Firebase service-account key.
+
+**How to apply:** When a data-state question can't be answered from what the UI
+already shows, proactively suggest a temporary Firebase service-account key rather
+than more rounds of "click here and tell me what you see." Protocol: isolate the
+query script in the OS scratchpad (never inside the git repo), use
+`firebase-admin/app` + `firebase-admin/firestore` named imports (the default
+`firebase-admin` export fails under ESM), run read-only queries, then delete the
+script and remind the user to revoke the key and delete the downloaded JSON. This is
+a deliberate escalation for genuine mysteries, not a substitute for reading the code
+first when the bug is likely client-side logic.
+
+---
+
+## OCR architecture direction (in progress, not yet built)
+
+Agreed direction for receipt OCR accuracy: **Cloud Vision `DOCUMENT_TEXT_DETECTION`
+reads text faithfully; Gemini only extracts/normalizes fields from that text; never
+let Gemini read raw pixels and reason at once** — Gemini-as-OCR intermittently fails
+or hallucinates values, unacceptable for accounting.
+
+**Status:** `callVisionOCR` exists in
+[process-receipt.js](netlify/edge-functions/process-receipt.js) — images use Vision
+when `GOOGLE_VISION_API_KEY` is set, else fall back to Gemini transcription; PDFs stay
+direct-Gemini. Still needed: a Vision API key (separate GCP project from the AI
+Studio `GEMINI_API_KEY`, billing-enabled) as a Netlify env var. Deferred: deterministic
+amount/date/currency parsers, per-field source+confidence data model, `needs_review`
+states, Document AI, fixture tests.

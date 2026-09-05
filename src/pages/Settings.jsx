@@ -135,7 +135,7 @@ export default function Settings() {
       )}
 
       <div className="app-version">
-        Build v{__APP_VERSION__} · deployed {new Date(__BUILD_TIME__).toLocaleString()}
+        Expense Operations Center {__APP_RELEASE__} · build {__APP_VERSION__} · deployed {new Date(__BUILD_TIME__).toLocaleString()}
       </div>
     </div>
   )
