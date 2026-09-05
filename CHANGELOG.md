@@ -6,6 +6,26 @@ in `vite.config.js`. The build hash next to it (`__APP_VERSION__`) is the git sh
 SHA of the deployed commit and changes on every deploy; the release number below only
 changes when it's bumped deliberately in `package.json`.
 
+## Unreleased (still V1.0)
+
+Added the full Personal-to-Company Expense workflow (`Expense App:
+Personal-to-Company Expense MVP Specification.md`), all three phases:
+
+- **Company Review** page (`/company-review`) — mark a Payment Sources account
+  as `personal`, and its imported transactions get classified (Personal /
+  Company Candidate / Shared / Needs Accountant Review / etc.), grouped by
+  merchant for bulk review with count+total confirmation before any change.
+- **Merchant suggestion rules** — "Apply + Suggest Rule" on a bulk confirmation
+  saves a per-merchant rule; rules only suggest (never auto-classify) until
+  Auto-Approve is explicitly turned on for that merchant.
+- **Company Package export** — a ZIP (expense register, summary/review/
+  missing-receipt CSVs, original source statements, receipts, manifest) for a
+  chosen period and set of classifications, excluding Personal/Rejected by
+  default.
+
+New Firestore collection: `merchantRules` (needs its own security rule
+published in the Firebase Console — see LESSONS_LEARNED.md).
+
 ## V1.0 — 2026-09-05
 
 Renamed from "Expense Organiser" to **Expense Operations Center**, reflecting the

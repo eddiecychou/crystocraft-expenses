@@ -403,8 +403,9 @@ Every state-changing action (`confirmMatch`, `ignoreTxn`, `undoIgnore`, `unmatch
 
 Handles the case where a user pays some company-related expenses from a personal
 bank/credit-card account that also carries unrelated personal spending. This is
-**Phase 1 + 2** of a three-phase spec (`~/Desktop/Expense App：Personal-to-Company
-Expense MVP Specification.md`) — Company Package export is deferred to Phase 3.
+All three phases of a spec (`~/Desktop/Expense App：Personal-to-Company Expense
+MVP Specification.md`) are implemented: classification (Phase 1), merchant
+suggestion rules (Phase 2), and Company Package export (Phase 3, below).
 
 An account is opted into this workflow by marking it `ownershipType: 'personal'`
 when created in Payment Sources (a checkbox on the create-account form). Only rows
@@ -450,6 +451,32 @@ group reveals per-transaction controls: change classification, pick a quick
 business-purpose option (+ optional note), and **Create Expense from Transaction**
 for unmatched company candidates — adapted directly from `Reconciliation.jsx`'s
 `createExpenseFromTxn`.
+
+**Company Package Export (Phase 3)**, spec §10: "Export Company Package" on the
+Company Review page opens a modal with **Period** (month) and **Include**
+(one checkbox per classification — Personal and Rejected Company Claim default
+off, per acceptance-criterion 11). `generateCompanyPackage` filters transactions
+by period + selected classifications, then builds a ZIP:
+
+```
+{Company}-Company-Expenses-{period}.zip
+├── expense-register.xlsx        — one row per transaction, all spec §10 fields
+├── company-expense-summary.csv  — totals by classification × currency
+├── accountant-review-list.csv   — accountantStatus:'pending' or needs_accountant_review/shared
+├── source-statements/           — original statement files (via /api/download-receipt), one per unique importId
+├── receipts/                    — linked Expense images (same proxy, same pattern as Expenses.jsx's exportZip)
+├── missing-receipts.csv         — rows with no linked Expense or receiptStatus:'missing'
+├── reimbursement-or-director-current-account.csv  — 'shared' rows flagged as CANDIDATES only;
+│                                   the app never decides reimbursement vs. director current
+│                                   account itself (spec §12)
+└── manifest.json                — companyId, period, generatedAt/By, counts, includedStatuses, sourceStatementIds
+```
+
+Reuses the exact ExcelJS/JSZip/download-proxy patterns already established in
+`Expenses.jsx`'s `exportExcel`/`exportZip` — same batching-free sequential
+downloads (export runs are infrequent and small enough that the extra
+complexity of `Expenses.jsx`'s 6-at-a-time batching wasn't worth duplicating
+here), same `triggerDownload` helper.
 
 ### Export
 

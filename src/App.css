@@ -992,6 +992,8 @@ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
   gap: 10px;
   justify-content: flex-end;
 }
+.confirm-box-wide { max-width: 420px; }
+.export-include-grid { display: flex; flex-direction: column; gap: var(--space-2); margin: var(--space-3) 0 var(--space-4); }
 
 /* ── Responsive show/hide ── */
 .mobile-only { display: none; }

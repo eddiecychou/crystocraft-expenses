@@ -1,11 +1,34 @@
 import { useState, useEffect } from 'react'
 import { collection, query, where, onSnapshot, doc, setDoc, deleteDoc, updateDoc, addDoc, writeBatch, serverTimestamp } from 'firebase/firestore'
+import JSZip from 'jszip'
+import ExcelJS from 'exceljs'
 import { db, auth } from '../firebase'
 import { useProject } from '../contexts/ProjectContext'
 import ProjectBanner from '../components/ProjectBanner'
 import ConfirmDialog from '../components/ConfirmDialog'
 import { CLASSIFICATION_LABELS, BUSINESS_PURPOSE_OPTIONS, merchantRuleDocId } from '../lib/expenseClassification'
 import { CREATE_EXPENSE_BLOCKED_TYPES } from '../lib/paymentMatching'
+
+// Statuses excluded from a Company Package export unless explicitly opted
+// into — per spec §10/acceptance-criterion 11, Personal and Rejected never
+// leave the app by default.
+const EXPORTABLE_CLASSIFICATIONS = ['company_candidate', 'company_confirmed', 'shared', 'needs_accountant_review']
+
+function toCsv(headers, rows) {
+  const esc = v => {
+    const s = v == null ? '' : String(v)
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+  }
+  return [headers.join(','), ...rows.map(r => headers.map(h => esc(r[h])).join(','))].join('\n')
+}
+
+function triggerDownload(blob, filename) {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url; a.download = filename
+  document.body.appendChild(a); a.click(); document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
 
 const CLASSIFICATION_BADGE_CLASS = {
   personal: 'badge-other',
@@ -30,10 +53,15 @@ export default function CompanyReview() {
   const [accounts, setAccounts] = useState([])
   const [transactions, setTransactions] = useState([])
   const [rules, setRules] = useState([])
+  const [imports, setImports] = useState([])
+  const [expenses, setExpenses] = useState([])
   const [expandedMerchant, setExpandedMerchant] = useState(null)
   const [confirmDialog, setConfirmDialog] = useState(null)
   const [busyId, setBusyId] = useState(null)
   const [purposeDraft, setPurposeDraft] = useState({}) // { [txnId]: { option, note } }
+  const [exportModal, setExportModal] = useState(null) // { period, include: { [classification]: bool } }
+  const [exporting, setExporting] = useState(false)
+  const [exportProgress, setExportProgress] = useState('')
 
   useEffect(() => {
     if (!activeProject) return
@@ -51,6 +79,19 @@ export default function CompanyReview() {
       snap => setRules(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (a.merchantKey || '').localeCompare(b.merchantKey || '')))
     )
     return unsub
+  }, [activeProject?.id])
+
+  useEffect(() => {
+    if (!activeProject) return
+    const unsubImports = onSnapshot(
+      query(collection(db, 'paymentImports'), where('userId', '==', auth.currentUser.uid), where('projectId', '==', activeProject.id)),
+      snap => setImports(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+    )
+    const unsubExpenses = onSnapshot(
+      query(collection(db, 'expenses'), where('userId', '==', auth.currentUser.uid), where('projectId', '==', activeProject.id)),
+      snap => setExpenses(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+    )
+    return () => { unsubImports(); unsubExpenses() }
   }, [activeProject?.id])
 
   const personalAccountIds = accounts.filter(a => a.ownershipType === 'personal').map(a => a.id)
@@ -240,6 +281,201 @@ export default function CompanyReview() {
     setBusyId(null)
   }
 
+  function openExportModal() {
+    setExportModal({
+      period: new Date().toISOString().slice(0, 7),
+      include: {
+        company_candidate: true,
+        company_confirmed: true,
+        shared: true,
+        needs_accountant_review: true,
+        personal: false,
+        rejected_company_claim: false,
+      },
+    })
+  }
+
+  function expenseFor(txn) { return expenses.find(e => e.id === txn.matchedExpenseIds?.[0]) }
+  function importFor(txn) { return imports.find(i => i.id === txn.importId) }
+
+  // Company Package Export (spec §10) — a ZIP of everything an accountant
+  // needs to review and file a period's company-candidate transactions.
+  // Only ever includes what the export modal's checkboxes select; Personal
+  // and Rejected stay excluded unless the user explicitly opts in (spec
+  // acceptance criterion 11).
+  async function generateCompanyPackage() {
+    const period = exportModal.period
+    const included = classified.filter(t =>
+      (t.transactionDate || '').startsWith(period) && exportModal.include[t.classification]
+    )
+    if (included.length === 0) { alert('No transactions match this period and selection.'); return }
+
+    setExporting(true)
+    setExportProgress('Building spreadsheet…')
+    try {
+      const zip = new JSZip()
+
+      // expense-register.xlsx
+      const wb = new ExcelJS.Workbook()
+      const ws = wb.addWorksheet('Expense Register')
+      ws.columns = [
+        { header: 'Transaction Date', key: 'transactionDate', width: 14 },
+        { header: 'Posting Date', key: 'postingDate', width: 14 },
+        { header: 'Merchant', key: 'merchant', width: 26 },
+        { header: 'Amount', key: 'amount', width: 12 },
+        { header: 'Currency', key: 'currency', width: 10 },
+        { header: 'Source Account', key: 'sourceAccount', width: 20 },
+        { header: 'Source Type', key: 'sourceType', width: 14 },
+        { header: 'Company', key: 'company', width: 18 },
+        { header: 'Classification', key: 'classification', width: 22 },
+        { header: 'Category Suggestion', key: 'categorySuggestion', width: 18 },
+        { header: 'Business Purpose', key: 'businessPurpose', width: 24 },
+        { header: 'Receipt Status', key: 'receiptStatus', width: 16 },
+        { header: 'Linked Expense ID', key: 'linkedExpenseId', width: 22 },
+        { header: 'Linked Statement Transaction ID', key: 'linkedStatementTransactionId', width: 28 },
+        { header: 'Accountant Status', key: 'accountantStatus', width: 16 },
+        { header: 'Review Note', key: 'reviewNote', width: 24 },
+      ]
+      const hdr = ws.getRow(1)
+      hdr.font = { bold: true, color: { argb: 'FFFFFFFF' } }
+      hdr.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1A5C38' } }
+
+      const registerRows = []
+      for (const t of included) {
+        const account = accountOf(t.paymentAccountId)
+        const expense = expenseFor(t)
+        registerRows.push({
+          transactionDate: t.transactionDate || '',
+          postingDate: t.postDate || '',
+          merchant: t.merchantRaw || '',
+          amount: t.settlementAmount,
+          currency: t.settlementCurrency,
+          sourceAccount: account?.label || '',
+          sourceType: account?.sourceType || '',
+          company: activeProject.name,
+          classification: CLASSIFICATION_LABELS[t.classification] || t.classification,
+          categorySuggestion: t.transactionType || '',
+          businessPurpose: t.businessPurpose || '',
+          receiptStatus: expense ? (expense.receiptStatus || 'receipt_attached') : 'missing',
+          linkedExpenseId: expense?.id || '',
+          linkedStatementTransactionId: t.id,
+          accountantStatus: t.accountantStatus || 'not_required',
+          reviewNote: t.reviewNote || '',
+        })
+      }
+      registerRows.forEach(r => ws.addRow(r))
+      const buf = await wb.xlsx.writeBuffer()
+      zip.file('expense-register.xlsx', buf)
+
+      // company-expense-summary.csv — totals by classification and currency
+      const summaryRows = []
+      const byClassCurrency = new Map()
+      for (const t of included) {
+        const key = `${t.classification}|${t.settlementCurrency}`
+        const e = byClassCurrency.get(key) || { classification: t.classification, currency: t.settlementCurrency, count: 0, total: 0 }
+        e.count++; e.total += t.settlementAmount || 0
+        byClassCurrency.set(key, e)
+      }
+      for (const e of byClassCurrency.values()) {
+        summaryRows.push({ Classification: CLASSIFICATION_LABELS[e.classification] || e.classification, Currency: e.currency, Count: e.count, Total: e.total.toFixed(2) })
+      }
+      zip.file('company-expense-summary.csv', toCsv(['Classification', 'Currency', 'Count', 'Total'], summaryRows))
+
+      // accountant-review-list.csv — anything not yet a settled company_confirmed
+      const reviewRows = included
+        .filter(t => t.accountantStatus === 'pending' || t.classification === 'needs_accountant_review' || t.classification === 'shared')
+        .map(t => ({
+          TransactionDate: t.transactionDate || '',
+          Merchant: t.merchantRaw || '',
+          Amount: t.settlementAmount,
+          Currency: t.settlementCurrency,
+          Classification: CLASSIFICATION_LABELS[t.classification] || t.classification,
+          AccountantStatus: t.accountantStatus || 'not_required',
+          BusinessPurpose: t.businessPurpose || '',
+          ReviewNote: t.reviewNote || '',
+        }))
+      zip.file('accountant-review-list.csv', toCsv(
+        ['TransactionDate', 'Merchant', 'Amount', 'Currency', 'Classification', 'AccountantStatus', 'BusinessPurpose', 'ReviewNote'],
+        reviewRows
+      ))
+
+      // missing-receipts.csv
+      const missingRows = included
+        .filter(t => { const e = expenseFor(t); return !e || e.receiptStatus === 'missing' })
+        .map(t => ({ TransactionDate: t.transactionDate || '', Merchant: t.merchantRaw || '', Amount: t.settlementAmount, Currency: t.settlementCurrency, LinkedExpenseId: expenseFor(t)?.id || '' }))
+      zip.file('missing-receipts.csv', toCsv(['TransactionDate', 'Merchant', 'Amount', 'Currency', 'LinkedExpenseId'], missingRows))
+
+      // reimbursement-or-director-current-account.csv — Shared transactions
+      // are flagged as CANDIDATES only; per spec §12 the app never decides
+      // reimbursement vs. director current account itself.
+      const sharedRows = included
+        .filter(t => t.classification === 'shared')
+        .map(t => ({ TransactionDate: t.transactionDate || '', Merchant: t.merchantRaw || '', Amount: t.settlementAmount, Currency: t.settlementCurrency, Note: 'Requires accountant decision: reimbursement vs. director current account' }))
+      zip.file('reimbursement-or-director-current-account.csv', toCsv(['TransactionDate', 'Merchant', 'Amount', 'Currency', 'Note'], sharedRows))
+
+      // source-statements/ — original files for every import represented
+      setExportProgress('Downloading source statements…')
+      const importIds = [...new Set(included.map(t => t.importId).filter(Boolean))]
+      for (const importId of importIds) {
+        const imp = imports.find(i => i.id === importId)
+        if (!imp?.sourceFileUrl) continue
+        try {
+          const res = await fetch('/api/download-receipt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: imp.sourceFileUrl }) })
+          if (!res.ok) throw new Error(`HTTP ${res.status}`)
+          zip.file(`source-statements/${imp.sourceFileName || importId}`, await res.arrayBuffer())
+        } catch (err) {
+          console.warn('Could not download source statement:', imp.sourceFileName, err.message)
+        }
+      }
+
+      // receipts/ — images from any linked Expense
+      setExportProgress('Downloading receipts…')
+      let receiptCount = 0
+      for (const t of included) {
+        const expense = expenseFor(t)
+        if (!expense?.images?.length) continue
+        for (let i = 0; i < expense.images.length; i++) {
+          const img = expense.images[i]
+          if (!img.path) continue
+          try {
+            const res = await fetch('/api/download-receipt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: img.url }) })
+            if (!res.ok) throw new Error(`HTTP ${res.status}`)
+            const ext = img.path.split('.').pop() || 'jpg'
+            zip.file(`receipts/${t.transactionDate}_${expense.vendor || 'receipt'}${expense.images.length > 1 ? `_${i + 1}` : ''}.${ext}`, await res.arrayBuffer())
+            receiptCount++
+          } catch (err) {
+            console.warn('Could not download receipt:', img.name, err.message)
+          }
+        }
+      }
+
+      // manifest.json
+      const manifest = {
+        companyId: activeProject.id,
+        company: activeProject.name,
+        period,
+        generatedAt: new Date().toISOString(),
+        generatedBy: auth.currentUser.email,
+        transactionCount: included.length,
+        receiptCount,
+        missingReceiptCount: missingRows.length,
+        includedStatuses: Object.entries(exportModal.include).filter(([, v]) => v).map(([k]) => k),
+        sourceStatementIds: importIds,
+      }
+      zip.file('manifest.json', JSON.stringify(manifest, null, 2))
+
+      setExportProgress('Compressing…')
+      const blob = await zip.generateAsync({ type: 'blob' })
+      const safeCompany = (activeProject.name || 'Company').replace(/[^a-zA-Z0-9-]/g, '-')
+      triggerDownload(blob, `${safeCompany}-Company-Expenses-${period}.zip`)
+      setExportModal(null)
+    } catch (err) {
+      alert('Export failed: ' + err.message)
+    }
+    setExporting(false)
+    setExportProgress('')
+  }
+
   async function toggleRuleAutoApprove(rule) {
     await updateDoc(doc(db, 'merchantRules', rule.id), { autoApprove: !rule.autoApprove, updatedAt: serverTimestamp() })
   }
@@ -273,6 +509,10 @@ export default function CompanyReview() {
             <div className="stat-card"><div className="stat-label">Personal</div><div className="stat-value">{summary.personal}</div></div>
             <div className="stat-card"><div className="stat-label">Needs Review</div><div className="stat-value">{summary.needs_accountant_review}</div></div>
             <div className="stat-card"><div className="stat-label">Missing Receipt</div><div className="stat-value">{summary.missing_receipt}</div></div>
+          </div>
+
+          <div className="action-row">
+            <button className="btn-primary" onClick={openExportModal}>Export Company Package</button>
           </div>
 
           {rules.length > 0 && (
@@ -454,6 +694,44 @@ export default function CompanyReview() {
           extraClassName={confirmDialog.extraClassName}
           onExtra={confirmDialog.onExtra}
         />
+      )}
+
+      {exportModal && (
+        <div className="confirm-overlay" onClick={() => !exporting && setExportModal(null)}>
+          <div className="confirm-box confirm-box-wide" onClick={e => e.stopPropagation()}>
+            <h3>Export Company Package</h3>
+            <p className="hint">Company: {activeProject.name}</p>
+            <label className="checkbox-row" style={{ display: 'block', marginBottom: 12 }}>
+              Period
+              <input
+                type="month"
+                value={exportModal.period}
+                onChange={e => setExportModal({ ...exportModal, period: e.target.value })}
+                style={{ marginTop: 4, width: '100%' }}
+              />
+            </label>
+            <div className="export-include-grid">
+              <span className="stat-label">Include</span>
+              {Object.keys(CLASSIFICATION_LABELS).map(c => (
+                <label key={c} className="checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked={!!exportModal.include[c]}
+                    onChange={e => setExportModal({ ...exportModal, include: { ...exportModal.include, [c]: e.target.checked } })}
+                  />
+                  {CLASSIFICATION_LABELS[c]}
+                </label>
+              ))}
+            </div>
+            {exporting && <p className="hint">{exportProgress}</p>}
+            <div className="confirm-actions">
+              <button className="btn-ghost" disabled={exporting} onClick={() => setExportModal(null)}>Cancel</button>
+              <button className="btn-primary" disabled={exporting} onClick={generateCompanyPackage}>
+                {exporting ? 'Generating…' : 'Generate Package'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

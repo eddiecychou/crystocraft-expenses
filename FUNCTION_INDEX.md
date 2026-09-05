@@ -246,11 +246,13 @@ No functions — a pure dispatcher component (three link cards routing to Upload
 | `resolveDuplicate(txn, newStatus)` | 390 | Same duplicate-resolution logic as in PaymentSources, surfaced in the Reconciliation detail panel. |
 | `dismissDuplicateWarning(txn)` | 402 | Same as in PaymentSources — dismiss without changing verdict. |
 
-### [CompanyReview.jsx](src/pages/CompanyReview.jsx) — personal-account classification queue (Phase 1+2 of the personal-to-company spec)
+### [CompanyReview.jsx](src/pages/CompanyReview.jsx) — personal-account classification queue + export (all 3 phases of the personal-to-company spec)
 
 | Function | Purpose |
 |---|---|
 | `chunk(arr, size)` | Module-level — splits an array into fixed-size chunks, for Firestore's 10-value `in`-query cap. |
+| `toCsv(headers, rows)` | Module-level — minimal CSV serializer with RFC4180-style quoting, used by every `.csv` file in the export package. |
+| `triggerDownload(blob, filename)` | Module-level — same pattern as `Expenses.jsx`'s helper of the same name; programmatically triggers a browser file download. |
 | `accountOf(id)` | Looks up a payment account by id. |
 | `applyClassificationToGroup(group, classification, { saveRule })` | Batch-writes a new classification to every transaction in a merchant group; when `saveRule` is true, also upserts a `merchantRules` doc (via `merchantRuleDocId`) as a suggestion-only rule. |
 | `confirmGroupAction(group, classification, label)` | Opens the count+total `ConfirmDialog` before a group bulk action, with a second explicit "Apply + Suggest Rule" button (spec §7 — saving a rule is never the default action). |
@@ -260,6 +262,9 @@ No functions — a pure dispatcher component (three link cards routing to Upload
 | `createExpenseFromTxn(txn)` | Same shape as `Reconciliation.jsx`'s function of the same name, plus `businessPurpose`/`source: 'personal_statement'` fields. |
 | `toggleRuleAutoApprove(rule)` | Flips a merchant rule's `autoApprove` flag — the only way a rule starts auto-classifying future imports. |
 | `deleteRule(rule)` | Removes a merchant rule (with confirmation) — does not touch already-classified transactions. |
+| `openExportModal()` | Opens the Company Package export modal with today's month and all non-Personal/Rejected classifications pre-checked. |
+| `expenseFor(txn)` / `importFor(txn)` | Look up a transaction's linked Expense / source import record. |
+| `generateCompanyPackage()` | **Phase 3 entry point.** Filters transactions by the modal's period + selected classifications, builds `expense-register.xlsx`, three CSVs, `source-statements/`, `receipts/`, and `manifest.json`, zips them with JSZip, and triggers the download — see TECHNICAL.md's "Company Package Export" section for the full file list. |
 
 ### [Settings.jsx](src/pages/Settings.jsx)
 
