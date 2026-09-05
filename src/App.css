@@ -581,6 +581,20 @@ body {
    text (rather than horizontal overflow) is what actually stops a long
    merchant description from forcing side-to-side scrolling. */
 .review-scroll-box { max-height: 50vh; overflow-y: auto; overflow-x: hidden; }
+
+/* An import's transaction list, expanded via "View/Edit" — a clearly
+   boxed, self-contained panel (not just an expanded table row blending
+   into the page) with its own bounded scroll, so it never visually mixes
+   with the PDF review panel above it or grows the whole page for a long
+   statement. */
+.txn-detail-box {
+  background: #fff;
+  border: 1px solid #d5ddd8;
+  border-radius: var(--radius-md);
+  padding: 12px;
+  box-shadow: var(--shadow-sm);
+}
+.txn-detail-scroll { max-height: 60vh; overflow-y: auto; }
 .review-compact-table { table-layout: fixed; width: 100%; }
 /* Only Description has genuinely variable-length content — Date, Amount,
    Direction, Balance are short and near-fixed-width, so they should clip

@@ -56,6 +56,8 @@ export default function PaymentSources() {
   const [confirmDialog, setConfirmDialog] = useState(null)
   const [busyId, setBusyId] = useState(null)
   const [verifyingImportId, setVerifyingImportId] = useState(null)
+  const [reprocessingImportId, setReprocessingImportId] = useState(null)
+  const [expandedDuplicateId, setExpandedDuplicateId] = useState(null)
   const [verifyingAll, setVerifyingAll] = useState(false)
   const [verifyMsg, setVerifyMsg] = useState('')
   // Transactions for whichever import the user has expanded to review/edit.
@@ -727,7 +729,12 @@ export default function PaymentSources() {
       setImportMsg(prev => (prev ? prev + ' ' : '') + `${pdfPreview.fileName}: ${reprocessImportId ? 're-processing' : 'import'} failed — ${err.message || 'unknown error'}`)
     }
     setImporting(false)
-    if (!reprocessImportId) await advancePdfQueue(queueAfter, accountId)
+    // A reprocess has no queue to advance to (that flow was removed) — it
+    // must close its own review panel explicitly, or pdfPreview stays
+    // truthy forever and every Verify/Fix button on the page stays
+    // disabled from then on (exactly the "only works once" symptom).
+    if (reprocessImportId) setPdfPreview(null)
+    else await advancePdfQueue(queueAfter, accountId)
   }
 
   // One-click fix for a "Verify Against PDF" mismatch: the bank's PDF is
@@ -742,6 +749,7 @@ export default function PaymentSources() {
   async function reprocessFromStoredPdf(imp) {
     if (!imp.sourceFileUrl) return
     setImporting(true)
+    setReprocessingImportId(imp.id)
     setImportMsg('')
     try {
       const resp = await fetchWithTimeout('/api/download-receipt', {
@@ -756,6 +764,7 @@ export default function PaymentSources() {
       if (!rows.length) {
         setImportMsg(`${imp.sourceFileName}: re-parsing the stored PDF found ${lineCount === 0 ? 'no text' : `${lineCount} lines across ${pageCount} page(s) but no recognizable transaction rows`} — this can't be auto-fixed. Try Delete and a manual re-upload instead.`)
         setImporting(false)
+        setReprocessingImportId(null)
         return
       }
       const totalsCheck = validateStatementTotals({ openingBalance, closingBalance, rows })
@@ -769,6 +778,7 @@ export default function PaymentSources() {
       setImportMsg(`${imp.sourceFileName}: could not re-fetch the stored PDF — ${err.message || 'unknown error'}`)
     }
     setImporting(false)
+    setReprocessingImportId(null)
   }
 
   function skipPdfPreview() {
@@ -997,8 +1007,8 @@ export default function PaymentSources() {
                                   )}
                                 </details>
                               )}
-                              <button className="btn-small" style={{ marginTop: 4 }} disabled={importing || !!pdfPreview || verifyingAll} onClick={() => reprocessFromStoredPdf(imp)}>
-                                Fix from Stored PDF
+                              <button className="btn-small" style={{ marginTop: 4, minWidth: 140 }} disabled={importing || !!pdfPreview || verifyingAll} onClick={() => reprocessFromStoredPdf(imp)}>
+                                {reprocessingImportId === imp.id ? 'Reading PDF…' : 'Fix from Stored PDF'}
                               </button>
                             </>
                           )}
@@ -1023,8 +1033,19 @@ export default function PaymentSources() {
                     </tr>
                     {viewingImportId === imp.id && (
                       <tr key={imp.id + '-txns'}>
-                        <td colSpan={7} style={{ background: '#fafbfc' }}>
+                        <td colSpan={7} style={{ background: '#eef2ef', padding: 12 }}>
+                          {/* A visually distinct, self-contained box — not just an
+                              expanded table row blending into the page — with its
+                              own scroll, so a long transaction list stays readable
+                              without growing the whole page, and never gets
+                              visually mixed up with the PDF review panel above. */}
+                          <div className="txn-detail-box">
+                            <div className="card-header" style={{ marginBottom: 8 }}>
+                              <h3 style={{ marginBottom: 0, fontSize: 14 }}>Transactions — {imp.sourceFileName}</h3>
+                              <button className="btn-small btn-ghost" onClick={() => setViewingImportId(null)}>Close</button>
+                            </div>
                           {importTxns.length === 0 ? <p className="empty" style={{ margin: '8px 0' }}>No transactions in this import.</p> : (
+                            <div className="txn-detail-scroll">
                             <table className="expense-table" style={{ margin: '8px 0' }}>
                               <thead>
                                 <tr><th>Date</th><th>Description</th><th>Amount</th><th>Direction</th><th>Balance</th><th>Type</th><th>Duplicate</th><th>Actions</th></tr>
@@ -1059,38 +1080,54 @@ export default function PaymentSources() {
                                         <td>{txn.direction}</td>
                                         <td>{txn.balanceAfter != null ? txn.balanceAfter.toFixed(2) : '—'}</td>
                                         <td>{txn.transactionType}{txn.status === 'matched' && ' · matched'}{txn.settlementGroupId && ' · linked'}</td>
-                                        <td>
-                                          {txn.duplicateStatus ? (
-                                            <>
-                                              <span
-                                                className={`badge ${txn.duplicateStatus === 'verified_separate' ? 'badge-office' : txn.duplicateStatus === 'confirmed_duplicate' ? 'badge-bank-charges' : 'badge-warning'}`}
-                                                title={txn.duplicateReason || ''}
-                                              >
-                                                {DUPLICATE_STATUS_LABELS[txn.duplicateStatus] || txn.duplicateStatus}
-                                              </span>
-                                              {txn.duplicateReason && <div className="hint" style={{ maxWidth: 220 }}>{txn.duplicateReason}</div>}
-                                              {/* Always shown, even once a status is already set — an automatic
-                                                  classification (especially Confirmed Duplicate Import) is a
-                                                  best-effort guess, not a locked verdict, and the accounting
-                                                  rule this app follows throughout is that the user can always
-                                                  override it. Previously this was hidden once resolved, which
-                                                  left no way to correct a wrong auto-classification at all. */}
-                                              <div style={{ marginTop: 4 }}>
-                                                {txn.duplicateStatus !== 'verified_separate' && (
-                                                  <button className="btn-small" disabled={busyId === txn.id} onClick={() => resolveDuplicate(txn, 'verified_separate')}>Keep as Separate</button>
+                                        <td style={{ minWidth: 200 }}>
+                                          {txn.duplicateStatus ? (() => {
+                                            // "Resolved" = either the user explicitly acted on it (any of the
+                                            // three buttons below sets duplicateReviewedAt), or it was
+                                            // auto-classified into one of the two final states. A resolved row
+                                            // collapses to a compact badge instead of permanently showing all
+                                            // three action buttons — the previous "always show every action"
+                                            // fix (so a wrong auto-classification could be corrected) had no
+                                            // sense of "done," so nothing ever visibly went away after acting
+                                            // on it. "Change" reopens the same actions on demand.
+                                            const resolved = ['verified_separate', 'confirmed_duplicate'].includes(txn.duplicateStatus) || !!txn.duplicateReviewedAt
+                                            const expanded = !resolved || expandedDuplicateId === txn.id
+                                            return (
+                                              <>
+                                                <span
+                                                  className={`badge ${txn.duplicateStatus === 'verified_separate' ? 'badge-office' : txn.duplicateStatus === 'confirmed_duplicate' ? 'badge-bank-charges' : 'badge-warning'}`}
+                                                  title={txn.duplicateReason || ''}
+                                                >
+                                                  {DUPLICATE_STATUS_LABELS[txn.duplicateStatus] || txn.duplicateStatus}
+                                                </span>
+                                                {resolved && !expanded && (
+                                                  <button className="btn-small btn-ghost" style={{ marginLeft: 6 }} onClick={() => setExpandedDuplicateId(txn.id)}>Change</button>
                                                 )}
-                                                {txn.duplicateStatus !== 'confirmed_duplicate' && (
-                                                  <button className="btn-small btn-danger" disabled={busyId === txn.id} onClick={() => resolveDuplicate(txn, 'confirmed_duplicate')}>Confirm Duplicate</button>
+                                                {expanded && (
+                                                  <>
+                                                    {txn.duplicateReason && <div className="hint" style={{ maxWidth: 220 }}>{txn.duplicateReason}</div>}
+                                                    <div className="action-row" style={{ flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
+                                                      {txn.duplicateStatus !== 'verified_separate' && (
+                                                        <button className="btn-small" disabled={busyId === txn.id} onClick={() => { resolveDuplicate(txn, 'verified_separate'); setExpandedDuplicateId(null) }}>Keep as Separate</button>
+                                                      )}
+                                                      {txn.duplicateStatus !== 'confirmed_duplicate' && (
+                                                        <button className="btn-small btn-danger" disabled={busyId === txn.id} onClick={() => { resolveDuplicate(txn, 'confirmed_duplicate'); setExpandedDuplicateId(null) }}>Confirm Duplicate</button>
+                                                      )}
+                                                      {!txn.duplicateReviewedAt && (
+                                                        <button className="btn-small btn-ghost" disabled={busyId === txn.id} onClick={() => { dismissDuplicateWarning(txn); setExpandedDuplicateId(null) }}>Ignore Warning</button>
+                                                      )}
+                                                      {imp.sourceFileUrl && (
+                                                        <a href={imp.sourceFileUrl} target="_blank" rel="noreferrer" className="btn-small btn-ghost">Open Source Row</a>
+                                                      )}
+                                                      {resolved && (
+                                                        <button className="btn-small btn-ghost" onClick={() => setExpandedDuplicateId(null)}>Done</button>
+                                                      )}
+                                                    </div>
+                                                  </>
                                                 )}
-                                                {!txn.duplicateReviewedAt && (
-                                                  <button className="btn-small btn-ghost" disabled={busyId === txn.id} onClick={() => dismissDuplicateWarning(txn)}>Ignore Warning</button>
-                                                )}
-                                                {imp.sourceFileUrl && (
-                                                  <a href={imp.sourceFileUrl} target="_blank" rel="noreferrer" className="btn-small btn-ghost">Open Source Row</a>
-                                                )}
-                                              </div>
-                                            </>
-                                          ) : '—'}
+                                              </>
+                                            )
+                                          })() : '—'}
                                         </td>
                                         <td>
                                           <button className="btn-small" onClick={() => startEditTxn(txn)}>Edit</button>
@@ -1102,7 +1139,9 @@ export default function PaymentSources() {
                                 ))}
                               </tbody>
                             </table>
+                            </div>
                           )}
+                          </div>
                         </td>
                       </tr>
                     )}
