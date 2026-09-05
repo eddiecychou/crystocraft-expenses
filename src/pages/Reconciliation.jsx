@@ -6,6 +6,7 @@ import { useProject } from '../contexts/ProjectContext'
 import ProjectBanner from '../components/ProjectBanner'
 import { scoreExpenseMatch, scoreSettlementMatch, classifyReviewCategory, CREATE_EXPENSE_BLOCKED_TYPES } from '../lib/paymentMatching'
 import { DUPLICATE_STATUS_LABELS } from '../lib/duplicateDetection'
+import { BackIcon, ICON_STROKE_WIDTH } from '../icons'
 
 const TOP_TABS = ['Needs Action', 'All', 'Matched', 'Exceptions']
 
@@ -524,7 +525,9 @@ export default function Reconciliation() {
               <p className="empty">Select a transaction to see its details.</p>
             ) : (
               <>
-                <button className="btn-ghost btn-small mobile-only" style={{ marginBottom: 12 }} onClick={() => setSelectedId(null)}>← Back to list</button>
+                <button className="btn-ghost btn-small mobile-only" style={{ marginBottom: 12 }} onClick={() => setSelectedId(null)}>
+                  <BackIcon size={14} strokeWidth={ICON_STROKE_WIDTH} aria-hidden="true" /> Back to list
+                </button>
 
                 <div className="card-header">
                   <h3>{selected.merchantRaw || '(no description)'}</h3>

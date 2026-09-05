@@ -9,6 +9,7 @@ import { parseCSV, mapCsvRecords, normalizeMerchant, classifyTransactionType, co
 import { parsePdfStatement } from '../lib/pdfStatementParser'
 import { uploadStatementFile, deleteStatementFile } from '../statementStorage'
 import { annotateBalanceSequence, classifyFingerprintCollision, validateStatementTotals, diffTransactionSets, DUPLICATE_STATUS_LABELS } from '../lib/duplicateDetection'
+import { MatchedIcon, WarningIcon, ICON_STROKE_WIDTH } from '../icons'
 
 const SOURCE_TYPES = [
   { value: 'bank', label: 'Bank Account' },
@@ -438,7 +439,7 @@ export default function PaymentSources() {
     setVerifyMsg(
       mismatches === 0
         ? `Verified ${eligible.length} statement${eligible.length === 1 ? '' : 's'} against their original PDFs — all match.`
-        : `Verified ${eligible.length} statement${eligible.length === 1 ? '' : 's'} — ${mismatches} need review (see the ⚠ badge next to each import below).`
+        : `Verified ${eligible.length} statement${eligible.length === 1 ? '' : 's'} — ${mismatches} need review (see the Mismatch badge next to each import below).`
     )
     setVerifyingAll(false)
   }
@@ -714,7 +715,7 @@ export default function PaymentSources() {
         closingBalance: pdfPreview.closingBalance,
       }, reprocessImportId)
       let recheckNote = ''
-      // Re-verify immediately so the ⚠ Mismatch badge clears (or shows what,
+      // Re-verify immediately so the Mismatch badge clears (or shows what,
       // if anything, is still off) without a separate manual step — and say
       // so explicitly, rather than leaving the user to guess whether the
       // fix actually landed by re-reading a badge that might not have
@@ -969,14 +970,14 @@ export default function PaymentSources() {
                             <span className="hint">Not yet checked</span>
                           ) : imp.verification.error ? (
                             <>
-                              <span className="badge badge-warning">⚠ Couldn't re-check</span>
+                              <span className="badge badge-warning"><WarningIcon size={12} strokeWidth={ICON_STROKE_WIDTH} aria-hidden="true" /> Couldn't re-check</span>
                               <div className="hint" style={{ maxWidth: 220 }}>{imp.verification.error}</div>
                             </>
                           ) : imp.verification.consistent ? (
-                            <span className="badge badge-office" title="Re-parsed statement matches the stored transactions and totals.">✓ Verified</span>
+                            <span className="badge badge-office" title="Re-parsed statement matches the stored transactions and totals."><MatchedIcon size={12} strokeWidth={ICON_STROKE_WIDTH} aria-hidden="true" /> Verified</span>
                           ) : (
                             <>
-                              <span className="badge badge-warning">⚠ Mismatch</span>
+                              <span className="badge badge-warning"><WarningIcon size={12} strokeWidth={ICON_STROKE_WIDTH} aria-hidden="true" /> Mismatch</span>
                               <div className="hint" style={{ maxWidth: 220 }}>
                                 {[
                                   imp.verification.missingFromRecords ? `${imp.verification.missingFromRecords} row(s) in the PDF not found in records` : null,

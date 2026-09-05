@@ -6,6 +6,7 @@ import { CATEGORIES, CURRENCIES, PAYMENT_METHODS } from '../constants'
 import { useProject } from '../contexts/ProjectContext'
 import ProjectBanner from '../components/ProjectBanner'
 import ConfirmDialog from '../components/ConfirmDialog'
+import { ReceiptIcon, DocumentIcon, RescanIcon, AttachIcon, CloseIcon, ICON_STROKE_WIDTH } from '../icons'
 
 export default function Upload() {
   const { activeProject } = useProject()
@@ -330,7 +331,7 @@ export default function Upload() {
                 onDragOver={e => e.preventDefault()}
                 onClick={() => fileRef.current.click()}
               >
-                <div className="dropzone-icon">📄</div>
+                <ReceiptIcon className="dropzone-icon" size={40} strokeWidth={ICON_STROKE_WIDTH} aria-hidden="true" />
                 <p>Drag & drop receipts here, or click to select</p>
                 <p className="hint">JPEG · PNG · WebP · HEIC · GIF · BMP · TIFF · PDF · Multiple files OK</p>
                 <input
@@ -398,7 +399,7 @@ export default function Upload() {
                 <div className="result-thumb-group">
                   {thumbItem && !thumbItem.error && (
                     thumbItem.mimeType === 'application/pdf'
-                      ? <div className="result-thumb-pdf">📄</div>
+                      ? <div className="result-thumb-pdf"><DocumentIcon size={22} strokeWidth={ICON_STROKE_WIDTH} aria-hidden="true" /></div>
                       : <img className="result-thumb" src={`data:${thumbItem.mimeType};base64,${thumbItem.base64}`} alt="" onClick={() => setPreviewSrc(`data:${thumbItem.mimeType};base64,${thumbItem.base64}`)} />
                   )}
                   <span className="result-filename">{r.fileName}</span>
@@ -406,7 +407,7 @@ export default function Upload() {
                 <div style={{ display: 'flex', gap: 6 }}>
                   {thumbItem && !thumbItem.error && (
                     <button onClick={() => reparseOne(r._id)} disabled={reparsing[r._id] || processing || saving} className="btn-small btn-ghost">
-                      {reparsing[r._id] ? 'Scanning…' : '↻ Re-scan'}
+                      {reparsing[r._id] ? 'Scanning…' : <><RescanIcon size={14} strokeWidth={ICON_STROKE_WIDTH} aria-hidden="true" /> Re-scan</>}
                     </button>
                   )}
                   <button onClick={() => remove(r._id)} className="btn-small btn-danger">Remove</button>
@@ -459,11 +460,11 @@ export default function Upload() {
                     <div className="attach-row">
                       {r.fileItem
                         ? <>
-                            <span className="hint">📎 {r.fileItem.name}</span>
+                            <span className="hint"><AttachIcon size={13} strokeWidth={ICON_STROKE_WIDTH} aria-hidden="true" /> {r.fileItem.name}</span>
                             <button onClick={() => update(r._id, 'fileItem', null)} className="btn-small btn-ghost">Remove image</button>
                           </>
                         : !fileItems.find(f => f.name === r.fileName) && (
-                            <button onClick={() => openAttach(r._id)} className="btn-ghost btn-small">📎 Attach Image</button>
+                            <button onClick={() => openAttach(r._id)} className="btn-ghost btn-small"><AttachIcon size={14} strokeWidth={ICON_STROKE_WIDTH} aria-hidden="true" /> Attach Image</button>
                           )
                       }
                     </div>
@@ -507,7 +508,9 @@ export default function Upload() {
       {previewSrc && (
         <div className="lightbox-overlay" onClick={() => setPreviewSrc(null)}>
           <div className="lightbox-box" onClick={e => e.stopPropagation()}>
-            <button className="lightbox-close" onClick={() => setPreviewSrc(null)}>✕</button>
+            <button className="lightbox-close" onClick={() => setPreviewSrc(null)} aria-label="Close">
+              <CloseIcon size={18} strokeWidth={ICON_STROKE_WIDTH} aria-hidden="true" />
+            </button>
             <img className="lightbox-img" src={previewSrc} alt="" />
           </div>
         </div>
