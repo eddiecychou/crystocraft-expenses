@@ -86,6 +86,33 @@ protection when the original file is bundled alongside it unfiltered.
 
 ---
 
+## A Storage download URL's token already bypasses security rules for reads
+
+Assumed, when scoping project sharing, that extending it to Storage meant a
+collaborator couldn't view a shared project's receipt images or statement
+PDFs at all — reasonable-sounding, but wrong. This app already stores the
+*full* `getDownloadURL()` URL (including its access token) directly on the
+Firestore document (`expenses[].images[].url`, `paymentImports.sourceFileUrl`).
+That token grants read access to that specific object regardless of Storage
+security rules — it's a deliberate Firebase mechanism, not a bug. So once a
+collaborator can read the Firestore document (already true, sharing is
+Firestore-based), they can already load the image/PDF via `<img src>`/`<a
+href>` or the `/api/download-receipt` proxy, with zero Storage rule changes.
+
+**What Storage rules actually still gate:** uploading a *new* file,
+replacing one, or deleting one — these go through the authenticated
+Storage SDK (`uploadBytes`/`deleteObject`, no token involved), and the
+per-uploader-only rule blocks anyone whose uid doesn't match the path's
+`{uid}` segment, including a fully-entitled collaborator on a shared
+project. That's the actual gap that needed a rule fix, not viewing.
+
+**How to apply:** before assuming a feature needs a security-rule change,
+check whether the read path in question already carries an
+access-granting token in the URL itself — Storage download URLs and
+similar signed-URL patterns often do, and "can this collaborator load the
+image" and "can this collaborator upload/replace/delete the image" can
+have completely different answers under the exact same rules.
+
 ## A cross-document get() rule needs its target pinned by the query's own filter
 
 Refines the entry below: it's not just that a list query needs a `where`

@@ -130,6 +130,12 @@ anything it covers.
 - **Rasterize before "redacting" a PDF — never draw over live text.** A
   shape painted on top of vector PDF content without flattening to an
   image leaves the original text still selectable/copyable underneath it.
+- **A Storage download URL's token already bypasses rules for reads.**
+  Before assuming a sharing feature needs a Storage rule change, check
+  whether the URL already stored on the Firestore doc carries an
+  access-granting token — if so, viewing already works for anyone who can
+  read that document; only upload/replace/delete (via the authenticated
+  SDK, no token) actually need the rule fix.
 - **A recurring transaction series needs chronological/positional
   pairing, not independent nearest-match per item.** Same-amount,
   same-merchant charges (subscriptions) score identically against every

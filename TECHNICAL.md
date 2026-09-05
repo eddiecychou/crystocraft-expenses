@@ -385,12 +385,24 @@ query with it, adding `where('visibleToMembers','==',true)` for anyone who
 isn't the project owner. See "Security Rules" above for why this has to be a
 field the query itself filters on, not a rule-time cross-document check.
 
-**Known limitation:** sharing currently covers Firestore data only. Storage
-security rules (receipt images, statement originals) are still strictly
-per-uploader, so a collaborator may see an Expense record but be unable to
-load its receipt image or download a statement's original file. Extending
-sharing to Storage would need its own rule change (Storage rules can call
-`firestore.get()` to check project membership the same way) — not yet done.
+**Storage sharing.** A receipt/statement's Storage path is namespaced under
+the *original uploader's* uid (`receipts/{uid}/{expenseId}/...`,
+`statements/{uid}/{importId}/...`), not the project — a collaborator's uid
+never matches that path segment even on a fully shared project. Two
+different access paths matter here:
+- **Viewing** an already-stored file (`<img src>`/`<a href>` to its
+  `getDownloadURL()` URL, or the `/api/download-receipt` proxy) already
+  works for a collaborator with no rule change — Firebase's download URLs
+  embed an access token that bypasses Storage security rules entirely for
+  that specific object; anyone holding the URL (which the collaborator gets
+  via the already-shared Firestore document) can load it.
+- **Uploading, replacing, or deleting** a file goes through the
+  authenticated Storage SDK (no token involved), which the per-uploader
+  rule blocks for anyone but the original uploader. Storage rules use the
+  same `firestore.get()`-based membership check as Firestore's own rules
+  (looking up the referenced `expenses`/`paymentImports` doc's `projectId`,
+  then that project's `memberUids`) to fix this — published separately from
+  Firestore rules, in the Storage tab of the Firebase Console.
 
 ### Color Theming
 
