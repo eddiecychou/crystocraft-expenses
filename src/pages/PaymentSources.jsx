@@ -221,7 +221,12 @@ export default function PaymentSources() {
         duplicateStatus = result.status
         duplicateReason = result.reason
         duplicateEvidence = result.evidence
-        if (collisionRows.length === 1 && result.status !== 'verified_separate') duplicateOfTransactionId = collisionRows[0].id
+        // collisionRows[0] may be another row from THIS SAME batch, not yet
+        // written to Firestore — it has no .id yet (only existing on-disk
+        // rows get one, added in the map's initial population below). Firestore
+        // rejects `undefined` outright, so this must fall back to null, never
+        // leave the field as whatever collisionRows[0].id happens to be.
+        if (collisionRows.length === 1 && result.status !== 'verified_separate') duplicateOfTransactionId = collisionRows[0].id || null
       }
 
       const rowDoc = {
@@ -485,6 +490,10 @@ export default function PaymentSources() {
   }
 
   async function saveEditTxn(txn) {
+    if (!editTxnData.transactionDate || !(parseFloat(editTxnData.settlementAmount) > 0)) {
+      alert('A transaction date and an amount greater than 0 are required.')
+      return
+    }
     const merchantRaw = editTxnData.merchantRaw.trim()
     const merchantNormalized = normalizeMerchant(merchantRaw)
     const transactionType = classifyTransactionType(merchantRaw, editTxnData.direction)
@@ -956,7 +965,7 @@ export default function PaymentSources() {
                                       <>
                                         <td><input type="date" value={editTxnData.transactionDate} onChange={e => setEditTxnData({ ...editTxnData, transactionDate: e.target.value })} /></td>
                                         <td><input value={editTxnData.merchantRaw} onChange={e => setEditTxnData({ ...editTxnData, merchantRaw: e.target.value })} /></td>
-                                        <td><input type="number" min="0" step="0.01" value={editTxnData.settlementAmount} onChange={e => setEditTxnData({ ...editTxnData, settlementAmount: e.target.value })} /></td>
+                                        <td><input type="number" inputMode="decimal" min="0" step="0.01" value={editTxnData.settlementAmount} onChange={e => setEditTxnData({ ...editTxnData, settlementAmount: e.target.value })} /></td>
                                         <td>
                                           <select value={editTxnData.direction} onChange={e => setEditTxnData({ ...editTxnData, direction: e.target.value })}>
                                             <option value="debit">debit</option>

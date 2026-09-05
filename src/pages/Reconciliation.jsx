@@ -478,7 +478,17 @@ export default function Reconciliation() {
       )}
 
       {filteredRows.length === 0 ? (
-        <p className="empty">Nothing here.</p>
+        <div>
+          <p className="empty">
+            {transactions.length === 0
+              ? 'No statement transactions imported yet.'
+              : topTab === 'Needs Action' ? "Nothing needs action right now — you're caught up."
+              : topTab === 'Matched' ? 'No matched transactions yet.'
+              : topTab === 'Exceptions' ? 'No exceptions in this filter.'
+              : 'Nothing matches the current filters.'}
+          </p>
+          {transactions.length === 0 && <Link to="/payment-sources" className="btn-primary">Import a Statement</Link>}
+        </div>
       ) : (
         <div className="recon-layout">
           <div className={`recon-list ${selected ? 'has-selection' : ''}`}>

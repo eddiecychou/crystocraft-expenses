@@ -7,6 +7,14 @@
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* Visible keyboard-focus ring for anything that doesn't define its own —
+   buttons, links, and nav items rely on the browser default elsewhere,
+   which some reset rules above suppress without a replacement. */
+a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, [tabindex]:focus-visible {
+  outline: 2px solid var(--t-btn);
+  outline-offset: 2px;
+}
+
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   font-size: 14px;
@@ -110,7 +118,7 @@ body {
   margin-top: 6px;
   display: block;
 }
-.login-card input:focus { border-color: var(--t-btn); }
+.login-card input:focus { border-color: var(--t-btn); box-shadow: 0 0 0 3px rgba(0,0,0,0.15); }
 
 .login-label {
   display: block;
@@ -484,6 +492,7 @@ body {
 .result-grid input:focus, .result-grid select:focus {
   outline: none;
   border-color: var(--t-btn);
+  box-shadow: 0 0 0 3px rgba(0,0,0,0.15);
 }
 .result-grid input[type="date"] {
   -webkit-appearance: none;
@@ -594,7 +603,7 @@ body {
   color: var(--t-dark);
   min-width: 160px;
 }
-.filter-search:focus { outline: none; border-color: var(--t-btn); }
+.filter-search:focus { outline: none; border-color: var(--t-btn); box-shadow: 0 0 0 3px rgba(0,0,0,0.15); }
 
 .date-range {
   display: flex;

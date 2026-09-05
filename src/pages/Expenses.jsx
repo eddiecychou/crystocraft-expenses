@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { Link } from 'react-router-dom'
 import { collection, query, where, onSnapshot, doc, updateDoc, deleteDoc } from 'firebase/firestore'
 import { db, auth } from '../firebase'
 import { useProject } from '../contexts/ProjectContext'
@@ -98,6 +99,17 @@ export default function Expenses() {
     return unsubscribe
   }, [activeProject?.id, projectLoading])
 
+  // Both the desktop table row and mobile card render for the same edit at
+  // once (one hidden via CSS) — scrolls/focuses whichever copy of the field
+  // is actually visible, so validation failure is never silent on a phone
+  // where the first invalid field may already be scrolled off screen.
+  function focusFirstError(errs) {
+    const field = ['date', 'vendor', 'amount'].find(f => errs[f])
+    if (!field) return
+    const el = [...document.querySelectorAll(`[data-field="${field}"]`)].find(node => node.offsetParent !== null)
+    if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.focus() }
+  }
+
   async function saveEdit() {
     const errs = {
       date: !editData.date,
@@ -106,6 +118,7 @@ export default function Expenses() {
     }
     if (errs.date || errs.vendor || errs.amount) {
       setEditErrors(errs)
+      focusFirstError(errs)
       return
     }
     const { id, userId, userEmail, createdAt, ...fields } = editData
@@ -307,7 +320,11 @@ export default function Expenses() {
     </div>
   )
   if (expenses.length === 0) return (
-    <div className="page"><ProjectBanner /><h2>Expense Records</h2><p className="empty">No expenses yet.</p></div>
+    <div className="page">
+      <ProjectBanner /><h2>Expense Records</h2>
+      <p className="empty">No expenses yet — upload a receipt to get started.</p>
+      <Link to="/upload" className="btn-primary">Upload Receipt</Link>
+    </div>
   )
 
   const filtered = expenses.filter(e => {
@@ -385,7 +402,10 @@ export default function Expenses() {
       )}
 
       {filtered.length === 0 && (
-        <p className="empty">No expenses match your filters.</p>
+        <>
+          <p className="empty">No expenses match your filters.</p>
+          <button className="btn-ghost" onClick={() => { setFilterFrom(''); setFilterTo(''); setFilterCategory(''); setFilterPayment(''); setFilterSearch('') }}>Clear Filters</button>
+        </>
       )}
 
       {/* Desktop table */}
@@ -402,9 +422,18 @@ export default function Expenses() {
               <tr key={e.id}>
                 {editId === e.id ? (
                   <>
-                    <td><input type="date" value={editData.date || ''} onChange={ev => upd('date', ev.target.value)} className={editErrors.date ? 'input-error' : ''} /></td>
-                    <td><input value={editData.vendor || ''} onChange={ev => upd('vendor', ev.target.value)} className={editErrors.vendor ? 'input-error' : ''} /></td>
-                    <td><input type="number" min="0" step="0.01" value={editData.amount || ''} onChange={ev => upd('amount', ev.target.value)} className={editErrors.amount ? 'input-error' : ''} /></td>
+                    <td>
+                      <input type="date" data-field="date" value={editData.date || ''} onChange={ev => upd('date', ev.target.value)} className={editErrors.date ? 'input-error' : ''} />
+                      {editErrors.date && <span className="field-error-msg">Required</span>}
+                    </td>
+                    <td>
+                      <input data-field="vendor" value={editData.vendor || ''} onChange={ev => upd('vendor', ev.target.value)} className={editErrors.vendor ? 'input-error' : ''} />
+                      {editErrors.vendor && <span className="field-error-msg">Required</span>}
+                    </td>
+                    <td>
+                      <input type="number" inputMode="decimal" min="0" step="0.01" data-field="amount" value={editData.amount || ''} onChange={ev => upd('amount', ev.target.value)} className={editErrors.amount ? 'input-error' : ''} />
+                      {editErrors.amount && <span className="field-error-msg">Enter an amount greater than 0</span>}
+                    </td>
                     <td><select value={editData.currency} onChange={ev => upd('currency', ev.target.value)}>{CURRENCIES.map(c => <option key={c}>{c}</option>)}</select></td>
                     <td><select value={editData.category} onChange={ev => upd('category', ev.target.value)}>{CATEGORIES.map(c => <option key={c}>{c}</option>)}</select></td>
                     <td>
@@ -433,7 +462,7 @@ export default function Expenses() {
                       {e.paymentMethod && <div className="payment-sub">{e.paymentMethod}</div>}
                     </td>
                     <td>
-                      <button onClick={() => openLightbox(e)} className="btn-small" title="Manage receipts">
+                      <button onClick={() => openLightbox(e)} className="btn-small" title="Manage receipts" aria-label={`Manage receipts, ${e.images?.length || 0} attached`}>
                         📎 {e.images?.length || 0}
                       </button>
                       <button onClick={() => startEdit(e)} className="btn-small">Edit</button>
@@ -454,9 +483,18 @@ export default function Expenses() {
             {editId === e.id ? (
               <>
                 <div className="result-grid">
-                  <label>Date<input type="date" value={editData.date || ''} onChange={ev => upd('date', ev.target.value)} className={editErrors.date ? 'input-error' : ''} /></label>
-                  <label>Vendor<input value={editData.vendor || ''} onChange={ev => upd('vendor', ev.target.value)} className={editErrors.vendor ? 'input-error' : ''} /></label>
-                  <label>Amount<input type="number" min="0" step="0.01" value={editData.amount || ''} onChange={ev => upd('amount', ev.target.value)} className={editErrors.amount ? 'input-error' : ''} /></label>
+                  <label>Date
+                    <input type="date" data-field="date" value={editData.date || ''} onChange={ev => upd('date', ev.target.value)} className={editErrors.date ? 'input-error' : ''} />
+                    {editErrors.date && <span className="field-error-msg">Required</span>}
+                  </label>
+                  <label>Vendor
+                    <input data-field="vendor" value={editData.vendor || ''} onChange={ev => upd('vendor', ev.target.value)} className={editErrors.vendor ? 'input-error' : ''} />
+                    {editErrors.vendor && <span className="field-error-msg">Required</span>}
+                  </label>
+                  <label>Amount
+                    <input type="number" inputMode="decimal" min="0" step="0.01" data-field="amount" value={editData.amount || ''} onChange={ev => upd('amount', ev.target.value)} className={editErrors.amount ? 'input-error' : ''} />
+                    {editErrors.amount && <span className="field-error-msg">Enter an amount greater than 0</span>}
+                  </label>
                   <label>Currency<select value={editData.currency} onChange={ev => upd('currency', ev.target.value)}>{CURRENCIES.map(c => <option key={c}>{c}</option>)}</select></label>
                   <label>Category<select value={editData.category} onChange={ev => upd('category', ev.target.value)}>{CATEGORIES.map(c => <option key={c}>{c}</option>)}</select></label>
                   <label>Paid via<select value={editData.paymentMethod || ''} onChange={ev => upd('paymentMethod', ev.target.value)}><option value="">—</option>{PAYMENT_METHODS.map(m => <option key={m}>{m}</option>)}</select></label>

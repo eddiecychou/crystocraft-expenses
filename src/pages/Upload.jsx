@@ -240,6 +240,13 @@ export default function Upload() {
     }
     if (Object.keys(errs).length > 0) {
       setValidationErrors(errs)
+      // The first invalid card may be scrolled off-screen among several
+      // reviewed receipts — jump straight to its first invalid field
+      // rather than leaving the failure silent.
+      const [firstId, firstErrs] = Object.entries(errs)[0]
+      const firstField = ['date', 'vendor', 'amount'].find(f => firstErrs[f])
+      const el = document.querySelector(`[data-field="${firstField}-${firstId}"]`)
+      if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.focus() }
       return
     }
     setValidationErrors({})
@@ -412,17 +419,17 @@ export default function Upload() {
                     <div className="result-grid">
                       <label>
                         Date
-                        <input type="date" value={r.date || ''} onChange={e => update(r._id, 'date', e.target.value)} className={validationErrors[r._id]?.date ? 'input-error' : ''} />
+                        <input type="date" data-field={`date-${r._id}`} value={r.date || ''} onChange={e => update(r._id, 'date', e.target.value)} className={validationErrors[r._id]?.date ? 'input-error' : ''} />
                         {validationErrors[r._id]?.date && <span className="field-error-msg">Required</span>}
                       </label>
                       <label>
                         Vendor
-                        <input value={r.vendor || ''} onChange={e => update(r._id, 'vendor', e.target.value)} className={validationErrors[r._id]?.vendor ? 'input-error' : ''} />
+                        <input data-field={`vendor-${r._id}`} value={r.vendor || ''} onChange={e => update(r._id, 'vendor', e.target.value)} className={validationErrors[r._id]?.vendor ? 'input-error' : ''} />
                         {validationErrors[r._id]?.vendor && <span className="field-error-msg">Required</span>}
                       </label>
                       <label>
                         Amount
-                        <input type="number" step="0.01" value={r.amount || ''} onChange={e => update(r._id, 'amount', e.target.value)} className={validationErrors[r._id]?.amount ? 'input-error' : ''} />
+                        <input type="number" inputMode="decimal" step="0.01" data-field={`amount-${r._id}`} value={r.amount || ''} onChange={e => update(r._id, 'amount', e.target.value)} className={validationErrors[r._id]?.amount ? 'input-error' : ''} />
                         {validationErrors[r._id]?.amount && <span className="field-error-msg">Required</span>}
                       </label>
                       <label>
