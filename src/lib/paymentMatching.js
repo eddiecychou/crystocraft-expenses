@@ -197,9 +197,23 @@ function merchantSimilarity(a, b) {
 // null if the transaction isn't even eligible to match (wrong type,
 // pending, already claimed elsewhere) — callers should skip nulls
 // rather than show a 0-score card.
+// A statement transaction and its matching Expense record should always be
+// close in time — same day, typically, or a few days for statement posting
+// lag. Amount and currency alone (no date proximity, no merchant
+// similarity) were previously enough to clear the suggestion threshold —
+// e.g. a personal bank transfer scoring 65 against an unrelated software
+// subscription four years later, purely because both happened to be HKD
+// 250. A pairing this far apart in time is never a genuine match regardless
+// of what else lines up, so it's disqualified outright rather than merely
+// scored lower.
+const MAX_MATCH_DAYS = 90
+
 export function scoreExpenseMatch(txn, expense) {
   if (!['purchase', 'fee', 'interest'].includes(txn.transactionType)) return null
   if (txn.pendingOrPosted === 'pending') return null
+
+  const days = daysBetween(txn.transactionDate, expense.date)
+  if (days !== null && days > MAX_MATCH_DAYS) return null
 
   let score = 0
   const reasons = []
@@ -210,7 +224,6 @@ export function scoreExpenseMatch(txn, expense) {
 
   if (txn.settlementCurrency === expense.currency) { score += 15; reasons.push('Same currency') }
 
-  const days = daysBetween(txn.transactionDate, expense.date)
   if (days === 0) { score += 15; reasons.push('Same date') }
   else if (days !== null && days <= 3) { score += 10; reasons.push(`Date within ${Math.ceil(days)} day(s)`) }
   else if (days !== null) { reasons.push(`Date differs by ${Math.ceil(days)} day(s)`) }
