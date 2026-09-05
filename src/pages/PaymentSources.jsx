@@ -37,6 +37,7 @@ export default function PaymentSources() {
   const [busyId, setBusyId] = useState(null)
   const [verifyingImportId, setVerifyingImportId] = useState(null)
   const [verifyingAll, setVerifyingAll] = useState(false)
+  const [fixingAll, setFixingAll] = useState(false)
   const [verifyMsg, setVerifyMsg] = useState('')
   // Transactions for whichever import the user has expanded to review/edit.
   const [viewingImportId, setViewingImportId] = useState(null)
@@ -396,6 +397,59 @@ export default function PaymentSources() {
         : `Verified ${eligible.length} statement${eligible.length === 1 ? '' : 's'} — ${mismatches} need review (see the ⚠ badge next to each import below).`
     )
     setVerifyingAll(false)
+  }
+
+  // Bulk version of "Fix from Stored PDF" (below), for when a batch of
+  // statements imported under an earlier parser version all come back
+  // mismatched at once. Only auto-commits a re-parse when its OWN
+  // statement-totals check comes back clean — that's independent evidence
+  // (from the bank's own printed opening/closing balance) the new parse is
+  // actually correct, not just different. Anything without that evidence
+  // (no printed balance to check, or the fresh parse still doesn't
+  // reconcile) is left exactly as-is for manual "Fix from Stored PDF"
+  // review — this never silently overwrites a transaction record without
+  // a reason to trust the replacement more than what's already there.
+  async function fixAllMismatches() {
+    const eligible = imports.filter(imp => imp.sourceType === 'pdf' && imp.sourceFileUrl && imp.verification && !imp.verification.error && !imp.verification.consistent)
+    if (!eligible.length) {
+      setVerifyMsg('No mismatched imports to fix.')
+      return
+    }
+    setFixingAll(true)
+    let fixed = 0, leftForReview = 0, failed = 0
+    for (let i = 0; i < eligible.length; i++) {
+      const imp = eligible[i]
+      setVerifyMsg(`Checking ${i + 1} of ${eligible.length} mismatched statements…`)
+      try {
+        const resp = await fetch('/api/download-receipt', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: imp.sourceFileUrl }),
+        })
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+        const blob = await resp.blob()
+        const file = new File([blob], imp.sourceFileName || 'statement.pdf', { type: blob.type })
+        const { rows, openingBalance, closingBalance } = await parsePdfStatement(file)
+        if (!rows.length) { leftForReview++; continue }
+        const totalsCheck = validateStatementTotals({ openingBalance, closingBalance, rows })
+        if (totalsCheck && totalsCheck.consistent) {
+          const account = accounts.find(a => a.id === imp.paymentAccountId)
+          await commitRows(rows, account, file, 'pdf', { openingBalance, closingBalance }, imp.id)
+          await verifyImportAgainstSource({ ...imp, sourceFileName: imp.sourceFileName })
+          fixed++
+        } else {
+          leftForReview++
+        }
+      } catch (err) {
+        failed++
+      }
+    }
+    setVerifyMsg(
+      `Auto-fixed ${fixed} of ${eligible.length} mismatched statement${eligible.length === 1 ? '' : 's'} (confirmed against their own printed balance).` +
+      (leftForReview ? ` ${leftForReview} still need manual review via "Fix from Stored PDF" — no clean totals check to confirm the re-parse.` : '') +
+      (failed ? ` ${failed} couldn't be re-fetched.` : '')
+    )
+    setFixingAll(false)
   }
 
   // Editing or deleting a transaction that's already confirmed against an
@@ -810,12 +864,18 @@ export default function PaymentSources() {
         {imports.length > 0 && (
           <div style={{ marginTop: 16 }}>
             <div className="action-row" style={{ alignItems: 'center' }}>
-              <button className="btn-primary btn-small" disabled={verifyingAll || verifyingImportId} onClick={verifyAllImports}>
+              <button className="btn-primary btn-small" disabled={verifyingAll || fixingAll || verifyingImportId} onClick={verifyAllImports}>
                 {verifyingAll ? 'Verifying…' : 'Verify All Against PDFs'}
+              </button>
+              <button className="btn-ghost btn-small" disabled={verifyingAll || fixingAll || verifyingImportId} onClick={fixAllMismatches}>
+                {fixingAll ? 'Fixing…' : 'Fix All Mismatches'}
               </button>
               {verifyMsg && <span className="hint">{verifyMsg}</span>}
             </div>
-            <p className="hint">Re-parses each PDF import's stored original file from scratch and checks it against what's recorded — catches a misread row or a parser fix that changes results, independent of the one-time review at import.</p>
+            <p className="hint">
+              Re-parses each PDF import's stored original file from scratch and checks it against what's recorded — catches a misread row or a parser fix that changes results, independent of the one-time review at import.
+              "Fix All Mismatches" only auto-replaces a statement's transactions when the fresh re-parse's own printed balance confirms it's correct — anything less certain is left for manual review below.
+            </p>
           <div className="table-wrap">
             <table className="expense-table">
               <thead>
@@ -857,7 +917,7 @@ export default function PaymentSources() {
                                     : null,
                                 ].filter(Boolean).join(' · ')}
                               </div>
-                              <button className="btn-small" style={{ marginTop: 4 }} disabled={importing} onClick={() => reprocessFromStoredPdf(imp)}>
+                              <button className="btn-small" style={{ marginTop: 4 }} disabled={importing || fixingAll || verifyingAll} onClick={() => reprocessFromStoredPdf(imp)}>
                                 Fix from Stored PDF
                               </button>
                             </>
@@ -874,7 +934,7 @@ export default function PaymentSources() {
                               {attachingImportId === imp.id ? 'Uploading…' : 'Attach Original'}
                             </button>}
                         {imp.sourceType === 'pdf' && imp.sourceFileUrl && (
-                          <button className="btn-small" style={{ minWidth: 130, display: 'inline-block' }} disabled={verifyingImportId === imp.id || verifyingAll} onClick={() => verifyImportAgainstSource(imp)}>
+                          <button className="btn-small" style={{ minWidth: 130, display: 'inline-block' }} disabled={verifyingImportId === imp.id || verifyingAll || fixingAll} onClick={() => verifyImportAgainstSource(imp)}>
                             {verifyingImportId === imp.id ? 'Checking…' : 'Verify Against PDF'}
                           </button>
                         )}
