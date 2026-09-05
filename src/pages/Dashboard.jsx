@@ -125,8 +125,9 @@ export default function Dashboard() {
             </div>
           </div>
 
+          <div className="dashboard-grid">
           {byCategory.length > 0 && (
-            <div className="card">
+            <div className="card dashboard-span-4">
               <h3>By Category</h3>
               {byCategory.map(c => (
                 <div key={c.cat} className="category-row">
@@ -137,7 +138,7 @@ export default function Dashboard() {
             </div>
           )}
 
-          <div className="card">
+          <div className={`card ${byCategory.length > 0 ? 'dashboard-span-8' : 'dashboard-span-12'}`}>
             <div className="card-header">
               <h3>Expenses</h3>
               <Link to="/upload" className="btn-primary">+ Upload Receipt</Link>
@@ -162,6 +163,7 @@ export default function Dashboard() {
                 </>
               )
             }
+          </div>
           </div>
         </>
       )}

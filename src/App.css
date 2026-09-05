@@ -371,6 +371,36 @@ body {
    so this is a token-naming/consistency fix, not a size change. */
 .page h3 { font-family: var(--font-ui); font-size: var(--type-card-title-size); line-height: var(--type-card-title-line); font-weight: var(--type-card-title-weight); margin-bottom: var(--space-4); color: #2d3748; }
 
+/* ── 12-column dashboard grid ──
+   Opt-in layout grid for pages that need multi-column card arrangement
+   (e.g. Dashboard KPI row + panels). 12 cols desktop, collapses to 6-col
+   behavior at tablet widths, single column on mobile. */
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: var(--space-6);
+}
+.dashboard-span-4 { grid-column: span 4; }
+.dashboard-span-6 { grid-column: span 6; }
+.dashboard-span-8 { grid-column: span 8; }
+.dashboard-span-12 { grid-column: span 12; }
+
+@media (max-width: 1023px) {
+  .dashboard-grid { gap: var(--space-4); }
+  .dashboard-span-4,
+  .dashboard-span-6,
+  .dashboard-span-8 { grid-column: span 6; }
+  .dashboard-span-12 { grid-column: span 12; }
+}
+
+@media (max-width: 767px) {
+  .dashboard-grid { grid-template-columns: 1fr; gap: var(--space-3); }
+  .dashboard-span-4,
+  .dashboard-span-6,
+  .dashboard-span-8,
+  .dashboard-span-12 { grid-column: span 1; }
+}
+
 .loading { color: #718096; padding: 48px; text-align: center; }
 
 .loading-bar-wrap {
