@@ -6,6 +6,38 @@ Each entry says what happened, why it matters, and how to apply it going forward
 
 ---
 
+## A recurring series needs chronological pairing, not per-item nearest-match
+
+Fixing the tiebreaker for recurring same-amount charges (previous entry)
+wasn't the whole story. A subscription's bill is often dated relative to a
+*billing cycle*, not the charge itself — e.g. billed at cycle-end for a
+charge that landed at cycle-start, a consistent ~2-4 week lag. With several
+months of the same charge and several months of the same bill all sitting
+within a plausible date range of each other, "closest absolute date" per
+transaction can still grab the wrong cycle's expense, independently of any
+other transaction's pick.
+
+**Why:** Matching a whole recurring series is fundamentally a sequence
+problem, not a series of independent point-lookups. If the offset between
+charge and bill is systematic, the RELATIVE order of both series is what's
+reliable, not the absolute date gap of any one pairing in isolation.
+
+**How to apply:** `runMatching` in `Reconciliation.jsx` now groups
+transactions by (merchant, amount, currency) and, only when a group's
+count of transactions exactly equals the count of similarly-matching
+expenses (the strongest available signal neither side has a gap — e.g. a
+missing receipt for one cycle), sorts both by date and pairs them
+positionally: 1st with 1st, 2nd with 2nd. Mismatched-count groups
+deliberately fall through to the independent nearest-date scoring instead
+of guessing which position in an incomplete series is missing. The
+merchant grouping key must use the same fuzzy `merchantSimilarity` check
+`scoreExpenseMatch` itself uses (exported for this reason) — a
+transaction's merchant text is rarely byte-identical to how the expense's
+vendor was entered ("CSL MOBILE LIMITED 168 HONG KONG HK" vs. "CSL
+Mobile"), so an exact-string group key silently never fires on real data.
+
+---
+
 ## A PDF text line's y is its baseline, not its visual top — pad asymmetrically
 
 Building visual PDF redaction (`src/lib/pdfRedaction.js` + the `maskRect`

@@ -4,7 +4,7 @@ import { collection, query, where, onSnapshot, doc, updateDoc, addDoc, serverTim
 import { db, auth } from '../firebase'
 import { useProject } from '../contexts/ProjectContext'
 import ProjectBanner from '../components/ProjectBanner'
-import { scoreExpenseMatch, scoreSettlementMatch, classifyReviewCategory, CREATE_EXPENSE_BLOCKED_TYPES } from '../lib/paymentMatching'
+import { scoreExpenseMatch, scoreSettlementMatch, classifyReviewCategory, CREATE_EXPENSE_BLOCKED_TYPES, merchantSimilarity } from '../lib/paymentMatching'
 import { DUPLICATE_STATUS_LABELS } from '../lib/duplicateDetection'
 import { paymentTransactionsQuery } from '../lib/projectAccess'
 import { BackIcon, ICON_STROKE_WIDTH } from '../icons'
@@ -121,23 +121,73 @@ export default function Reconciliation() {
     // 'suggested' is never looked at again by a normal run.
     const candidates = transactions.filter(t => t.status === 'unmatched' || t.status === 'suggested')
     setMatchProgress({ done: 0, total: candidates.length })
+
+    // A recurring subscription's several charges (and their matching
+    // Expense records) all score IDENTICALLY against each other — same
+    // amount, same currency, same merchant — so nearest-absolute-date can
+    // still pick the wrong cycle once several fall within range of each
+    // other, especially when a bill's date is offset from its charge by a
+    // consistent lag (e.g. billed at cycle-end for a charge that landed at
+    // cycle-start — one user-reported case was matched to a cycle 78 days
+    // away). The fix is ORDER, not proximity: group both sides by
+    // (merchant, amount, currency) and, when a group has the SAME COUNT on
+    // both sides (the strongest signal neither series has a gap), pair them
+    // up in chronological order — 1st transaction with 1st expense, 2nd
+    // with 2nd, etc. Groups with mismatched counts fall through to the
+    // normal per-pair scoring below rather than risk misaligning a series
+    // that has a genuine gap (a missing receipt for one cycle, say).
+    // Group transactions by (merchant, amount, currency); for each group of
+    // 2+, find expenses matching on amount+currency and a HIGH merchant
+    // similarity (same threshold scoreExpenseMatch itself uses for its
+    // "Merchant name matches closely" bonus — a transaction's merchant text
+    // is rarely byte-identical to how the expense's vendor was entered,
+    // e.g. "CSL MOBILE LIMITED 168 HONG KONG HK" vs. "CSL Mobile", so an
+    // exact-string group key would silently never match real data).
+    const groupKey = t => `${t.merchantNormalized || t.merchantRaw || ''}|${Math.abs(t.settlementAmount || 0).toFixed(2)}|${t.settlementCurrency}`
+    const txnGroups = new Map()
+    for (const t of candidates) {
+      const k = groupKey(t)
+      if (!txnGroups.has(k)) txnGroups.set(k, [])
+      txnGroups.get(k).push(t)
+    }
+    const sequentialMatch = new Map() // txn.id -> { expenseId, score, reasons }
+    for (const txns of txnGroups.values()) {
+      if (txns.length < 2) continue
+      const sample = txns[0]
+      const exps = expenses.filter(e =>
+        !e.matchedPaymentTransactionId &&
+        Math.abs(parseFloat(e.amount) - sample.settlementAmount) < 0.01 &&
+        e.currency === sample.settlementCurrency &&
+        merchantSimilarity(sample.merchantRaw, e.vendor) === 'high'
+      )
+      if (exps.length !== txns.length) continue
+      const sortedTxns = [...txns].sort((a, b) => (a.transactionDate || '').localeCompare(b.transactionDate || ''))
+      const sortedExps = [...exps].sort((a, b) => (a.date || '').localeCompare(b.date || ''))
+      for (let i = 0; i < sortedTxns.length; i++) {
+        const result = scoreExpenseMatch(sortedTxns[i], sortedExps[i])
+        if (result && result.score >= 50) sequentialMatch.set(sortedTxns[i].id, { expenseId: sortedExps[i].id, score: result.score, reasons: result.reasons })
+      }
+    }
+
     for (let i = 0; i < candidates.length; i++) {
       const txn = candidates[i]
-      // A recurring same-merchant/same-amount charge (a monthly subscription,
-      // say) scores IDENTICALLY against every month's Expense record — the
-      // score alone can't tell June's charge from August's. Without a
-      // tiebreaker, `>` picks whichever candidate happens to come first in
-      // Firestore's arbitrary document order, not the one actually closest
-      // in date — verified: a same-day match sat unpicked while a 78-days-
-      // apart same-score "tie" won purely by iteration order.
-      let best = null
-      let bestDays = Infinity
-      for (const exp of expenses) {
-        const result = scoreExpenseMatch(txn, exp)
-        if (!result) continue
-        const days = Math.abs(Date.parse(txn.transactionDate) - Date.parse(exp.date)) / 86400000
-        const better = !best || result.score > best.score || (result.score === best.score && days < bestDays)
-        if (better) { best = { ...result, expenseId: exp.id }; bestDays = days }
+      let best = sequentialMatch.get(txn.id) || null
+      if (!best) {
+        // A recurring same-merchant/same-amount charge (a monthly
+        // subscription, say) scores IDENTICALLY against every month's
+        // Expense record when it didn't qualify for the sequential pairing
+        // above (mismatched series counts) — the score alone can't tell
+        // June's charge from August's. Without a tiebreaker, `>` picks
+        // whichever candidate happens to come first in Firestore's
+        // arbitrary document order, not the one actually closest in date.
+        let bestDays = Infinity
+        for (const exp of expenses) {
+          const result = scoreExpenseMatch(txn, exp)
+          if (!result) continue
+          const days = Math.abs(Date.parse(txn.transactionDate) - Date.parse(exp.date)) / 86400000
+          const better = !best || result.score > best.score || (result.score === best.score && days < bestDays)
+          if (better) { best = { ...result, expenseId: exp.id }; bestDays = days }
+        }
       }
       if (best && best.score >= 50) {
         const unchanged = txn.status === 'suggested' && txn.matchedExpenseIds?.[0] === best.expenseId && txn.confidenceScore === best.score

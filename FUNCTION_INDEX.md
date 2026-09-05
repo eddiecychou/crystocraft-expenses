@@ -248,7 +248,7 @@ No functions — a pure dispatcher component (three link cards routing to Upload
 | Function | Line | Purpose |
 |---|---|---|
 | `logAction(txn, expenseId, actionType, beforeState, afterState)` | 77 | Writes one entry to the append-only `reconciliationActions` log. |
-| `runMatching()` | 91 | Scores all unmatched transactions against candidate expenses/settlements using `paymentMatching.js` scorers; populates the review queue. |
+| `runMatching()` | 91 | Scores all unmatched transactions against candidate expenses/settlements using `paymentMatching.js` scorers; populates the review queue. For a recurring merchant+amount group with an equal count of transactions and expenses, pairs them positionally in chronological order instead of independent per-transaction scoring — see LESSONS_LEARNED.md. |
 | `categoryFor(txn)` | 149 | Buckets a transaction for queue grouping/display. |
 | `unresolvedDuplicateFlag(txn)` | 154 | Whether a transaction has a duplicate flag still awaiting resolution. |
 | `shortReasonFor(txn)` | 161 | One-line match/no-match reason shown in the queue row. |

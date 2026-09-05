@@ -181,7 +181,7 @@ function daysBetween(a, b) {
   return Math.abs((new Date(a) - new Date(b)) / 86400000)
 }
 
-function merchantSimilarity(a, b) {
+export function merchantSimilarity(a, b) {
   const na = normalizeMerchant(a), nb = normalizeMerchant(b)
   if (!na || !nb) return 'none'
   if (na === nb || na.includes(nb) || nb.includes(na)) return 'high'
