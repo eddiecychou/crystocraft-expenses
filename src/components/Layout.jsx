@@ -7,7 +7,13 @@ import { useProject, PROJECT_COLORS } from '../contexts/ProjectContext'
 export default function Layout() {
   const navigate = useNavigate()
   const { activeProject } = useProject()
-  const c = PROJECT_COLORS[activeProject?.color] || PROJECT_COLORS.green
+  // Identity accent only — the app's brand/action color (--t-dark/--t-mid/
+  // --t-btn/--t-btn-hover) is now a single fixed theme set in App.css
+  // :root, not per-project. A client's color is a small orientation cue
+  // (this strip, the ProjectBanner dot), never the button/sidebar color —
+  // otherwise a rose-colored client's page could make "Needs Review" amber
+  // and "Error" red harder to read against a full rose re-skin.
+  const identity = PROJECT_COLORS[activeProject?.color] || PROJECT_COLORS.green
   const [moreOpen, setMoreOpen] = useState(false)
 
   async function handleLogout() {
@@ -18,15 +24,10 @@ export default function Layout() {
   const navItemClass = ({ isActive }) => `mobile-nav-item${isActive ? ' active' : ''}`
 
   return (
-    <div className="app-layout" style={{
-      '--t-dark': c.dark,
-      '--t-mid': c.mid,
-      '--t-btn': c.btn,
-      '--t-btn-hover': c.btnHover,
-    }}>
+    <div className="app-layout">
       {/* Desktop sidebar — every destination visible at once; desktop has
           the room, so this is left as-is. */}
-      <nav className="sidebar desktop-only">
+      <nav className="sidebar desktop-only" style={{ borderTop: `4px solid ${identity.dot}` }}>
         <div className="logo">Expense<br />Organiser</div>
         <NavLink to="/" end>Dashboard</NavLink>
         <NavLink to="/upload">Upload</NavLink>
@@ -45,7 +46,7 @@ export default function Layout() {
           is for top-level navigation, not a dumping ground for every route
           (and never for in-page actions like Confirm Match, which live in
           each page's own action bar). Everything else lives in More. */}
-      <nav className="mobile-bottom-nav">
+      <nav className="mobile-bottom-nav" style={{ borderTop: `4px solid ${identity.dot}` }}>
         <NavLink to="/" end className={navItemClass} onClick={() => setMoreOpen(false)}>
           <span className="mobile-nav-icon" aria-hidden="true">🏠</span>
           <span>Overview</span>

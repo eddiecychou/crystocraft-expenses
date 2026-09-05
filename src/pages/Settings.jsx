@@ -144,16 +144,20 @@ export default function Settings() {
 function ColorPicker({ value, onChange }) {
   return (
     <div className="color-swatches">
-      {COLOR_KEYS.map(key => (
-        <button
-          key={key}
-          className={`color-swatch${value === key ? ' color-swatch-active' : ''}`}
-          style={{ background: PROJECT_COLORS[key].dot }}
-          onClick={() => onChange(key)}
-          title={key}
-          type="button"
-        />
-      ))}
+      {COLOR_KEYS.map(key => {
+        const label = PROJECT_COLORS[key].label || key.replace(/([A-Z])/g, ' $1').replace(/^./, s => s.toUpperCase())
+        return (
+          <button
+            key={key}
+            className={`color-swatch${value === key ? ' color-swatch-active' : ''}`}
+            style={{ background: PROJECT_COLORS[key].dot }}
+            onClick={() => onChange(key)}
+            title={label}
+            aria-label={`${label}${value === key ? ' (selected)' : ''}`}
+            type="button"
+          />
+        )
+      })}
     </div>
   )
 }

@@ -983,9 +983,14 @@ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
 }
 .color-swatches { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 12px; }
 .color-swatch {
-  width: 28px; height: 28px; border-radius: 50%;
+  width: 36px; height: 36px; border-radius: 50%;
   border: 3px solid transparent; cursor: pointer; padding: 0;
   transition: transform 0.1s;
+}
+@media (max-width: 640px) {
+  /* Identity color is a small accent, but picking it is still a real tap
+     target — matches the 44px minimum used for buttons on mobile. */
+  .color-swatch { width: 44px; height: 44px; }
 }
 .color-swatch-active { border-color: var(--t-dark); transform: scale(1.2); }
 
