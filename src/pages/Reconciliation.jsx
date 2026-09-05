@@ -6,6 +6,7 @@ import { useProject } from '../contexts/ProjectContext'
 import ProjectBanner from '../components/ProjectBanner'
 import { scoreExpenseMatch, scoreSettlementMatch, classifyReviewCategory, CREATE_EXPENSE_BLOCKED_TYPES } from '../lib/paymentMatching'
 import { DUPLICATE_STATUS_LABELS } from '../lib/duplicateDetection'
+import { paymentTransactionsQuery } from '../lib/projectAccess'
 import { BackIcon, ICON_STROKE_WIDTH } from '../icons'
 
 const TOP_TABS = ['Needs Action', 'All', 'Matched', 'Exceptions']
@@ -49,15 +50,15 @@ export default function Reconciliation() {
     if (!activeProject) return
     const uid = auth.currentUser.uid
     const unsubT = onSnapshot(
-      query(collection(db, 'paymentTransactions'), where('userId', '==', uid), where('projectId', '==', activeProject.id)),
+      paymentTransactionsQuery(query(collection(db, 'paymentTransactions'), where('projectId', '==', activeProject.id)), activeProject, uid),
       snap => setTransactions(snap.docs.map(d => ({ id: d.id, ...d.data() })))
     )
     const unsubE = onSnapshot(
-      query(collection(db, 'expenses'), where('userId', '==', uid), where('projectId', '==', activeProject.id)),
+      query(collection(db, 'expenses'), where('projectId', '==', activeProject.id)),
       snap => setExpenses(snap.docs.map(d => ({ id: d.id, ...d.data() })))
     )
     const unsubA = onSnapshot(
-      query(collection(db, 'paymentAccounts'), where('userId', '==', uid), where('projectId', '==', activeProject.id)),
+      query(collection(db, 'paymentAccounts'), where('projectId', '==', activeProject.id)),
       snap => setAccounts(snap.docs.map(d => ({ id: d.id, ...d.data() })))
     )
     return () => { unsubT(); unsubE(); unsubA() }
@@ -118,8 +119,8 @@ export default function Reconciliation() {
   // to compute live from what's already loaded — no need to persist a
   // suggestion until the user actually confirms the link.
   const settlementCandidates = useMemo(() => {
-    const cardPayments = transactions.filter(t => t.transactionType === 'payment' && !t.settlementGroupId)
-    const bankDebits = transactions.filter(t => t.direction === 'debit' && t.transactionType !== 'payment' && !t.settlementGroupId)
+    const cardPayments = transactions.filter(t => t.transactionType === 'payment' && !t.settlementGroupId && t.status !== 'ignored' && t.status !== 'matched')
+    const bankDebits = transactions.filter(t => t.direction === 'debit' && t.transactionType !== 'payment' && !t.settlementGroupId && t.status !== 'ignored' && t.status !== 'matched')
     const out = []
     for (const card of cardPayments) {
       let best = null

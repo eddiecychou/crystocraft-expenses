@@ -9,7 +9,8 @@ import { parseCSV, mapCsvRecords, normalizeMerchant, classifyTransactionType, co
 import { parsePdfStatement } from '../lib/pdfStatementParser'
 import { uploadStatementFile, deleteStatementFile } from '../statementStorage'
 import { annotateBalanceSequence, classifyFingerprintCollision, validateStatementTotals, diffTransactionSets, DUPLICATE_STATUS_LABELS } from '../lib/duplicateDetection'
-import { classifyTransaction } from '../lib/expenseClassification'
+import { classifyTransaction, computeVisibleToMembers } from '../lib/expenseClassification'
+import { paymentTransactionsQuery } from '../lib/projectAccess'
 import { MatchedIcon, WarningIcon, ICON_STROKE_WIDTH } from '../icons'
 
 const SOURCE_TYPES = [
@@ -76,11 +77,11 @@ export default function PaymentSources() {
   useEffect(() => {
     if (!activeProject) return
     const unsubA = onSnapshot(
-      query(collection(db, 'paymentAccounts'), where('userId', '==', auth.currentUser.uid), where('projectId', '==', activeProject.id)),
+      query(collection(db, 'paymentAccounts'), where('projectId', '==', activeProject.id)),
       snap => setAccounts(snap.docs.map(d => ({ id: d.id, ...d.data() })))
     )
     const unsubI = onSnapshot(
-      query(collection(db, 'paymentImports'), where('userId', '==', auth.currentUser.uid), where('projectId', '==', activeProject.id)),
+      query(collection(db, 'paymentImports'), where('projectId', '==', activeProject.id)),
       // Grouped by filename (then real-data-first within a group) rather than
       // plain creation order — a failed/duplicate re-import of the same
       // statement creates a second row with the same name, and sorting
@@ -97,7 +98,7 @@ export default function PaymentSources() {
   useEffect(() => {
     if (!viewingImportId) { setImportTxns([]); return }
     const unsub = onSnapshot(
-      query(collection(db, 'paymentTransactions'), where('userId', '==', auth.currentUser.uid), where('importId', '==', viewingImportId)),
+      paymentTransactionsQuery(query(collection(db, 'paymentTransactions'), where('importId', '==', viewingImportId)), activeProject, auth.currentUser.uid),
       snap => setImportTxns(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (a.transactionDate || '').localeCompare(b.transactionDate || '')))
     )
     return unsub
@@ -195,7 +196,6 @@ export default function PaymentSources() {
   async function backfillClassification(accountId) {
     const txnSnap = await getDocs(query(
       collection(db, 'paymentTransactions'),
-      where('userId', '==', auth.currentUser.uid),
       where('paymentAccountId', '==', accountId)
     ))
     const unclassified = txnSnap.docs.filter(d => d.data().classification == null)
@@ -208,7 +208,6 @@ export default function PaymentSources() {
     try {
       const rulesSnap = await getDocs(query(
         collection(db, 'merchantRules'),
-        where('userId', '==', auth.currentUser.uid),
         where('projectId', '==', activeProject.id)
       ))
       rulesByMerchant = new Map(rulesSnap.docs.map(d => [d.data().merchantKey, d.data()]))
@@ -224,7 +223,7 @@ export default function PaymentSources() {
         rule: rulesByMerchant.get(t.merchantNormalized) || null,
       })
       if (!classification) continue // excluded type (payment/transfer) — leave unclassified, same as at import time
-      updates.push({ id: d.id, ...classification })
+      updates.push({ id: d.id, ...classification, visibleToMembers: computeVisibleToMembers(classification.classification) })
     }
     for (let i = 0; i < updates.length; i += 400) {
       const batch = writeBatch(db)
@@ -257,7 +256,6 @@ export default function PaymentSources() {
       importRef = doc(db, 'paymentImports', reprocessImportId)
       const oldSnap = await getDocs(query(
         collection(db, 'paymentTransactions'),
-        where('userId', '==', auth.currentUser.uid),
         where('importId', '==', reprocessImportId)
       ))
       for (const d of oldSnap.docs) await unlinkTransaction({ id: d.id, ...d.data() })
@@ -320,7 +318,6 @@ export default function PaymentSources() {
     // something a confirmed duplicate. See src/lib/duplicateDetection.js.
     const existingSnap = await getDocs(query(
       collection(db, 'paymentTransactions'),
-      where('userId', '==', auth.currentUser.uid),
       where('paymentAccountId', '==', account.id)
     ))
     const existingByFingerprint = new Map()
@@ -337,7 +334,6 @@ export default function PaymentSources() {
     if (account.ownershipType === 'personal') {
       const rulesSnap = await getDocs(query(
         collection(db, 'merchantRules'),
-        where('userId', '==', auth.currentUser.uid),
         where('projectId', '==', activeProject.id)
       ))
       for (const d of rulesSnap.docs) rulesByMerchant.set(d.data().merchantKey, d.data())
@@ -413,6 +409,11 @@ export default function PaymentSources() {
         settlementCurrency: account.settlementCurrency,
         direction: t.direction,
         transactionType,
+        // Company-account rows are always visible to project collaborators
+        // (there's no personal/company split to hide there); personal-
+        // account rows follow computeVisibleToMembers so a shared project
+        // never exposes the owner's personal spending. See projectAccess.js.
+        visibleToMembers: classification ? computeVisibleToMembers(classification.classification) : true,
         ...(classification ? {
           classification: classification.classification,
           classificationConfidence: classification.classificationConfidence,
@@ -597,7 +598,6 @@ export default function PaymentSources() {
 
       const storedSnap = await getDocs(query(
         collection(db, 'paymentTransactions'),
-        where('userId', '==', auth.currentUser.uid),
         where('importId', '==', imp.id)
       ))
       const storedRows = storedSnap.docs.map(d => d.data())
@@ -668,7 +668,6 @@ export default function PaymentSources() {
     if (txn.settlementGroupId) {
       const partnerSnap = await getDocs(query(
         collection(db, 'paymentTransactions'),
-        where('userId', '==', auth.currentUser.uid),
         where('settlementGroupId', '==', txn.settlementGroupId)
       ))
       for (const d of partnerSnap.docs) {
@@ -738,7 +737,6 @@ export default function PaymentSources() {
       onConfirm: async () => {
         const snap = await getDocs(query(
           collection(db, 'paymentTransactions'),
-          where('userId', '==', auth.currentUser.uid),
           where('importId', '==', imp.id)
         ))
         for (const d of snap.docs) await unlinkTransaction({ id: d.id, ...d.data() })

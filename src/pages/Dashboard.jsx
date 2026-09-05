@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { collection, query, where, onSnapshot } from 'firebase/firestore'
-import { db, auth } from '../firebase'
+import { db } from '../firebase'
 import { Link } from 'react-router-dom'
 import { CATEGORIES } from '../constants'
 import { useProject } from '../contexts/ProjectContext'
@@ -15,25 +15,25 @@ function firstOfMonth() {
 }
 
 export default function Dashboard() {
-  const { activeProject, projects, loading: projectLoading } = useProject()
+  const { activeProject, loading: projectLoading } = useProject()
   const [allExpenses, setAllExpenses] = useState([])
   const [loading, setLoading] = useState(true)
   const [from, setFrom] = useState(firstOfMonth)
   const [to, setTo] = useState(() => isoDate(new Date()))
 
-  // Subscribe once per project — onSnapshot caches in IndexedDB for instant repeat loads
+  // Subscribe once per project — onSnapshot caches in IndexedDB for instant repeat loads.
+  // Scoped by projectId (not userId) so a shared project's expenses show up
+  // for every collaborator, not just whoever created each record. Legacy
+  // expenses with no projectId are backfilled by ProjectContext's
+  // migrateExpenses before this ever runs, so no client-side fallback filter
+  // is needed here.
   useEffect(() => {
     if (projectLoading || !activeProject) return
     setLoading(true)
-    const defaultProjectId = (projects.find(p => p.name === 'Default') || projects[0])?.id
     const unsubscribe = onSnapshot(
-      query(collection(db, 'expenses'), where('userId', '==', auth.currentUser.uid)),
+      query(collection(db, 'expenses'), where('projectId', '==', activeProject.id)),
       snap => {
-        let list = snap.docs.map(d => ({ id: d.id, ...d.data() }))
-        list = list.filter(e =>
-          e.projectId === activeProject.id ||
-          (!e.projectId && activeProject.id === defaultProjectId)
-        )
+        const list = snap.docs.map(d => ({ id: d.id, ...d.data() }))
         list.sort((a, b) => (b.date || '').localeCompare(a.date || ''))
         setAllExpenses(list)
         setLoading(false)

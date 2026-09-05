@@ -1234,6 +1234,12 @@ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
   padding: 2px 8px; border-radius: 10px; font-weight: 600;
 }
 .project-card-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.project-share-panel {
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid #eef4ef;
+}
+.project-share-members { margin-bottom: var(--space-2); }
 .project-name-input {
   width: 100%; padding: 8px 10px;
   border: 1px solid #c6e0c0; border-radius: 6px;

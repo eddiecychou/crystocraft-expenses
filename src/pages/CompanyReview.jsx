@@ -6,8 +6,9 @@ import { db, auth } from '../firebase'
 import { useProject } from '../contexts/ProjectContext'
 import ProjectBanner from '../components/ProjectBanner'
 import ConfirmDialog from '../components/ConfirmDialog'
-import { CLASSIFICATION_LABELS, BUSINESS_PURPOSE_OPTIONS, merchantRuleDocId } from '../lib/expenseClassification'
+import { CLASSIFICATION_LABELS, BUSINESS_PURPOSE_OPTIONS, merchantRuleDocId, computeVisibleToMembers } from '../lib/expenseClassification'
 import { CREATE_EXPENSE_BLOCKED_TYPES } from '../lib/paymentMatching'
+import { paymentTransactionsQuery } from '../lib/projectAccess'
 
 // Statuses excluded from a Company Package export unless explicitly opted
 // into — per spec §10/acceptance-criterion 11, Personal and Rejected never
@@ -66,7 +67,7 @@ export default function CompanyReview() {
   useEffect(() => {
     if (!activeProject) return
     const unsub = onSnapshot(
-      query(collection(db, 'paymentAccounts'), where('userId', '==', auth.currentUser.uid), where('projectId', '==', activeProject.id)),
+      query(collection(db, 'paymentAccounts'), where('projectId', '==', activeProject.id)),
       snap => setAccounts(snap.docs.map(d => ({ id: d.id, ...d.data() })))
     )
     return unsub
@@ -75,7 +76,7 @@ export default function CompanyReview() {
   useEffect(() => {
     if (!activeProject) return
     const unsub = onSnapshot(
-      query(collection(db, 'merchantRules'), where('userId', '==', auth.currentUser.uid), where('projectId', '==', activeProject.id)),
+      query(collection(db, 'merchantRules'), where('projectId', '==', activeProject.id)),
       snap => setRules(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (a.merchantKey || '').localeCompare(b.merchantKey || '')))
     )
     return unsub
@@ -84,11 +85,11 @@ export default function CompanyReview() {
   useEffect(() => {
     if (!activeProject) return
     const unsubImports = onSnapshot(
-      query(collection(db, 'paymentImports'), where('userId', '==', auth.currentUser.uid), where('projectId', '==', activeProject.id)),
+      query(collection(db, 'paymentImports'), where('projectId', '==', activeProject.id)),
       snap => setImports(snap.docs.map(d => ({ id: d.id, ...d.data() })))
     )
     const unsubExpenses = onSnapshot(
-      query(collection(db, 'expenses'), where('userId', '==', auth.currentUser.uid), where('projectId', '==', activeProject.id)),
+      query(collection(db, 'expenses'), where('projectId', '==', activeProject.id)),
       snap => setExpenses(snap.docs.map(d => ({ id: d.id, ...d.data() })))
     )
     return () => { unsubImports(); unsubExpenses() }
@@ -98,13 +99,15 @@ export default function CompanyReview() {
 
   // Re-subscribes per chunk of personal account ids and merges results —
   // only classified rows (personal accounts) ever carry a `classification`
-  // field, so company-account transactions never appear here at all.
+  // field, so company-account transactions never appear here at all. A
+  // non-owner collaborator's query also filters to visibleToMembers, so
+  // unclassified/personal rows never reach this page for them at all.
   useEffect(() => {
     if (personalAccountIds.length === 0) { setTransactions([]); return }
     const chunks = chunk(personalAccountIds, 10)
     const byChunk = new Array(chunks.length).fill([])
     const unsubs = chunks.map((ids, i) => onSnapshot(
-      query(collection(db, 'paymentTransactions'), where('userId', '==', auth.currentUser.uid), where('paymentAccountId', 'in', ids)),
+      paymentTransactionsQuery(query(collection(db, 'paymentTransactions'), where('paymentAccountId', 'in', ids)), activeProject, auth.currentUser.uid),
       snap => {
         byChunk[i] = snap.docs.map(d => ({ id: d.id, ...d.data() }))
         setTransactions(byChunk.flat())
@@ -141,6 +144,7 @@ export default function CompanyReview() {
         classification,
         classificationSource: 'user',
         suggestedClassification: null,
+        visibleToMembers: computeVisibleToMembers(classification),
         updatedAt: serverTimestamp(),
       }))
       await batch.commit()
@@ -226,6 +230,7 @@ export default function CompanyReview() {
     await updateDoc(doc(db, 'paymentTransactions', txn.id), {
       classification,
       classificationSource: 'user',
+      visibleToMembers: computeVisibleToMembers(classification),
       updatedAt: serverTimestamp(),
     })
     setBusyId(null)

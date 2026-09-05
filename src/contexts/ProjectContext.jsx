@@ -57,15 +57,33 @@ export function ProjectProvider({ children }) {
   useEffect(() => {
     let projectUnsub = null
 
-    const authUnsub = onAuthStateChanged(auth, user => {
+    const authUnsub = onAuthStateChanged(auth, async user => {
       // Clean up previous project listener when user changes
       if (projectUnsub) { projectUnsub(); projectUnsub = null }
 
       if (!user) { setProjects([]); setLoading(false); return }
 
       setLoading(true)
+
+      // Project sharing added a memberUids array as the actual access/query
+      // key (see TECHNICAL.md's "Project sharing" section) — existing
+      // projects only have the old `userId` field. This MUST complete
+      // before the memberUids query below is set up, or a user with
+      // existing-but-not-yet-migrated projects would transiently see zero
+      // projects and trigger the "create a Default project" branch,
+      // silently duplicating their project list.
+      const migKey = `projects_membership_migrated_${user.uid}`
+      if (!localStorage.getItem(migKey)) {
+        try {
+          await migrateProjectMembership(user.uid, user.email)
+          localStorage.setItem(migKey, '1')
+        } catch (err) {
+          console.error('Project membership migration error:', err.message)
+        }
+      }
+
       projectUnsub = onSnapshot(
-        query(collection(db, 'projects'), where('userId', '==', user.uid)),
+        query(collection(db, 'projects'), where('memberUids', 'array-contains', user.uid)),
         async snap => {
           try {
             let list = snap.docs.map(d => ({ id: d.id, ...d.data() }))
@@ -74,6 +92,8 @@ export function ProjectProvider({ children }) {
               // First time: create Default project — onSnapshot will re-fire with it
               const ref = await addDoc(collection(db, 'projects'), {
                 name: 'Default', userId: user.uid, color: 'green', createdAt: serverTimestamp(),
+                memberUids: [user.uid],
+                members: { [user.uid]: { role: 'owner', email: user.email, addedAt: serverTimestamp() } },
               })
               persistActiveId(ref.id)
               return
@@ -116,6 +136,19 @@ export function ProjectProvider({ children }) {
     for (let i = 0; i < toMigrate.length; i += 500) {
       const batch = writeBatch(db)
       toMigrate.slice(i, i + 500).forEach(d => batch.update(d.ref, { projectId }))
+      await batch.commit()
+    }
+  }
+
+  async function migrateProjectMembership(uid, email) {
+    const snap = await getDocs(query(collection(db, 'projects'), where('userId', '==', uid)))
+    const toMigrate = snap.docs.filter(d => !d.data().memberUids)
+    for (let i = 0; i < toMigrate.length; i += 500) {
+      const batch = writeBatch(db)
+      toMigrate.slice(i, i + 500).forEach(d => batch.update(d.ref, {
+        memberUids: [uid],
+        members: { [uid]: { role: 'owner', email, addedAt: serverTimestamp() } },
+      }))
       await batch.commit()
     }
   }

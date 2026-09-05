@@ -84,7 +84,8 @@ The frontend is a pure SPA deployed to Netlify. All API calls stay within the sa
 │   │   ├── duplicateDetection.js  — fingerprint-collision classification for statement imports
 │   │   ├── paymentMatching.js     — CSV parsing, merchant normalization, expense/settlement match scoring
 │   │   ├── pdfStatementParser.js  — PDF table extraction for bank/credit-card statements (pdf.js-based)
-│   │   └── expenseClassification.js — personal/company classification for personal-account transactions
+│   │   ├── expenseClassification.js — personal/company classification for personal-account transactions
+│   │   └── projectAccess.js       — project-membership query helper for the paymentTransactions visibility split
 │   │
 │   ├── components/
 │   │   ├── Layout.jsx              — sidebar nav (desktop), bottom nav + More sheet (mobile), logout
@@ -122,20 +123,35 @@ The frontend is a pure SPA deployed to Netlify. All API calls stay within the sa
 | Service | Purpose |
 |---|---|
 | Authentication | User sign-in (email + Google) |
-| Firestore | `projects`, `expenses`, `paymentAccounts`, `paymentImports`, `paymentTransactions`, `reconciliationActions`, `merchantRules` collections |
+| Firestore | `users`, `projects`, `expenses`, `paymentAccounts`, `paymentImports`, `paymentTransactions`, `reconciliationActions`, `merchantRules` collections |
 | Storage | Receipt images at `receipts/{uid}/{expenseId}/image{n}.{ext}`; original statement files at `statements/{uid}/{importId}/{filename}` |
 
 ### Firestore Collections
 
+**`users/{uid}`** — a profile doc kept in sync on every sign-in (see `useAuthState.js`); exists solely so project sharing can resolve an invite email to a uid, since Firebase Auth has no client-safe email→uid lookup
+```
+{ email: string, displayName: string | null, updatedAt: Timestamp }
+```
+
 **`projects`**
 ```
 {
-  userId: string,       // Firebase Auth UID
+  userId: string,       // Firebase Auth UID of the permanent owner — only the
+                         // owner can rename/delete the project or manage membership
   name: string,
   color: string,        // one of 24 color keys (see ProjectContext PROJECT_COLORS)
-  createdAt: Timestamp
+  createdAt: Timestamp,
+  memberUids: string[], // always includes userId — the array-contains target
+                         // every project-scoped query and security rule keys off
+  members: {
+    [uid]: { role: 'owner' | 'editor', email: string, addedAt: Timestamp }
+  }
 }
 ```
+Existing projects created before sharing lack `memberUids`/`members` —
+`ProjectContext.jsx`'s `migrateProjectMembership` backfills them (same
+idempotent, `localStorage`-flag-guarded pattern as `migrateExpenses`) before
+the project-list query ever runs against `memberUids`.
 
 **`expenses`**
 ```
@@ -223,6 +239,9 @@ The frontend is a pure SPA deployed to Netlify. All API calls stay within the sa
   businessPurpose: string | null,
   reviewNote: string | null,
   accountantStatus: string | null,         // 'not_required' | 'pending' | 'approved' | 'rejected'
+  visibleToMembers: boolean,               // see "Project Sharing" below — always true for
+                                            // company-account rows; for personal-account rows,
+                                            // true only once classification is non-null and != 'personal'
   createdAt: Timestamp
 }
 ```
@@ -260,7 +279,35 @@ The frontend is a pure SPA deployed to Netlify. All API calls stay within the sa
 
 **This repo has no `firestore.rules` or `storage.rules` file — rules exist only in the Firebase Console.** Every collection and Storage path above needs its own rule published there before the feature works; a missing rule fails silently with `permission-denied` even though the code looks complete. See [LESSONS_LEARNED.md](LESSONS_LEARNED.md#firebase-rules-live-outside-the-repo) before adding anything new.
 
-General pattern: `allow read, write: if request.auth != null && request.auth.uid == resource.data.userId` for Firestore per-user collections; `allow read, write: if request.auth != null && request.auth.uid == userId` for Storage per-user paths.
+**Since Project Sharing**, access is membership-based, not ownership-based — every project-scoped collection's rule checks `projects/{projectId}.memberUids` instead of comparing `resource.data.userId` directly:
+```
+match /{collection}/{docId} {
+  allow read, update, delete: if request.auth != null &&
+    get(/databases/$(database)/documents/projects/$(resource.data.projectId)).data.memberUids.hasAny([request.auth.uid]);
+  allow create: if request.auth != null &&
+    get(/databases/$(database)/documents/projects/$(request.resource.data.projectId)).data.memberUids.hasAny([request.auth.uid]);
+}
+```
+This applies to `expenses`, `paymentAccounts`, `paymentImports`, `reconciliationActions`, `merchantRules`.
+
+`paymentTransactions` is the one exception — it additionally gates on `visibleToMembers` for non-owners, since **Firestore security rules cannot filter a list query, only allow or deny it entirely**: a rule that calls `get()` on another document can't be used to silently exclude some documents from a query's results, so hiding personal-account rows from a collaborator has to be a field the query's own `where` clause matches, not a cross-document check at read time (see `src/lib/projectAccess.js`'s `paymentTransactionsQuery`, used by every page that queries this collection):
+```
+match /paymentTransactions/{docId} {
+  allow read, update, delete: if request.auth != null && (
+    get(/databases/$(database)/documents/projects/$(resource.data.projectId)).data.userId == request.auth.uid ||
+    (get(/databases/$(database)/documents/projects/$(resource.data.projectId)).data.memberUids.hasAny([request.auth.uid])
+     && resource.data.visibleToMembers == true)
+  );
+  allow create: if request.auth != null &&
+    get(/databases/$(database)/documents/projects/$(request.resource.data.projectId)).data.memberUids.hasAny([request.auth.uid]);
+}
+```
+
+`projects` itself: `allow read: if request.auth != null && resource.data.memberUids.hasAny([request.auth.uid])`; `allow update, delete: if resource.data.userId == request.auth.uid` (only the owner manages membership/renames/deletes — an editor can't remove the owner from their own project); `allow create: if request.auth != null`.
+
+`users/{uid}`: `allow read: if request.auth != null` (any signed-in user can look up another's uid by email for the invite flow); `allow write: if request.auth.uid == uid`.
+
+Storage per-user paths stay ownership-based (`allow read, write: if request.auth != null && request.auth.uid == userId`) — sharing doesn't currently extend to Storage-hosted receipt/statement files.
 
 ### Required Firestore Indexes
 
@@ -315,6 +362,35 @@ This key is only accessed inside the Deno edge function and is never sent to the
 `ProjectContext` manages the project list and tracks the active project in `localStorage`. On first sign-in a `Default` project is auto-created. Any expenses without a `projectId` (migrated data) are treated as belonging to the Default project.
 
 Project selection is instant — `selectProject` updates `localStorage` and React state without a network round-trip. Project edits use `updateProject` for immediate UI updates while persisting to Firestore in the background.
+
+### Project Sharing
+
+A project can be shared with another person who already has an account —
+e.g. inviting a bookkeeper into a company's project so she can view/edit its
+expenses and statements. Settings → a project's **Share** button opens an
+invite-by-email form: it looks up the `users` collection for that email
+(populated on every sign-in — see `useAuthState.js`), and on a match adds
+their uid to the project's `memberUids` array with an `editor` role. Only the
+project's owner (`project.userId`) sees the Share control and can remove a
+collaborator.
+
+A collaborator gets full access to the shared project's Expenses, Payment
+Sources, Reconciliation, and Company Review — **except** transactions on the
+owner's personal-owned accounts, which stay completely invisible until the
+owner has classified them as non-personal (see "Personal-to-Company
+Classification" below). This is enforced by the `visibleToMembers` field on
+`paymentTransactions` and the query helper `paymentTransactionsQuery` in
+`src/lib/projectAccess.js` — every page that reads this collection wraps its
+query with it, adding `where('visibleToMembers','==',true)` for anyone who
+isn't the project owner. See "Security Rules" above for why this has to be a
+field the query itself filters on, not a rule-time cross-document check.
+
+**Known limitation:** sharing currently covers Firestore data only. Storage
+security rules (receipt images, statement originals) are still strictly
+per-uploader, so a collaborator may see an Expense record but be unable to
+load its receipt image or download a statement's original file. Extending
+sharing to Storage would need its own rule change (Storage rules can call
+`firestore.get()` to check project membership the same way) — not yet done.
 
 ### Color Theming
 

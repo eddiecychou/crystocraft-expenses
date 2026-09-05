@@ -76,20 +76,17 @@ export default function Expenses() {
     setConfirmDialog({ message, onConfirm })
   }
 
-  // Subscribe once per project — onSnapshot caches in IndexedDB for instant repeat loads
+  // Subscribe once per project — onSnapshot caches in IndexedDB for instant
+  // repeat loads. Scoped by projectId (not userId) so a shared project's
+  // expenses show up for every collaborator; legacy no-projectId expenses
+  // are backfilled by ProjectContext's migrateExpenses before this ever runs.
   useEffect(() => {
     if (projectLoading || !activeProject) return
     setLoading(true)
-    const defaultProjectId = (projects.find(p => p.name === 'Default') || projects[0])?.id
     const unsubscribe = onSnapshot(
-      query(collection(db, 'expenses'), where('userId', '==', auth.currentUser.uid)),
+      query(collection(db, 'expenses'), where('projectId', '==', activeProject.id)),
       snap => {
-        const list = snap.docs
-          .map(d => ({ id: d.id, ...d.data() }))
-          .filter(e =>
-            e.projectId === activeProject.id ||
-            (!e.projectId && activeProject.id === defaultProjectId)
-          )
+        const list = snap.docs.map(d => ({ id: d.id, ...d.data() }))
         list.sort((a, b) => (b.date || '').localeCompare(a.date || ''))
         setExpenses(list)
         setLoading(false)

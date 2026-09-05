@@ -35,7 +35,7 @@ some of these functions look the way they do, see [LESSONS_LEARNED.md](LESSONS_L
 | `computeFingerprints({...})` | 172 | Builds the fingerprint string(s) used to detect fingerprint collisions during import. |
 | `daysBetween(a, b)` | 179 | Internal — date-diff helper for match scoring. |
 | `merchantSimilarity(a, b)` | 184 | Internal — fuzzy string similarity between two normalized merchant names. |
-| `scoreExpenseMatch(txn, expense)` | 200 | Scores how well an imported transaction matches a candidate expense (merchant + date + amount). |
+| `scoreExpenseMatch(txn, expense)` | 200 | Scores how well an imported transaction matches a candidate expense (merchant + date + amount). Disqualifies (returns `null`) any pairing more than `MAX_MATCH_DAYS` (90) apart before scoring — amount+currency alone is never sufficient evidence regardless of score. |
 | `scoreSettlementMatch(cardTxn, bankTxn)` | 235 | Scores whether a bank debit is the settlement of a given credit-card charge. |
 | `classifyReviewCategory(txn, { hasDuplicate })` | 265 | Buckets a transaction into a review category for the Reconciliation queue. |
 
@@ -63,7 +63,16 @@ some of these functions look the way they do, see [LESSONS_LEARNED.md](LESSONS_L
 | `merchantRuleDocId(projectId, merchantKey)` | 45 | Deterministic Firestore doc id for a `(project, merchant)` rule — used to upsert instead of accumulating duplicate rules per merchant. |
 | `classifyTransaction(txn, { matchedExpenseId, rule })` | 61 | Personal-vs-company classifier for transactions on a `personal`-owned account. Priority: an Auto-Approve rule wins outright; else a matched Expense → `company_candidate`; else the conservative default `needs_accountant_review`. A non-Auto-Approve rule never overrides `classification` — it's carried as `suggestedClassification` for a one-click "Apply Rule" UI action. Returns `null` for excluded types (card repayment/transfer). |
 
+| `computeVisibleToMembers(classification)` | — | Whether a personal-account transaction should be visible to a non-owner project collaborator — `true` only once `classification` is set and isn't `'personal'`. Written alongside `classification` at every call site (`PaymentSources.jsx`'s `commitRows`/`backfillClassification`, `CompanyReview.jsx`'s `applyClassificationToGroup`/`setTxnClassification`). |
+
 Also exports `CLASSIFICATION_LABELS`, `BUSINESS_PURPOSE_OPTIONS`, `CLASSIFICATION_EXCLUDED_TYPES` (re-exported from `paymentMatching.js`'s `CREATE_EXPENSE_BLOCKED_TYPES`).
+
+### [projectAccess.js](src/lib/projectAccess.js)
+
+| Function | Purpose |
+|---|---|
+| `isProjectOwner(project, uid)` | Whether `uid` is the project's permanent owner (`project.userId`) vs. a collaborator. |
+| `paymentTransactionsQuery(baseQuery, project, uid)` | Wraps a `paymentTransactions` query with `where('visibleToMembers','==',true)` for non-owners — must be used everywhere this collection is queried, since Firestore rules can't filter a list query themselves (see LESSONS_LEARNED.md). |
 
 ---
 
@@ -96,17 +105,20 @@ Re-exports `lucide-react` icons under semantic names (`NavOverviewIcon`, `Receip
 
 | Function | Line | Purpose |
 |---|---|---|
-| `useAuthState()` | 5 | Wraps `onAuthStateChanged` as a `{ user, loading }` hook; drives `ProtectedRoute`. |
+| `useAuthState()` | 5 | Wraps `onAuthStateChanged` as a `{ user, loading }` hook; drives `ProtectedRoute`. Also upserts the signed-in user's `users/{uid}` profile doc (email, displayName) on every auth change — see "Project Sharing" in TECHNICAL.md. |
 
 ### [contexts/ProjectContext.jsx](src/contexts/ProjectContext.jsx)
 
 | Function | Line | Purpose |
 |---|---|---|
-| `ProjectProvider({ children })` | 52 | Context provider — owns project list, active project (persisted to `localStorage`), and runs the migration guard on mount. |
+| `ProjectProvider({ children })` | 52 | Context provider — owns project list, active project (persisted to `localStorage`), and runs both migration guards on mount. |
 | `migrateExpenses(uid, projectId)` | 113 | Idempotent one-time backfill of `projectId` onto legacy expenses, guarded by an `expenses_migrated_{uid}` localStorage flag. |
+| `migrateProjectMembership(uid, email)` | — | Idempotent one-time backfill of `memberUids`/`members` onto a user's pre-sharing projects, guarded by `projects_membership_migrated_{uid}`. Must complete before the project list is queried by `memberUids` (see the effect's ordering), or a not-yet-migrated user would transiently see zero projects and trigger an unwanted Default-project creation. |
 | `persistActiveId(id)` | 123 | Internal — writes the active project id to `localStorage`. |
 | `updateProject(id, changes)` | 130 | Optimistic local update + background Firestore write for project edits. |
 | `useProject()` | 148 | Hook to consume `ProjectContext` (active project, project list, `selectProject`, `updateProject`, `reloadProjects`). |
+
+The project list query itself is `where('memberUids', 'array-contains', uid)`, not `where('userId','==',uid)` — this is what makes a shared project appear in a collaborator's own project switcher.
 
 Also exports `PROJECT_COLORS` (24 color identities) and `COLOR_KEYS`.
 
@@ -236,15 +248,16 @@ No functions — a pure dispatcher component (three link cards routing to Upload
 | `shortReasonFor(txn)` | 161 | One-line match/no-match reason shown in the queue row. |
 | `needsAction(txn)` | 169 | Whether a transaction requires the user to do something. |
 | `isException(txn)` | 176 | Whether a transaction is in an exception/error state. |
-| `confirmMatch(txn, expenseIdOverride)` | 242 | Confirms a transaction-to-expense match; logs the action. |
-| `ignoreTxn(txn)` | 271 | Marks a transaction as ignored (not a business expense); logs the action. |
+| `selectNextNeedingAction(resolvedId)` | — | Jumps the detail panel to the next item still needing action in the currently-displayed order after resolving one — added so resolving an item doesn't leave the user staring at a stale detail panel with an extra click back into the list. |
+| `confirmMatch(txn, expenseIdOverride)` | 242 | Confirms a transaction-to-expense match; logs the action; advances to the next Needs Action item. |
+| `ignoreTxn(txn)` | 271 | Marks a transaction as ignored (not a business expense); logs the action; advances to the next Needs Action item. |
 | `undoIgnore(txn)` | 278 | Reverts an ignore; logs the action. |
 | `unmatchTxn(txn)` | 289 | Removes a confirmed match; logs the action. |
-| `markAs(txn, transactionType)` | 318 | Manually sets a transaction's type classification. |
-| `createExpenseFromTxn(txn, { force })` | 329 | Creates a new expense record directly from an unmatched transaction. |
-| `linkSettlement(card, bankTxn)` | 367 | Links a credit-card charge to its settling bank debit; logs the action. |
-| `resolveDuplicate(txn, newStatus)` | 390 | Same duplicate-resolution logic as in PaymentSources, surfaced in the Reconciliation detail panel. |
-| `dismissDuplicateWarning(txn)` | 402 | Same as in PaymentSources — dismiss without changing verdict. |
+| `markAs(txn, transactionType)` | 318 | Manually sets a transaction's type classification; advances to the next Needs Action item. |
+| `createExpenseFromTxn(txn, { force })` | 329 | Creates a new expense record directly from an unmatched transaction; advances to the next Needs Action item. |
+| `linkSettlement(card, bankTxn)` | 367 | Links a credit-card charge to its settling bank debit; logs the action; advances to the next Needs Action item. |
+| `resolveDuplicate(txn, newStatus)` | 390 | Same duplicate-resolution logic as in PaymentSources, surfaced in the Reconciliation detail panel; advances to the next Needs Action item. |
+| `dismissDuplicateWarning(txn)` | 402 | Same as in PaymentSources — dismiss without changing verdict; advances to the next Needs Action item. |
 
 ### [CompanyReview.jsx](src/pages/CompanyReview.jsx) — personal-account classification queue + export (all 3 phases of the personal-to-company spec)
 
@@ -270,10 +283,13 @@ No functions — a pure dispatcher component (three link cards routing to Upload
 
 | Function | Line | Purpose |
 |---|---|---|
-| `createProject()` | 19 | Creates a new project. |
+| `createProject()` | 19 | Creates a new project, seeded with `memberUids:[uid]`/`members:{[uid]:{role:'owner'}}`. |
 | `saveEdit()` | 32 | Persists a project rename/recolor. |
 | `deleteProject(p)` | 40 | Deletes a project (with confirmation); reassigns active project if needed. |
 | `startEdit(p)` | 54 | Enters edit mode for a project card. |
+| `startShare(p)` | — | Opens the Share panel for a project (owner-only control). |
+| `inviteCollaborator(p)` | — | Looks up the invited email in the `users` collection and adds the matching uid to the project's `memberUids`/`members` as an editor; surfaces "no account found" inline rather than failing silently. |
+| `removeCollaborator(p, uid)` | — | Removes a collaborator's access (with confirmation). |
 | `ColorPicker({ value, onChange })` | 144 | Swatch grid for picking one of the 24 project color identities. |
 
 ### [Export.jsx](src/pages/Export.jsx) — **not routed in `App.jsx`, currently orphaned**

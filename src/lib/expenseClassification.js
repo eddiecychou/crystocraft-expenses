@@ -85,3 +85,13 @@ export function classifyTransaction(txn, { matchedExpenseId = null, rule = null 
     suggestedClassification,
   }
 }
+
+// Whether a personal-account transaction is visible to a non-owner project
+// collaborator (see src/lib/projectAccess.js). Only a confirmed non-personal
+// classification unlocks visibility — unclassified and 'personal' rows stay
+// hidden, per the explicit requirement that a shared project never exposes
+// the owner's personal spending. Call this everywhere `classification` is
+// written on a paymentTransactions doc for a personal account.
+export function computeVisibleToMembers(classification) {
+  return classification != null && classification !== 'personal'
+}

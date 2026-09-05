@@ -6,6 +6,75 @@ Each entry says what happened, why it matters, and how to apply it going forward
 
 ---
 
+## Firestore security rules can't filter a list query — only allow or deny it
+
+Building Project Sharing, the natural instinct was: write a rule that does a
+`get()` on the transaction's payment account to check `ownershipType`, and let
+that rule silently exclude personal-account rows from a collaborator's
+`paymentTransactions` query. That doesn't work — Firestore rules for a
+`list`/collection query aren't evaluated per-returned-document the way a
+single `get()` read is; the rule has to be provable against the query's own
+constraints, or the read fails. A cross-document `get()` check is fine for
+securing a single-document read/write, but useless for making some documents
+in a list invisible while others come through.
+
+**Why:** This is a hard platform constraint, not a bug — Firestore documents it,
+but it's easy to miss until you've actually tried to lean on `get()` for
+list-query filtering and hit the wall.
+
+**How to apply:** To hide a subset of documents in a collection from certain
+readers, denormalize a boolean flag onto the document itself
+(`visibleToMembers` on `paymentTransactions` — see `computeVisibleToMembers`
+in `expenseClassification.js`, kept in sync at every write site) and write
+the security rule to check that exact field. The reader's query must then
+add a `where()` clause matching the rule's condition precisely (see
+`paymentTransactionsQuery` in `src/lib/projectAccess.js`) — the rule can only
+be proven safe when it mirrors a constraint the query itself already applies.
+
+---
+
+## A memoized "candidates" list must re-check status, not just structural fields
+
+Reconciliation's settlement-candidate detection (`settlementCandidates` in
+[Reconciliation.jsx](src/pages/Reconciliation.jsx)) filtered card
+payments/bank debits only by `transactionType`/`direction`/`settlementGroupId`
+— not by `status`. Clicking "Not Related" (→ `ignoreTxn`, sets
+`status:'ignored'`) left the transaction structurally unchanged, so it kept
+reappearing as a settlement candidate forever: the "Card Settlements" summary
+count never dropped, while the Exceptions list (whose `isException` check
+*does* look at `status` first) correctly stopped showing it — producing a
+visible mismatch ("I see 4 but there's none when I click in") that looked
+like the button did nothing.
+
+**How to apply:** Any live-computed "needs action" list must filter on the
+same status field its own resolve actions write, not just the fields that
+made it eligible in the first place — check both the count and the
+underlying list use identical filter logic, or they'll drift after the first
+resolve action.
+
+## Amount+currency alone is not enough evidence for an expense match
+
+`scoreExpenseMatch` in [paymentMatching.js](src/lib/paymentMatching.js) gave
+45 points for a matching amount and 15 for matching currency with **no
+penalty for date distance and no penalty for a merchant-name mismatch** —
+enough to clear the ≥50 "suggested match" threshold on its own. A personal
+bank transfer and an unrelated software subscription four years apart, sharing
+only an amount and currency, scored 65 and got suggested as a match.
+
+**Why:** For a statement-transaction-to-Expense match, date proximity is not
+optional context — a real match is essentially always the same day or a few
+days apart (statement posting lag). A pairing months or years apart is never
+a genuine match no matter what else lines up.
+
+**How to apply:** `scoreExpenseMatch` now disqualifies (`return null`) any
+pairing more than `MAX_MATCH_DAYS` (90) apart before scoring anything else,
+rather than merely failing to award a date-proximity bonus. Apply the same
+"disqualify, don't just under-score" principle to any future match/scoring
+function in this app where one strong-but-generic signal (amount, currency)
+could otherwise paper over the absence of every specific one (date, merchant).
+
+---
+
 ## Duplicates must surface, never silently skip
 
 `commitRows()` in [PaymentSources.jsx](src/pages/PaymentSources.jsx) went through three
