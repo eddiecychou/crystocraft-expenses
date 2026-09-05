@@ -11,10 +11,10 @@ import { ReceiptIcon, BankStatementIcon, CreditCardIcon, ICON_STROKE_WIDTH } fro
 // rather than picking the right item out of a longer menu.
 export default function Capture() {
   const { activeProject } = useProject()
-  if (!activeProject) return <div className="page"><p className="loading">Loading…</p></div>
+  if (!activeProject) return <div className="page page-narrow"><p className="loading">Loading…</p></div>
 
   return (
-    <div className="page">
+    <div className="page page-narrow">
       <ProjectBanner />
       <h2>Capture</h2>
       <p className="hint">What are you adding?</p>

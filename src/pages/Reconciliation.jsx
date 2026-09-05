@@ -417,10 +417,10 @@ export default function Reconciliation() {
     ['unmatched', 'suggested'].includes(t.status)
   )
 
-  if (!activeProject) return <div className="page"><p className="loading">Loading…</p></div>
+  if (!activeProject) return <div className="page page-wide"><p className="loading">Loading…</p></div>
 
   return (
-    <div className="page">
+    <div className="page page-wide">
       <ProjectBanner />
       <div className="card-header" style={{ marginBottom: 16 }}>
         <h2 style={{ marginBottom: 0 }}>Reconciliation</h2>

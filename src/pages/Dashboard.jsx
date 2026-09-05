@@ -90,7 +90,7 @@ export default function Dashboard() {
     .filter(c => Object.keys(c.totals).length > 0)
 
   if (projectLoading) return (
-    <div className="page">
+    <div className="page page-standard">
       <ProjectBanner />
       <h2>Dashboard</h2>
       <LoadingBar label="Loading expenses…" />
@@ -98,7 +98,7 @@ export default function Dashboard() {
   )
 
   return (
-    <div className="page">
+    <div className="page page-standard">
       <ProjectBanner />
       <h2>Dashboard</h2>
 

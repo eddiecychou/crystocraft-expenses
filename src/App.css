@@ -16,13 +16,19 @@
      opt in by referencing a var(). Semantic status colors are deliberately
      separate from --t-* (project identity) — identity color must never
      substitute for Matched/Needs Review/Error meaning. */
+  --space-0: 0px;
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
   --space-4: 16px;
   --space-5: 20px;
   --space-6: 24px;
+  --space-7: 28px;
   --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --space-20: 80px;
 
   --radius-sm: 6px;
   --radius-md: 10px;
@@ -30,6 +36,59 @@
 
   --shadow-sm: 0 1px 4px rgba(0,0,0,0.06);
   --shadow-md: 0 8px 24px rgba(0,0,0,0.08);
+
+  /* Typography — two roles only: Questrial for the brand wordmark and rare
+     large display headings, Work Sans for everything a bookkeeper actually
+     reads (body, transactions, forms, tables, buttons, nav). Loaded in
+     index.html. Falls back to the system stack if the Google Fonts request
+     is blocked/slow, so nothing breaks without them. */
+  --font-brand: 'Questrial', system-ui, sans-serif;
+  --font-ui: 'Work Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --type-display-size: 32px;
+  --type-display-line: 1.10;
+  --type-display-weight: 500;
+
+  --type-page-title-size: 26px;
+  --type-page-title-line: 1.20;
+  --type-page-title-weight: 600;
+
+  --type-section-title-size: 20px;
+  --type-section-title-line: 1.30;
+  --type-section-title-weight: 600;
+
+  --type-card-title-size: 16px;
+  --type-card-title-line: 1.35;
+  --type-card-title-weight: 600;
+
+  --type-body-size: 16px;
+  --type-body-line: 1.50;
+  --type-body-weight: 400;
+
+  --type-body-small-size: 14px;
+  --type-body-small-line: 1.45;
+  --type-body-small-weight: 400;
+
+  --type-label-size: 13px;
+  --type-label-line: 1.30;
+  --type-label-weight: 500;
+
+  --type-caption-size: 12px;
+  --type-caption-line: 1.35;
+  --type-caption-weight: 400;
+
+  --type-amount-size: 20px;
+  --type-amount-line: 1.20;
+  --type-amount-weight: 600;
+
+  --container-narrow: 720px;
+  --container-reading: 880px;
+  --container-standard: 1120px;
+  --container-wide: 1280px;
+  --page-gutter-desktop: 32px;
+  --page-gutter-tablet: 24px;
+  --page-gutter-mobile: 16px;
 
   /* Values matched to what's already on screen (success-msg green,
      badge-warning amber, error-msg red) rather than a new palette, so this
@@ -58,11 +117,36 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  font-size: 14px;
+  font-family: var(--font-ui);
+  font-size: var(--type-body-small-size);
+  line-height: var(--type-body-small-line);
   color: var(--t-dark);
   background: #f5f5f7;
 }
+
+/* ── Typography roles ──
+   Sentence case throughout — reserve uppercase for short eyebrow labels
+   only (e.g. .stat-label, .recon-detail-label), never for page titles,
+   buttons, merchant names, or errors. */
+.type-display    { font-family: var(--font-brand); font-size: var(--type-display-size); line-height: var(--type-display-line); font-weight: var(--type-display-weight); letter-spacing: 0; }
+.type-page-title { font-family: var(--font-ui); font-size: var(--type-page-title-size); line-height: var(--type-page-title-line); font-weight: var(--type-page-title-weight); letter-spacing: -0.01em; }
+.type-section-title { font-family: var(--font-ui); font-size: var(--type-section-title-size); line-height: var(--type-section-title-line); font-weight: var(--type-section-title-weight); }
+.type-card-title { font-family: var(--font-ui); font-size: var(--type-card-title-size); line-height: var(--type-card-title-line); font-weight: var(--type-card-title-weight); }
+.type-body       { font-family: var(--font-ui); font-size: var(--type-body-size); line-height: var(--type-body-line); font-weight: var(--type-body-weight); }
+.type-body-small { font-family: var(--font-ui); font-size: var(--type-body-small-size); line-height: var(--type-body-small-line); font-weight: var(--type-body-small-weight); }
+.type-label      { font-family: var(--font-ui); font-size: var(--type-label-size); line-height: var(--type-label-line); font-weight: var(--type-label-weight); }
+.type-caption    { font-family: var(--font-ui); font-size: var(--type-caption-size); line-height: var(--type-caption-line); font-weight: var(--type-caption-weight); }
+.type-amount     { font-family: var(--font-ui); font-size: var(--type-amount-size); line-height: var(--type-amount-line); font-weight: var(--type-amount-weight); font-variant-numeric: tabular-nums; }
+
+@media (max-width: 767px) {
+  :root {
+    --type-display-size: 28px;
+    --type-page-title-size: 24px;
+    --type-section-title-size: 18px;
+    --type-amount-size: 18px;
+  }
+}
+
 
 /* ── Layout ── */
 .app-layout {
@@ -80,6 +164,7 @@ body {
 }
 
 .logo {
+  font-family: var(--font-brand);
   color: #fff;
   font-size: 15px;
   font-weight: 700;
@@ -266,8 +351,25 @@ body {
 
 /* ── Page ── */
 .page { max-width: 900px; }
-.page h2 { font-size: 22px; margin-bottom: 24px; color: var(--t-dark); }
-.page h3 { font-size: 16px; margin-bottom: 16px; color: #2d3748; }
+
+/* ── Container system ──
+   Opt-in width caps for pages that want something other than .page's
+   900px default — combine as className="page page-wide" etc.; must stay
+   defined AFTER .page so the more specific intent wins (equal selector
+   specificity, later in the cascade). narrow for single-record/OCR-review
+   flows, reading for detail pages, standard for list-shaped pages, wide
+   for the Reconciliation desktop workspace. */
+.page-narrow   { max-width: var(--container-narrow); }
+.page-reading  { max-width: var(--container-reading); }
+.page-standard { max-width: var(--container-standard); }
+.page-wide     { max-width: var(--container-wide); }
+
+.page h2 { font-family: var(--font-ui); font-size: var(--type-page-title-size); line-height: var(--type-page-title-line); font-weight: var(--type-page-title-weight); margin-bottom: var(--space-6); color: var(--t-dark); }
+/* h3 is used as card/section headers throughout ("Accounts", "Import
+   Statement") rather than standalone page sections — type-card-title
+   (16px) matches what was already here, not the larger type-section-title,
+   so this is a token-naming/consistency fix, not a size change. */
+.page h3 { font-family: var(--font-ui); font-size: var(--type-card-title-size); line-height: var(--type-card-title-line); font-weight: var(--type-card-title-weight); margin-bottom: var(--space-4); color: #2d3748; }
 
 .loading { color: #718096; padding: 48px; text-align: center; }
 
@@ -968,6 +1070,14 @@ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
     padding-bottom: 84px;
   }
 
+  /* iOS Safari zooms in on focus when a form control's font-size is under
+     16px — several inputs/selects across the app (e.g. .result-grid at
+     14px) are below that. Applied broadly rather than hunting down every
+     site individually. */
+  input, select, textarea {
+    font-size: 16px;
+  }
+
   /* Touch targets: buttons throughout the app default to a dense desktop
      size (~32px, .btn-small ~20px) — bumped here to the 44-48px minimum
      for phones, per Material/WCAG/Apple touch-target guidance, without
@@ -1001,7 +1111,7 @@ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
   .filter-row { flex-direction: column; align-items: stretch; gap: 10px; }
   .filter-search { width: 100%; }
   .date-range { justify-content: space-between; }
-  .date-range input[type="date"] { flex: 1; min-width: 0; font-size: 14px; padding: 8px 10px; }
+  .date-range input[type="date"] { flex: 1; min-width: 0; font-size: 16px; padding: 8px 10px; }
   .preset-btns { justify-content: space-between; }
   .preset-btns .btn-small { flex: 1; text-align: center; }
 
