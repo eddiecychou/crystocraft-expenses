@@ -308,7 +308,7 @@ export default function Upload() {
   }
 
   if (saved) return (
-    <div className="page">
+    <div className="page page-narrow">
       <div className="success-msg">Expenses saved successfully!</div>
       <button onClick={() => setSaved(false)} className="btn-primary">Upload More</button>
     </div>
@@ -317,7 +317,7 @@ export default function Upload() {
   const hasReadable = fileItems.some(f => !f.error)
 
   return (
-    <div className="page">
+    <div className="page page-narrow">
       <ProjectBanner />
       <h2>Upload Receipts</h2>
 

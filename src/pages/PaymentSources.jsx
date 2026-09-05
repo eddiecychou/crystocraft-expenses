@@ -838,10 +838,10 @@ export default function PaymentSources() {
     else advancePdfQueue(pdfQueue, pdfPreview.accountId)
   }
 
-  if (!activeProject) return <div className="page"><p className="loading">Loading…</p></div>
+  if (!activeProject) return <div className="page page-standard"><p className="loading">Loading…</p></div>
 
   return (
-    <div className="page">
+    <div className="page page-standard">
       <ProjectBanner />
       <h2>Payment Sources</h2>
 

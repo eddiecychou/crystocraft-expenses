@@ -54,7 +54,7 @@ export default function Settings() {
   function startEdit(p) { setEditId(p.id); setEditName(p.name); setEditColor(p.color) }
 
   return (
-    <div className="page">
+    <div className="page page-reading">
       <ProjectBanner />
       <h2>Settings</h2>
 

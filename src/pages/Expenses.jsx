@@ -316,14 +316,14 @@ export default function Expenses() {
   }
 
   if (projectLoading || loading) return (
-    <div className="page">
+    <div className="page page-standard">
       <ProjectBanner />
       <h2>Expense Records</h2>
       <LoadingBar label="Loading records…" />
     </div>
   )
   if (expenses.length === 0) return (
-    <div className="page">
+    <div className="page page-standard">
       <ProjectBanner /><h2>Expense Records</h2>
       <p className="empty">No expenses yet — upload a receipt to get started.</p>
       <Link to="/upload" className="btn-primary">Upload Receipt</Link>
@@ -340,7 +340,7 @@ export default function Expenses() {
   })
 
   return (
-    <div className="page">
+    <div className="page page-standard">
       <ProjectBanner />
       <h2>Expense Records</h2>
 
