@@ -56,6 +56,14 @@ some of these functions look the way they do, see [LESSONS_LEARNED.md](LESSONS_L
 | `extractBalanceMarkersFromRawLines(lines)` | 493 | Internal — pulls opening/closing balance text from statement boilerplate lines. |
 | `parsePdfStatement(file)` | 515 | **Entry point.** Loads a PDF via `pdfjs-dist`, extracts text-position data, and returns parsed transaction rows + statement totals. |
 
+### [expenseClassification.js](src/lib/expenseClassification.js)
+
+| Function | Line | Purpose |
+|---|---|---|
+| `classifyTransaction(txn, { matchedExpenseId })` | 44 | Personal-vs-company classifier for transactions on a `personal`-owned account. Returns `null` for excluded types (card repayment/transfer); otherwise `company_candidate` when already matched to an Expense, else the conservative default `needs_accountant_review` — no keyword/rule-based auto-classification yet (Phase 2). |
+
+Also exports `CLASSIFICATION_LABELS`, `BUSINESS_PURPOSE_OPTIONS`, `CLASSIFICATION_EXCLUDED_TYPES` (re-exported from `paymentMatching.js`'s `CREATE_EXPENSE_BLOCKED_TYPES`).
+
 ---
 
 ## `src/` — top-level modules
@@ -236,6 +244,19 @@ No functions — a pure dispatcher component (three link cards routing to Upload
 | `linkSettlement(card, bankTxn)` | 367 | Links a credit-card charge to its settling bank debit; logs the action. |
 | `resolveDuplicate(txn, newStatus)` | 390 | Same duplicate-resolution logic as in PaymentSources, surfaced in the Reconciliation detail panel. |
 | `dismissDuplicateWarning(txn)` | 402 | Same as in PaymentSources — dismiss without changing verdict. |
+
+### [CompanyReview.jsx](src/pages/CompanyReview.jsx) — personal-account classification queue (Phase 1 of the personal-to-company spec)
+
+| Function | Purpose |
+|---|---|
+| `chunk(arr, size)` | Module-level — splits an array into fixed-size chunks, for Firestore's 10-value `in`-query cap. |
+| `accountOf(id)` | Looks up a payment account by id. |
+| `applyClassificationToGroup(group, classification)` | Batch-writes a new classification to every transaction in a merchant group. |
+| `confirmGroupAction(group, classification, label)` | Opens the count+total `ConfirmDialog` before a group bulk action. |
+| `sendGroupToAccountant(group)` | Sets `accountantStatus: 'pending'` on a group's company-candidate/shared transactions, with the same confirm-before-apply pattern. |
+| `setTxnClassification(txn, classification)` | Per-transaction classification override. |
+| `saveBusinessPurpose(txn)` | Persists the selected quick-purpose option + optional note. |
+| `createExpenseFromTxn(txn)` | Same shape as `Reconciliation.jsx`'s function of the same name, plus `businessPurpose`/`source: 'personal_statement'` fields. |
 
 ### [Settings.jsx](src/pages/Settings.jsx)
 

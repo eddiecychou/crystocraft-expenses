@@ -483,6 +483,21 @@ body {
 .category-row:last-child { border-bottom: none; }
 .category-row .badge { font-size: 15px; padding: 3px 10px; }
 
+/* ── Company Review groups ── */
+.company-review-group {
+  padding: var(--space-4) 0;
+  border-bottom: 1px solid #f5f5f7;
+}
+.company-review-group:last-child { border-bottom: none; }
+.company-review-group-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
 /* ── Badge ── */
 .badge {
   display: inline-block;
@@ -508,6 +523,9 @@ body {
 .badge-warning                { background: var(--color-warning-bg); color: var(--color-warning); }
 .badge-production             { background: #fde8d8; color: #8a3010; }
 .badge-other                  { background: #e8e8e8; color: #555555; }
+.badge-success                { background: var(--color-success-bg); color: var(--color-success); }
+.badge-danger                 { background: var(--color-danger-bg); color: var(--color-danger); }
+.badge-info                   { background: var(--color-info-bg); color: var(--color-info); }
 
 /* ── Buttons ── */
 .btn-primary {
@@ -1216,6 +1234,12 @@ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
   border: 1px dashed #c6e0c0;
   border-radius: 8px; padding: 16px; margin-top: 12px;
 }
+.checkbox-row {
+  display: flex; align-items: flex-start; gap: var(--space-2);
+  font-size: var(--type-body-small-size); line-height: var(--type-body-small-line);
+  color: #4a5568; cursor: pointer;
+}
+.checkbox-row input[type="checkbox"] { margin-top: 3px; flex-shrink: 0; width: 16px; height: 16px; }
 .color-swatches { display: flex; flex-wrap: wrap; gap: var(--space-3); margin-bottom: var(--space-3); }
 .color-swatch {
   width: 36px; height: 36px; border-radius: 50%;

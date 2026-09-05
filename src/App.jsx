@@ -8,6 +8,7 @@ import Capture from './pages/Capture'
 import Expenses from './pages/Expenses'
 import PaymentSources from './pages/PaymentSources'
 import Reconciliation from './pages/Reconciliation'
+import CompanyReview from './pages/CompanyReview'
 import Settings from './pages/Settings'
 import Layout from './components/Layout'
 import LoadingBar from './components/LoadingBar'
@@ -39,6 +40,7 @@ export default function App() {
           <Route path="expenses" element={<Expenses />} />
           <Route path="payment-sources" element={<PaymentSources />} />
           <Route path="reconciliation" element={<Reconciliation />} />
+          <Route path="company-review" element={<CompanyReview />} />
           <Route path="settings" element={<Settings />} />
         </Route>
       </Routes>

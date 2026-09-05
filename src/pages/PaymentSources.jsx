@@ -9,6 +9,7 @@ import { parseCSV, mapCsvRecords, normalizeMerchant, classifyTransactionType, co
 import { parsePdfStatement } from '../lib/pdfStatementParser'
 import { uploadStatementFile, deleteStatementFile } from '../statementStorage'
 import { annotateBalanceSequence, classifyFingerprintCollision, validateStatementTotals, diffTransactionSets, DUPLICATE_STATUS_LABELS } from '../lib/duplicateDetection'
+import { classifyTransaction } from '../lib/expenseClassification'
 import { MatchedIcon, WarningIcon, ICON_STROKE_WIDTH } from '../icons'
 
 const SOURCE_TYPES = [
@@ -40,7 +41,7 @@ export default function PaymentSources() {
   const [accounts, setAccounts] = useState([])
   const [imports, setImports] = useState([])
   const [creating, setCreating] = useState(false)
-  const [newAccount, setNewAccount] = useState({ label: '', sourceType: 'bank', accountTail: '', institutionName: '', settlementCurrency: 'HKD' })
+  const [newAccount, setNewAccount] = useState({ label: '', sourceType: 'bank', accountTail: '', institutionName: '', settlementCurrency: 'HKD', ownershipType: 'company' })
   const [saving, setSaving] = useState(false)
   const [importAccountId, setImportAccountId] = useState('')
   const [importing, setImporting] = useState(false)
@@ -142,7 +143,7 @@ export default function PaymentSources() {
       active: true,
       createdAt: serverTimestamp(),
     })
-    setNewAccount({ label: '', sourceType: 'bank', accountTail: '', institutionName: '', settlementCurrency: 'HKD' })
+    setNewAccount({ label: '', sourceType: 'bank', accountTail: '', institutionName: '', settlementCurrency: 'HKD', ownershipType: 'company' })
     setCreating(false)
     setSaving(false)
   }
@@ -288,6 +289,13 @@ export default function PaymentSources() {
         if (collisionRows.length === 1 && result.status !== 'verified_separate') duplicateOfTransactionId = collisionRows[0].id || null
       }
 
+      // Only personal accounts get transaction-level classification —
+      // existing company accounts assume every transaction is inherently
+      // company-related already, exactly as before this feature existed.
+      const classification = account.ownershipType === 'personal'
+        ? classifyTransaction(t, { matchedExpenseId: null })
+        : null
+
       const rowDoc = {
         userId: auth.currentUser.uid,
         projectId: activeProject.id,
@@ -302,6 +310,14 @@ export default function PaymentSources() {
         settlementCurrency: account.settlementCurrency,
         direction: t.direction,
         transactionType,
+        ...(classification ? {
+          classification: classification.classification,
+          classificationConfidence: classification.classificationConfidence,
+          classificationSource: classification.classificationSource,
+          businessPurpose: null,
+          reviewNote: null,
+          accountantStatus: 'not_required',
+        } : {}),
         balanceAfter: t.balanceAfter ?? null,
         installmentIndicator: false,
         installmentNumber: null,
@@ -858,6 +874,7 @@ export default function PaymentSources() {
             <div key={a.id} className="project-card">
               <div className="project-card-main">
                 <span className="badge badge-office">{SOURCE_TYPES.find(s => s.value === a.sourceType)?.label}</span>
+                {a.ownershipType === 'personal' && <span className="badge badge-warning">Personal</span>}
                 <span className="project-card-name">{a.label}{a.accountTail ? ` ****${a.accountTail}` : ''}</span>
                 <span className="hint">{a.settlementCurrency}</span>
               </div>
@@ -893,6 +910,14 @@ export default function PaymentSources() {
                 {CURRENCIES.filter(c => c !== 'Other').map(c => <option key={c} value={c}>{c}</option>)}
               </select>
             </div>
+            <label className="checkbox-row" style={{ marginTop: 10 }}>
+              <input
+                type="checkbox"
+                checked={newAccount.ownershipType === 'personal'}
+                onChange={e => setNewAccount({ ...newAccount, ownershipType: e.target.checked ? 'personal' : 'company' })}
+              />
+              This is a personal account that mixes personal and company spending — transactions will need review in Company Review
+            </label>
             <div className="project-card-actions" style={{ marginTop: 10 }}>
               <button onClick={createAccount} disabled={saving || !newAccount.label.trim()} className="btn-primary">Create</button>
               <button onClick={() => setCreating(false)} className="btn-ghost">Cancel</button>

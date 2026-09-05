@@ -83,7 +83,8 @@ The frontend is a pure SPA deployed to Netlify. All API calls stay within the sa
 │   ├── lib/
 │   │   ├── duplicateDetection.js  — fingerprint-collision classification for statement imports
 │   │   ├── paymentMatching.js     — CSV parsing, merchant normalization, expense/settlement match scoring
-│   │   └── pdfStatementParser.js  — PDF table extraction for bank/credit-card statements (pdf.js-based)
+│   │   ├── pdfStatementParser.js  — PDF table extraction for bank/credit-card statements (pdf.js-based)
+│   │   └── expenseClassification.js — personal/company classification for personal-account transactions
 │   │
 │   ├── components/
 │   │   ├── Layout.jsx              — sidebar nav (desktop), bottom nav + More sheet (mobile), logout
@@ -99,6 +100,7 @@ The frontend is a pure SPA deployed to Netlify. All API calls stay within the sa
 │       ├── Expenses.jsx            — full records table/cards, edit, delete, export (route: /expenses)
 │       ├── PaymentSources.jsx      — account management + statement import + duplicate review (route: /payment-sources)
 │       ├── Reconciliation.jsx      — transaction matching workspace (route: /reconciliation)
+│       ├── CompanyReview.jsx       — personal-account transaction classification queue (route: /company-review)
 │       ├── Settings.jsx            — project management (route: /settings)
 │       └── Export.jsx              — standalone Excel export utility; NOT routed in App.jsx, currently orphaned
 │
@@ -161,7 +163,10 @@ The frontend is a pure SPA deployed to Netlify. All API calls stay within the sa
   userId: string,
   projectId: string,
   name: string,
-  sourceType: string,   // 'bank' | 'credit_card'
+  sourceType: string,      // 'bank' | 'credit_card'
+  ownershipType: string,   // 'company' | 'personal' — missing/undefined treated as 'company'.
+                           // Only 'personal' accounts get per-transaction classification
+                           // (see Company Review below) — company accounts are unaffected.
   createdAt: Timestamp
 }
 ```
@@ -208,7 +213,16 @@ The frontend is a pure SPA deployed to Netlify. All API calls stay within the sa
   duplicateOfTransactionId: string | null,
   duplicateReviewedAt: Timestamp | null,
   status: string,                 // 'unmatched' | 'matched' | 'ignored'
-  matchedExpenseId: string | null,
+  matchedExpenseIds: string[],
+  // Only present when the row's account has ownershipType 'personal' — see
+  // "Personal-to-Company Classification" below. Absent entirely on rows
+  // imported under a company account (no schema change for existing data).
+  classification: string | null,           // 'personal' | 'company_candidate' | 'company_confirmed' | 'shared' | 'needs_accountant_review' | 'rejected_company_claim'
+  classificationConfidence: number | null,
+  classificationSource: string | null,     // 'match' | 'user' | null
+  businessPurpose: string | null,
+  reviewNote: string | null,
+  accountantStatus: string | null,         // 'not_required' | 'pending' | 'approved' | 'rejected'
   createdAt: Timestamp
 }
 ```
@@ -368,6 +382,41 @@ The **original uploaded file** (CSV or PDF) is stored via `statementStorage.js` 
 `runMatching` scores every unmatched `paymentTransactions` row against candidate expenses (`scoreExpenseMatch`) and against other transactions for credit-card settlement pairs (`scoreSettlementMatch`), using normalized merchant name (`normalizeMerchant`), date proximity, and amount. Matches above a confidence threshold are presented for one-click **Confirm Match**; everything else needs manual action (**Ignore**, **Unmatch**, **Link Settlement**, or **Create Expense from Transaction**).
 
 Every state-changing action (`confirmMatch`, `ignoreTxn`, `undoIgnore`, `unmatchTxn`, `linkSettlement`, `resolveDuplicate`) writes an entry to `reconciliationActions` via `logAction` — an append-only audit trail, never mutated after the fact.
+
+### Personal-to-Company Classification (Company Review)
+
+Handles the case where a user pays some company-related expenses from a personal
+bank/credit-card account that also carries unrelated personal spending. This is
+**Phase 1** of a three-phase spec (`~/Desktop/Expense App：Personal-to-Company
+Expense MVP Specification.md`) — merchant-learned rules and Company Package export
+are deferred to later phases.
+
+An account is opted into this workflow by marking it `ownershipType: 'personal'`
+when created in Payment Sources (a checkbox on the create-account form). Only rows
+imported under a personal account get classified; company accounts are completely
+unaffected — same import pipeline (`commitRows`), no schema change to their rows.
+
+`classifyTransaction` in `src/lib/expenseClassification.js` runs at import time and
+is deliberately conservative — this app never auto-decides a final claim, tax
+category, or allocation, only defaulting the classification field so review can
+happen efficiently:
+1. Already linked to a matched Expense → `company_candidate`.
+2. Excluded transaction types (card repayments, transfers — the same
+   `CREATE_EXPENSE_BLOCKED_TYPES` list `Reconciliation.jsx` already uses) → skipped
+   entirely, no classification field set.
+3. Otherwise → `needs_accountant_review`. There's no merchant-rule/history table
+   yet (Phase 2), so nothing is auto-classified `personal` on a guess — every
+   ambiguous row surfaces for a human decision, which is itself what will
+   eventually build the Phase 2 rule history.
+
+The **Company Review** page (`/company-review`) groups classified transactions by
+merchant with bulk actions — Confirm All as Company, Mark All Personal, Send to
+Accountant Review — each showing the transaction count and total before applying
+(reusing the existing `ConfirmDialog` pattern, never a silent bulk update).
+Expanding a group reveals per-transaction controls: change classification, pick a
+quick business-purpose option (+ optional note), and **Create Expense from
+Transaction** for unmatched company candidates — adapted directly from
+`Reconciliation.jsx`'s `createExpenseFromTxn`.
 
 ### Export
 
