@@ -206,16 +206,19 @@ export function scoreExpenseMatch(txn, expense) {
 
   const amtMatch = Math.abs(txn.settlementAmount - parseFloat(expense.amount)) < 0.01
   if (amtMatch) { score += 45; reasons.push('Same amount') }
+  else { reasons.push('Amount does not match') }
 
   if (txn.settlementCurrency === expense.currency) { score += 15; reasons.push('Same currency') }
 
   const days = daysBetween(txn.transactionDate, expense.date)
   if (days === 0) { score += 15; reasons.push('Same date') }
   else if (days !== null && days <= 3) { score += 10; reasons.push(`Date within ${Math.ceil(days)} day(s)`) }
+  else if (days !== null) { reasons.push(`Date differs by ${Math.ceil(days)} day(s)`) }
 
   const sim = merchantSimilarity(txn.merchantRaw, expense.vendor)
   if (sim === 'high') { score += 20; reasons.push('Merchant name matches closely') }
   else if (sim === 'medium') { score += 10; reasons.push('Merchant name partially matches') }
+  else { reasons.push('Merchant name does not match') }
 
   if (txn.transactionType === 'purchase') { score += 5 }
 
@@ -247,4 +250,23 @@ export function scoreSettlementMatch(cardTxn, bankTxn) {
   if (cardTxn.settlementGroupId || bankTxn.settlementGroupId) { score -= 50; reasons.push('Already linked to another settlement') }
 
   return { score, reasons }
+}
+
+// ---- Needs Review classification ------------------------------------------
+
+// Transaction types that are never a business expense — Create Expense must
+// be blocked for these unless the user explicitly overrides (spec §5/§6).
+export const CREATE_EXPENSE_BLOCKED_TYPES = ['payment', 'transfer']
+
+// Buckets a Needs Review row into one of the categories from spec §6, so the
+// UI can show a specific reason instead of treating every low-score
+// suggestion as a generic possible expense. `hasDuplicate` is computed by
+// the caller (a fingerprintLoose collision among a project's active rows).
+export function classifyReviewCategory(txn, { hasDuplicate = false } = {}) {
+  if (txn.transactionType === 'payment') return 'possible_settlement'
+  if (txn.transactionType === 'transfer') return 'possible_transfer'
+  if (txn.transactionType === 'refund') return 'possible_refund'
+  if (hasDuplicate) return 'possible_duplicate'
+  if (txn.confidenceScore != null) return 'possible_expense'
+  return 'unclear'
 }

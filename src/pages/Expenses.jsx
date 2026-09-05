@@ -424,6 +424,11 @@ export default function Expenses() {
                     <td>{e.date}</td><td>{e.vendor}</td><td>{e.amount?.toFixed(2)}</td>
                     <td>{e.currency}</td><td><span className={`badge badge-${e.category.toLowerCase().replace(/\s+/g, '-')}`}>{e.category}</span></td>
                     <td>
+                      {e.reconciliationStatus === 'created_from_statement' && e.receiptStatus === 'missing' && (
+                        <div className="badge badge-warning" title="Created from a bank/card statement — no receipt attached yet">
+                          Created from statement — receipt missing
+                        </div>
+                      )}
                       {e.notes && <div>{e.notes}</div>}
                       {e.paymentMethod && <div className="payment-sub">{e.paymentMethod}</div>}
                     </td>
@@ -473,6 +478,11 @@ export default function Expenses() {
                   <span className={`badge badge-${e.category.toLowerCase().replace(/\s+/g, '-')}`}>{e.category}</span>
                   {e.paymentMethod && <span className="mob-card-payment">{e.paymentMethod}</span>}
                 </div>
+                {e.reconciliationStatus === 'created_from_statement' && e.receiptStatus === 'missing' && (
+                  <div className="badge badge-warning" title="Created from a bank/card statement — no receipt attached yet">
+                    Created from statement — receipt missing
+                  </div>
+                )}
                 {e.notes && <div className="mob-card-notes">{e.notes}</div>}
                 <div className="mob-card-actions">
                   <button onClick={() => openLightbox(e)} className="btn-small">

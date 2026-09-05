@@ -311,11 +311,23 @@ function parseMoneyText(str) {
 }
 
 const NON_TRANSACTION_LABELS = /\b(B\/F|C\/F|BROUGHT FORWARD|CARRIED FORWARD|OPENING BALANCE|CLOSING BALANCE|PREVIOUS BALANCE)\b/i
+// "Brought forward" / "opening balance" restates the balance the statement
+// STARTS with; "carried forward" / "closing balance" restates what it ENDS
+// with — distinguished so the two can be used as independent statement-level
+// checkpoints (see validateStatementTotals in duplicateDetection.js), not
+// just dropped as noise.
+const OPENING_BALANCE_LABELS = /\b(B\/F|BROUGHT FORWARD|OPENING BALANCE|PREVIOUS BALANCE)\b/i
+const CLOSING_BALANCE_LABELS = /\b(C\/F|CARRIED FORWARD|CLOSING BALANCE)\b/i
 const INSTALMENT_NOTE = /(\d+)(?:st|nd|rd|th)\s+of\s+(\d+)\s+instal?ments?/i
 
 // ---- Column-aware, multi-line block parser -------------------------------
 
-function parseSection(lines, columns, anchorDate) {
+// `balanceMarkers` (mutated in place) collects any opening/closing balance
+// restatement lines found in this section, tagged with which page they came
+// from — the caller uses the first opening marker and the last closing
+// marker across the whole document as the statement's overall totals
+// checkpoints.
+function parseSection(lines, columns, anchorDate, pageNumber, balanceMarkers) {
   const rows = []
   let currentDate = null
   let pendingDesc = []
@@ -378,13 +390,30 @@ function parseSection(lines, columns, anchorDate) {
       if (descColumn && Math.abs(line.items[0].x - descColumn.x) > 25) continue
     }
 
-    if (parsedDate) { currentDate = parsedDate; pendingDesc = [] }
-    if (descText) pendingDesc.push(descText)
-
     const credit = parseMoneyText(buckets.credit)
     const debit = parseMoneyText(buckets.debit)
     const single = parseMoneyText(buckets.amount)
     const balance = parseMoneyText(buckets.balance)
+
+    // A "balance b/f" or "balance c/f" restatement line is metadata about
+    // the ledger, not a transaction — capture the figure as a checkpoint
+    // for statement-level totals validation, and skip it entirely before it
+    // can pollute the next real transaction's accumulated description or
+    // be miscounted as a purchase/payment itself.
+    if (OPENING_BALANCE_LABELS.test(line.text) || CLOSING_BALANCE_LABELS.test(line.text)) {
+      const markerAmount = balance || single || credit || debit
+      if (markerAmount) {
+        balanceMarkers.push({
+          type: OPENING_BALANCE_LABELS.test(line.text) ? 'opening' : 'closing',
+          amount: markerAmount.amount * (markerAmount.isNegative ? -1 : 1),
+          pageNumber,
+        })
+      }
+      continue
+    }
+
+    if (parsedDate) { currentDate = parsedDate; pendingDesc = [] }
+    if (descText) pendingDesc.push(descText)
 
     let settlementAmount = null, direction = null
     if (credit) { settlementAmount = credit.amount; direction = 'credit' }
@@ -397,6 +426,7 @@ function parseSection(lines, columns, anchorDate) {
       if (!merchantRaw || NON_TRANSACTION_LABELS.test(merchantRaw)) continue
       rows.push({
         sourceRowIndex: rows.length,
+        pageNumber,
         rawRowText: line.text,
         rawDateText: dateText || currentDate,
         transactionDate: currentDate,
@@ -452,9 +482,36 @@ function parseFallback(lines) {
   return rows.filter(r => r.transactionDate) // dropped below if date unresolved — see note
 }
 
+// Catches an opening/closing balance restatement that sits OUTSIDE any
+// recognized table section entirely (verified: "Opening Balance: HKD
+// 10,000.00" commonly prints above the transaction table's own header row,
+// so it never reaches parseSection's column-bucketed logic at all). Works
+// directly off raw line text rather than resolved columns — deliberately
+// tolerant, since this line's layout varies far more than a table row's.
+// Guarded to short lines only, so a long disclaimer paragraph that happens
+// to mention "previous balance" in prose can't be mistaken for one.
+function extractBalanceMarkersFromRawLines(lines) {
+  const markers = []
+  for (const { text } of lines) {
+    if (text.length > 120) continue
+    const isOpening = OPENING_BALANCE_LABELS.test(text)
+    const isClosing = CLOSING_BALANCE_LABELS.test(text)
+    if (!isOpening && !isClosing) continue
+    const matches = [...text.matchAll(MONEY_TRAILING)].map(m => parseMoneyText(m[0])).filter(Boolean)
+    if (!matches.length) continue
+    const last = matches[matches.length - 1]
+    markers.push({ type: isOpening ? 'opening' : 'closing', amount: last.amount * (last.isNegative ? -1 : 1) })
+  }
+  return markers
+}
+
 // Full pipeline: PDF file -> candidate transaction rows. Returns
-// { rows, lineCount, pageCount } so the caller can tell the user how much
-// text was found even if zero rows were recognized.
+// { rows, lineCount, pageCount, openingBalance, closingBalance } so the
+// caller can tell the user how much text was found even if zero rows were
+// recognized, and can validate the statement's own totals independently of
+// per-row parsing (see validateStatementTotals in duplicateDetection.js).
+// openingBalance/closingBalance are null when no restatement line was found
+// anywhere in the document — never guessed.
 export async function parsePdfStatement(file) {
   const pages = await extractStructuredLines(file)
   const allLines = pages.flat()
@@ -462,8 +519,15 @@ export async function parsePdfStatement(file) {
   const pageCount = pages.length
   const anchorDate = findAnchorDate(allLines.map(l => l.text).join(' '))
 
+  // Whole-document scan first, so its entries come first in the array for
+  // any marker also independently found inside a table section below (both
+  // point at the same value when that happens — harmless duplication).
+  const balanceMarkers = extractBalanceMarkersFromRawLines(allLines)
+
   const rows = []
+  let pageNum = 0
   for (const pageLines of pages) {
+    pageNum++
     // Split each page into sections at header rows; parse each section
     // with its own column layout (a page can have multiple mini-tables,
     // and multi-page statements repeat the header on every page).
@@ -480,7 +544,7 @@ export async function parsePdfStatement(file) {
         // continuation) always has an item flush against one of the
         // resolved column positions; sidebar/footer text doesn't.
         const tableLines = sectionLines.filter(l => l.items.some(it => columns.some(c => Math.abs(it.x - c.x) <= 15)))
-        rows.push(...parseSection(tableLines, columns, anchorDate))
+        rows.push(...parseSection(tableLines, columns, anchorDate, pageNum, balanceMarkers))
       }
       sectionLines = []
     }
@@ -499,5 +563,21 @@ export async function parsePdfStatement(file) {
     rows.push(...parseFallback(allLines))
   }
 
-  return { rows, lineCount, pageCount }
+  // sourceRowIndex is assigned per-section above (so it resets per table),
+  // which isn't a reliable global position — reassign it here as the row's
+  // true, monotonic position in the statement's own printed order (never
+  // resorted by date), so two same-day rows keep the sequence they must be
+  // validated in.
+  rows.forEach((r, i) => { r.sourceRowIndex = i })
+
+  const openingMarkers = balanceMarkers.filter(m => m.type === 'opening')
+  const closingMarkers = balanceMarkers.filter(m => m.type === 'closing')
+
+  return {
+    rows,
+    lineCount,
+    pageCount,
+    openingBalance: openingMarkers.length ? openingMarkers[0].amount : null,
+    closingBalance: closingMarkers.length ? closingMarkers[closingMarkers.length - 1].amount : null,
+  }
 }
