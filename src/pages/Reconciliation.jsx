@@ -29,6 +29,28 @@ const EXCEPTION_FILTERS = [
   { value: 'unclear', label: 'Unclear' },
 ]
 
+// Only ever shows one image at a time, but falls through the Expense's full
+// image list on a load error instead of getting stuck on a broken icon —
+// an Expense with 2+ attached images previously always rendered images[0]
+// with no fallback, so a single bad/deleted Storage reference at that index
+// left a permanently broken thumbnail even when a later image was fine.
+function ReceiptThumb({ images }) {
+  const [index, setIndex] = useState(0)
+  const img = images?.[index]
+  if (!img) return null
+  if (img.name?.toLowerCase().endsWith('.pdf')) {
+    return <p><a href={img.url} target="_blank" rel="noreferrer">View receipt (PDF)</a></p>
+  }
+  return (
+    <img
+      src={img.url}
+      alt="Receipt"
+      className="recon-receipt-thumb"
+      onError={() => setIndex(i => i + 1)}
+    />
+  )
+}
+
 export default function Reconciliation() {
   const { activeProject } = useProject()
   const [transactions, setTransactions] = useState([])
@@ -689,11 +711,7 @@ export default function Reconciliation() {
                         {selectedExpense.reconciliationStatus === 'created_from_statement' && selectedExpense.receiptStatus === 'missing' && (
                           <p className="badge badge-warning">Created from statement — receipt missing</p>
                         )}
-                        {selectedExpense.images?.[0] && (
-                          selectedExpense.images[0].name?.toLowerCase().endsWith('.pdf')
-                            ? <p><a href={selectedExpense.images[0].url} target="_blank" rel="noreferrer">View receipt (PDF)</a></p>
-                            : <img src={selectedExpense.images[0].url} alt="Receipt" className="recon-receipt-thumb" />
-                        )}
+                        <ReceiptThumb key={selectedExpense.id} images={selectedExpense.images} />
                       </>
                     ) : selected.settlementGroupId ? (
                       <p className="hint">Linked as a credit-card settlement — not a business expense.</p>
@@ -727,9 +745,7 @@ export default function Reconciliation() {
                     {selectedExpense && (
                       <>
                         <p>Suggested Expense: {selectedExpense.date} · {selectedExpense.vendor} · {selectedExpense.currency} {parseFloat(selectedExpense.amount).toFixed(2)} · {selectedExpense.category}</p>
-                        {selectedExpense.images?.[0] && !selectedExpense.images[0].name?.toLowerCase().endsWith('.pdf') && (
-                          <img src={selectedExpense.images[0].url} alt="Receipt" className="recon-receipt-thumb" />
-                        )}
+                        <ReceiptThumb key={selectedExpense.id} images={selectedExpense.images} />
                       </>
                     )}
                     {selected.confidenceScore != null && <p><strong>Match score: {selected.confidenceScore}</strong></p>}
