@@ -92,7 +92,12 @@ export default function Reconciliation() {
 
   async function runMatching() {
     setMatching(true)
-    const candidates = transactions.filter(t => t.status === 'unmatched')
+    // Also re-checks existing 'suggested' rows, not just 'unmatched' ones —
+    // a suggestion made under an older/looser scoring rule (e.g. before
+    // scoreExpenseMatch started disqualifying large date gaps) would
+    // otherwise sit there forever, since a transaction already at
+    // 'suggested' is never looked at again by a normal run.
+    const candidates = transactions.filter(t => t.status === 'unmatched' || t.status === 'suggested')
     setMatchProgress({ done: 0, total: candidates.length })
     for (let i = 0; i < candidates.length; i++) {
       const txn = candidates[i]
@@ -102,11 +107,25 @@ export default function Reconciliation() {
         if (result && (!best || result.score > best.score)) best = { ...result, expenseId: exp.id }
       }
       if (best && best.score >= 50) {
+        const unchanged = txn.status === 'suggested' && txn.matchedExpenseIds?.[0] === best.expenseId && txn.confidenceScore === best.score
+        if (!unchanged) {
+          await updateDoc(doc(db, 'paymentTransactions', txn.id), {
+            status: 'suggested',
+            matchedExpenseIds: [best.expenseId],
+            confidenceScore: best.score,
+            matchReasons: best.reasons,
+            updatedAt: serverTimestamp(),
+          })
+        }
+      } else if (txn.status === 'suggested') {
+        // No longer a valid suggestion under current scoring (e.g. the
+        // date-gap disqualifier) — revert it rather than leave a stale bad
+        // match sitting there indefinitely.
         await updateDoc(doc(db, 'paymentTransactions', txn.id), {
-          status: 'suggested',
-          matchedExpenseIds: [best.expenseId],
-          confidenceScore: best.score,
-          matchReasons: best.reasons,
+          status: 'unmatched',
+          matchedExpenseIds: [],
+          confidenceScore: null,
+          matchReasons: [],
           updatedAt: serverTimestamp(),
         })
       }
