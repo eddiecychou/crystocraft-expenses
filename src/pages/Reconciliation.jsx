@@ -866,18 +866,32 @@ export default function Reconciliation() {
                       />
                       {expenseSearchText.trim() && (() => {
                         const q = expenseSearchText.trim().toLowerCase()
-                        const results = expenses
+                        const allMatches = expenses
+                          .filter(e => [e.vendor, e.date, e.currency, Number(e.amount || 0).toFixed(2)].join(' ').toLowerCase().includes(q))
+                        // A capped-at-8 result list looked exactly like
+                        // "some records are missing" once a merchant had
+                        // more than 8 candidates (e.g. every month of a
+                        // recurring charge, all unmatched at once) — the
+                        // results box already scrolls (see .expense-search-
+                        // results), so there's no reason to truncate.
+                        const results = allMatches
                           .filter(e => !e.matchedPaymentTransactionId || e.id === selectedExpense?.id)
-                          .filter(e => [e.vendor, e.date, e.currency, parseFloat(e.amount).toFixed(2)].join(' ').toLowerCase().includes(q))
                           .sort((a, b) => {
                             const da = Math.abs(Date.parse(a.date) - Date.parse(selected.transactionDate))
                             const db = Math.abs(Date.parse(b.date) - Date.parse(selected.transactionDate))
                             return (Number.isNaN(da) ? Infinity : da) - (Number.isNaN(db) ? Infinity : db)
                           })
-                          .slice(0, 8)
+                        const hiddenAlreadyMatched = allMatches.length - results.length
                         return (
                           <div className="expense-search-results">
                             {results.length === 0 && <p className="hint">No matching expenses.</p>}
+                            {hiddenAlreadyMatched > 0 && (
+                              <p className="hint" style={{ padding: '6px 12px 0' }}>
+                                {hiddenAlreadyMatched} matching expense{hiddenAlreadyMatched === 1 ? ' is' : 's are'} already linked to a
+                                different transaction — unlink {hiddenAlreadyMatched === 1 ? 'it' : 'them'} from Records first if one of
+                                these should actually match this transaction instead.
+                              </p>
+                            )}
                             {results.map(e => (
                               <button
                                 key={e.id}
@@ -885,7 +899,7 @@ export default function Reconciliation() {
                                 className={`expense-search-result${chosenExpenseId === e.id ? ' is-selected' : ''}`}
                                 onClick={() => setChosenExpenseId(e.id)}
                               >
-                                {e.date} · {e.vendor} · {e.currency} {parseFloat(e.amount).toFixed(2)}
+                                {e.date} · {e.vendor} · {e.currency} {Number(e.amount || 0).toFixed(2)}
                               </button>
                             ))}
                           </div>

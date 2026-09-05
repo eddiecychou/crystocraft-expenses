@@ -265,7 +265,7 @@ export default function Expenses() {
     const tasks = []
     for (const e of withImages) {
       const ym = e.date ? e.date.slice(0, 7) : 'unknown'
-      const base = `${e.date}_${sanitizeVendor(e.vendor)}_${(e.amount || 0).toFixed(2)}_${e.currency}`
+      const base = `${e.date}_${sanitizeVendor(e.vendor)}_${Number(e.amount || 0).toFixed(2)}_${e.currency}`
       for (let i = 0; i < e.images.length; i++) {
         const img = e.images[i]
         if (!img.path) continue // older record with no path stored — skip
@@ -482,7 +482,7 @@ export default function Expenses() {
                   </>
                 ) : (
                   <>
-                    <td>{e.date}</td><td>{e.vendor}</td><td>{e.amount?.toFixed(2)}</td>
+                    <td>{e.date}</td><td>{e.vendor}</td><td>{Number(e.amount || 0).toFixed(2)}</td>
                     <td>{e.currency}</td><td><span className={`badge badge-${e.category.toLowerCase().replace(/\s+/g, '-')}`}>{e.category}</span></td>
                     <td>
                       {e.reconciliationStatus === 'created_from_statement' && e.receiptStatus === 'missing' && (
@@ -492,7 +492,7 @@ export default function Expenses() {
                       )}
                       {e.matchedPaymentTransactionId && (
                         <div className="hint" title="Linked to a bank/card statement transaction">
-                          Linked to statement{e.settlementAmount != null ? ` · ${e.settlementCurrency} ${e.settlementAmount.toFixed(2)}` : ''}
+                          Linked to statement{e.settlementAmount != null ? ` · ${e.settlementCurrency} ${Number(e.settlementAmount).toFixed(2)}` : ''}
                         </div>
                       )}
                       {e.notes && <div>{e.notes}</div>}
@@ -549,7 +549,7 @@ export default function Expenses() {
               <>
                 <div className="mob-card-header">
                   <span className="mob-card-vendor">{e.vendor}</span>
-                  <span className="mob-card-amount">{e.currency} {e.amount?.toFixed(2)}</span>
+                  <span className="mob-card-amount">{e.currency} {Number(e.amount || 0).toFixed(2)}</span>
                 </div>
                 <div className="mob-card-sub">
                   <span className="mob-card-date">{e.date}</span>
@@ -563,7 +563,7 @@ export default function Expenses() {
                 )}
                 {e.matchedPaymentTransactionId && (
                   <div className="hint" title="Linked to a bank/card statement transaction">
-                    Linked to statement{e.settlementAmount != null ? ` · ${e.settlementCurrency} ${e.settlementAmount.toFixed(2)}` : ''}
+                    Linked to statement{e.settlementAmount != null ? ` · ${e.settlementCurrency} ${Number(e.settlementAmount).toFixed(2)}` : ''}
                   </div>
                 )}
                 {e.notes && <div className="mob-card-notes">{e.notes}</div>}
