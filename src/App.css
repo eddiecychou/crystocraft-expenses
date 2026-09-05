@@ -993,8 +993,10 @@ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
 .recon-row.is-selected { background: #eaf5ee; border-left: 3px solid var(--t-btn); }
 .recon-row-top { display: flex; justify-content: space-between; font-size: 12px; color: #6b8577; margin-bottom: 2px; }
 .recon-row-amount { font-weight: 600; color: var(--t-dark); }
-.recon-row-merchant { font-weight: 500; margin-bottom: 6px; }
+.recon-row-merchant { font-weight: 500; margin-bottom: 2px; }
+.recon-row-source { font-size: 12px; color: #6b8577; margin-bottom: 6px; }
 .recon-row-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.recon-row-reason { font-size: 12px; color: #6b8577; margin-top: 6px; }
 
 .recon-detail {
   background: #fff;
@@ -1031,4 +1033,34 @@ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
   .recon-layout { grid-template-columns: 1fr; }
   .recon-list.has-selection { display: none; }
   .recon-detail:not(.has-selection) { display: none; }
+
+  /* The transaction detail sheet can run long (source, OCR fields,
+     candidate expense, receipt, reasons) — the primary action for
+     whichever state is showing (Confirm Match, Link Settlement, Unmatch,
+     Undo) stays reachable without scrolling, per the requirement that a
+     phone user never has to hunt for the main action. `position: sticky`
+     doesn't work here — .main-content has `overflow: auto` (for reasons
+     unrelated to this page), which makes IT the sticky positioning
+     context instead of the actual window scrollport, so the bar would
+     never visually reach the bottom. `fixed` is what the bottom nav
+     itself already uses successfully, so this follows the same proven
+     pattern instead. Since .recon-detail is only shown at all once a
+     transaction is selected (see .recon-detail:not(.has-selection) above),
+     this can't appear stacked on top of the list. */
+  .recon-sticky-actions {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 56px; /* clears the fixed bottom nav */
+    padding: 10px 16px;
+    background: #fff;
+    border-top: 1px solid #eef4ef;
+    box-shadow: 0 -2px 8px rgba(0,0,0,0.04);
+    z-index: 5;
+  }
+  .recon-sticky-actions .btn-primary, .recon-sticky-actions .btn-ghost { width: 100%; text-align: center; }
+  /* Leaves clearance at the foot of the detail panel so its own content
+     never sits underneath the fixed bar (every branch pins exactly one
+     button, so this height is predictable). */
+  .recon-detail.has-selection { padding-bottom: 96px; }
 }

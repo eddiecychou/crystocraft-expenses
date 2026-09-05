@@ -67,6 +67,7 @@ export default function Reconciliation() {
 
   const accountOf = id => accounts.find(a => a.id === id)
   const accountLabel = id => accountOf(id)?.label || '—'
+  const accountTail = id => accountOf(id)?.accountTail ? `****${accountOf(id).accountTail}` : ''
   const accountSourceLabel = id => {
     const type = accountOf(id)?.sourceType
     return type === 'credit_card' ? 'Credit Card' : type === 'bank' ? 'Bank' : '—'
@@ -151,6 +152,17 @@ export default function Reconciliation() {
 
   function unresolvedDuplicateFlag(txn) {
     return txn.duplicateStatus && ['possible_duplicate', 'needs_review'].includes(txn.duplicateStatus) && !txn.duplicateReviewedAt
+  }
+
+  // One short line for the list card — never a bare score, per the
+  // explainable-suggestions requirement, but short enough to fit a card
+  // without pushing the amount/status off screen on a phone.
+  function shortReasonFor(txn) {
+    const sc = settlementCandidateByCardId.get(txn.id)
+    if (sc) return sc.reasons[0]
+    if (unresolvedDuplicateFlag(txn)) return txn.duplicateReason
+    if (txn.matchReasons?.length) return txn.matchReasons[0]
+    return null
   }
 
   function needsAction(txn) {
@@ -480,6 +492,9 @@ export default function Reconciliation() {
                     <span className="recon-row-amount">{txn.settlementCurrency} {txn.settlementAmount?.toFixed(2)}</span>
                   </div>
                   <div className="recon-row-merchant">{txn.merchantRaw || '(no description)'}</div>
+                  <div className="recon-row-source">
+                    {accountSourceLabel(txn.paymentAccountId)} · {accountLabel(txn.paymentAccountId)}{accountTail(txn.paymentAccountId) && ` ${accountTail(txn.paymentAccountId)}`}
+                  </div>
                   <div className="recon-row-tags">
                     {txn.status === 'matched' && <span className="badge badge-office">Matched</span>}
                     {txn.status === 'ignored' && <span className="badge">Ignored</span>}
@@ -488,6 +503,7 @@ export default function Reconciliation() {
                     {cat === 'possible_expense' && <span className="badge badge-office">{txn.confidenceScore} pts</span>}
                     {unresolvedDuplicateFlag(txn) && <span className="badge badge-warning">{DUPLICATE_STATUS_LABELS[txn.duplicateStatus]}</span>}
                   </div>
+                  {shortReasonFor(txn) && <div className="recon-row-reason">{shortReasonFor(txn)}</div>}
                 </button>
               )
             })}
@@ -542,8 +558,10 @@ export default function Reconciliation() {
                     <p className="hint">{selectedSettlement.reasons.join(' · ')} · Score {selectedSettlement.score}</p>
                     <p className="hint">This links a credit-card repayment, not a business expense — it will never be counted in the Expense total.</p>
                     <div className="action-row">
-                      <button className="btn-primary" disabled={busyId === selected.id} onClick={() => linkSettlement(selectedSettlement.card, selectedSettlement.bankTxn)}>Link Settlement</button>
                       <button className="btn-ghost" disabled={busyId === selected.id} onClick={() => ignoreTxn(selected)}>Not Related</button>
+                    </div>
+                    <div className="recon-sticky-actions">
+                      <button className="btn-primary" disabled={busyId === selected.id} onClick={() => linkSettlement(selectedSettlement.card, selectedSettlement.bankTxn)}>Link Settlement</button>
                     </div>
                   </div>
                 ) : selected.status === 'matched' ? (
@@ -566,14 +584,14 @@ export default function Reconciliation() {
                     ) : (
                       <p className="hint">Matched, but the linked Expense could not be found (it may have been deleted).</p>
                     )}
-                    <div className="action-row">
+                    <div className="action-row recon-sticky-actions">
                       <button className="btn-ghost" disabled={busyId === selected.id} onClick={() => unmatchTxn(selected)}>Unmatch</button>
                     </div>
                   </div>
                 ) : selected.status === 'ignored' ? (
                   <div className="recon-detail-section">
                     <div className="recon-detail-label">Ignored</div>
-                    <div className="action-row">
+                    <div className="action-row recon-sticky-actions">
                       <button className="btn-ghost" disabled={busyId === selected.id} onClick={() => undoIgnore(selected)}>Undo</button>
                     </div>
                   </div>
@@ -597,9 +615,12 @@ export default function Reconciliation() {
                       </ul>
                     )}
 
+                    {/* Secondary actions scroll with the page — only the one
+                        primary action below is pinned, per the mobile
+                        guidance that a phone screen should have exactly one
+                        fixed CTA, not a wall of equally-weighted buttons. */}
                     <div className="action-row" style={{ flexWrap: 'wrap' }}>
-                      {selectedExpense && <button className="btn-primary" disabled={busyId === selected.id} onClick={() => confirmMatch(selected)}>Confirm Match</button>}
-                      {!CREATE_EXPENSE_BLOCKED_TYPES.includes(selected.transactionType) && (
+                      {selectedExpense && !CREATE_EXPENSE_BLOCKED_TYPES.includes(selected.transactionType) && (
                         <button className="btn-ghost" disabled={busyId === selected.id} onClick={() => createExpenseFromTxn(selected)}>Create Expense</button>
                       )}
                       {CREATE_EXPENSE_BLOCKED_TYPES.includes(selected.transactionType) && (
@@ -639,6 +660,16 @@ export default function Reconciliation() {
                         <button className="btn-small btn-ghost" onClick={() => setPickingSettlement(false)}>Cancel</button>
                       </div>
                     )}
+
+                    <div className="recon-sticky-actions">
+                      {selectedExpense ? (
+                        <button className="btn-primary" disabled={busyId === selected.id} onClick={() => confirmMatch(selected)}>Confirm Match</button>
+                      ) : !CREATE_EXPENSE_BLOCKED_TYPES.includes(selected.transactionType) ? (
+                        <button className="btn-primary" disabled={busyId === selected.id} onClick={() => createExpenseFromTxn(selected)}>Create Expense</button>
+                      ) : (
+                        <button className="btn-primary" disabled={busyId === selected.id} onClick={() => ignoreTxn(selected)}>Ignore</button>
+                      )}
+                    </div>
                   </div>
                 )}
               </>
