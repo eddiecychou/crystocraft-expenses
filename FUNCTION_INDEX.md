@@ -60,7 +60,8 @@ some of these functions look the way they do, see [LESSONS_LEARNED.md](LESSONS_L
 
 | Function | Line | Purpose |
 |---|---|---|
-| `classifyTransaction(txn, { matchedExpenseId })` | 44 | Personal-vs-company classifier for transactions on a `personal`-owned account. Returns `null` for excluded types (card repayment/transfer); otherwise `company_candidate` when already matched to an Expense, else the conservative default `needs_accountant_review` — no keyword/rule-based auto-classification yet (Phase 2). |
+| `merchantRuleDocId(projectId, merchantKey)` | 45 | Deterministic Firestore doc id for a `(project, merchant)` rule — used to upsert instead of accumulating duplicate rules per merchant. |
+| `classifyTransaction(txn, { matchedExpenseId, rule })` | 61 | Personal-vs-company classifier for transactions on a `personal`-owned account. Priority: an Auto-Approve rule wins outright; else a matched Expense → `company_candidate`; else the conservative default `needs_accountant_review`. A non-Auto-Approve rule never overrides `classification` — it's carried as `suggestedClassification` for a one-click "Apply Rule" UI action. Returns `null` for excluded types (card repayment/transfer). |
 
 Also exports `CLASSIFICATION_LABELS`, `BUSINESS_PURPOSE_OPTIONS`, `CLASSIFICATION_EXCLUDED_TYPES` (re-exported from `paymentMatching.js`'s `CREATE_EXPENSE_BLOCKED_TYPES`).
 
@@ -123,7 +124,7 @@ Also exports `PROJECT_COLORS` (24 color identities) and `COLOR_KEYS`.
 | File | Function | Purpose |
 |---|---|---|
 | [Layout.jsx](src/components/Layout.jsx) | `Layout()` | Desktop sidebar + mobile bottom nav/More sheet + logout. Injects the active project's identity color as a border accent only (not the app theme). |
-| [ConfirmDialog.jsx](src/components/ConfirmDialog.jsx) | `ConfirmDialog({ message, onConfirm, onCancel, confirmLabel, confirmClassName })` | In-app confirmation modal replacing native `confirm()`. |
+| [ConfirmDialog.jsx](src/components/ConfirmDialog.jsx) | `ConfirmDialog({ message, onConfirm, onCancel, confirmLabel, confirmClassName, extraLabel, extraClassName, onExtra })` | In-app confirmation modal replacing native `confirm()`. The optional `extraLabel`/`onExtra` render a third button (e.g. Company Review's "Apply + Suggest Rule") — omitted entirely when `onExtra` isn't passed, so existing two-button callers are unaffected. |
 | [LoadingBar.jsx](src/components/LoadingBar.jsx) | `LoadingBar({ label })` | Shared animated indeterminate progress bar used for every loading state app-wide. |
 | [ProjectBanner.jsx](src/components/ProjectBanner.jsx) | `ProjectBanner()` | Shows the active project's name/dot at the top of every page. |
 
@@ -203,7 +204,7 @@ No functions — a pure dispatcher component (three link cards routing to Upload
 |---|---|---|
 | `fetchWithTimeout(url, options, timeoutMs)` | 25 | Module-level — `AbortController`-based fetch timeout (30s default), wraps every `/api/download-receipt` call so one stalled request can't hang a batch operation. |
 | `createAccount()` | 132 | Creates a new bank/credit-card account. |
-| `commitRows(mapped, account, file, sourceType, statementTotals, reprocessImportId)` | 162 | **Core import writer.** Runs duplicate classification per row, writes every row unconditionally to `paymentTransactions`, uploads the original file via `statementStorage.js`, and marks the import `error` (not stuck `processing`) on any failure. |
+| `commitRows(mapped, account, file, sourceType, statementTotals, reprocessImportId)` | 162 | **Core import writer.** Runs duplicate classification per row, writes every row unconditionally to `paymentTransactions`, uploads the original file via `statementStorage.js`, and marks the import `error` (not stuck `processing`) on any failure. For personal accounts, also looks up any matching `merchantRules` doc and calls `classifyTransaction` per row (see `expenseClassification.js`). |
 | `resolveDuplicate(txn, newStatus)` | 375 | Applies Keep as Separate / Confirm Duplicate to a flagged transaction; restores `status: 'unmatched'` if it was previously `ignored`. |
 | `dismissDuplicateWarning(txn)` | 391 | Marks a duplicate warning as reviewed without changing its verdict. |
 | `renderDuplicateStatus(txn, imp)` | 411 | Shared render function for the duplicate-review UI (badge + reason + actions when expanded, collapsed "Resolved · Change" when already resolved) — used by both the desktop table cell and the mobile card. |
@@ -245,18 +246,20 @@ No functions — a pure dispatcher component (three link cards routing to Upload
 | `resolveDuplicate(txn, newStatus)` | 390 | Same duplicate-resolution logic as in PaymentSources, surfaced in the Reconciliation detail panel. |
 | `dismissDuplicateWarning(txn)` | 402 | Same as in PaymentSources — dismiss without changing verdict. |
 
-### [CompanyReview.jsx](src/pages/CompanyReview.jsx) — personal-account classification queue (Phase 1 of the personal-to-company spec)
+### [CompanyReview.jsx](src/pages/CompanyReview.jsx) — personal-account classification queue (Phase 1+2 of the personal-to-company spec)
 
 | Function | Purpose |
 |---|---|
 | `chunk(arr, size)` | Module-level — splits an array into fixed-size chunks, for Firestore's 10-value `in`-query cap. |
 | `accountOf(id)` | Looks up a payment account by id. |
-| `applyClassificationToGroup(group, classification)` | Batch-writes a new classification to every transaction in a merchant group. |
-| `confirmGroupAction(group, classification, label)` | Opens the count+total `ConfirmDialog` before a group bulk action. |
+| `applyClassificationToGroup(group, classification, { saveRule })` | Batch-writes a new classification to every transaction in a merchant group; when `saveRule` is true, also upserts a `merchantRules` doc (via `merchantRuleDocId`) as a suggestion-only rule. |
+| `confirmGroupAction(group, classification, label)` | Opens the count+total `ConfirmDialog` before a group bulk action, with a second explicit "Apply + Suggest Rule" button (spec §7 — saving a rule is never the default action). |
 | `sendGroupToAccountant(group)` | Sets `accountantStatus: 'pending'` on a group's company-candidate/shared transactions, with the same confirm-before-apply pattern. |
 | `setTxnClassification(txn, classification)` | Per-transaction classification override. |
 | `saveBusinessPurpose(txn)` | Persists the selected quick-purpose option + optional note. |
 | `createExpenseFromTxn(txn)` | Same shape as `Reconciliation.jsx`'s function of the same name, plus `businessPurpose`/`source: 'personal_statement'` fields. |
+| `toggleRuleAutoApprove(rule)` | Flips a merchant rule's `autoApprove` flag — the only way a rule starts auto-classifying future imports. |
+| `deleteRule(rule)` | Removes a merchant rule (with confirmation) — does not touch already-classified transactions. |
 
 ### [Settings.jsx](src/pages/Settings.jsx)
 

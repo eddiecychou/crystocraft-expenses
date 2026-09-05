@@ -240,6 +240,18 @@ export default function PaymentSources() {
       existingByFingerprint.set(data.fingerprintExact, list)
     }
 
+    // Merchant rules only apply to personal accounts (company accounts have
+    // no classification at all) — skip the read entirely otherwise.
+    const rulesByMerchant = new Map()
+    if (account.ownershipType === 'personal') {
+      const rulesSnap = await getDocs(query(
+        collection(db, 'merchantRules'),
+        where('userId', '==', auth.currentUser.uid),
+        where('projectId', '==', activeProject.id)
+      ))
+      for (const d of rulesSnap.docs) rulesByMerchant.set(d.data().merchantKey, d.data())
+    }
+
     // From here on, a thrown error (a bad field value Firestore rejects, a
     // network drop mid-batch, anything) must never leave the import stuck
     // at importStatus:'processing' forever with a lineCount that claims
@@ -293,7 +305,7 @@ export default function PaymentSources() {
       // existing company accounts assume every transaction is inherently
       // company-related already, exactly as before this feature existed.
       const classification = account.ownershipType === 'personal'
-        ? classifyTransaction(t, { matchedExpenseId: null })
+        ? classifyTransaction(t, { matchedExpenseId: null, rule: rulesByMerchant.get(merchantNormalized) || null })
         : null
 
       const rowDoc = {
@@ -314,6 +326,7 @@ export default function PaymentSources() {
           classification: classification.classification,
           classificationConfidence: classification.classificationConfidence,
           classificationSource: classification.classificationSource,
+          suggestedClassification: classification.suggestedClassification,
           businessPurpose: null,
           reviewNote: null,
           accountantStatus: 'not_required',

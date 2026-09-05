@@ -122,7 +122,7 @@ The frontend is a pure SPA deployed to Netlify. All API calls stay within the sa
 | Service | Purpose |
 |---|---|
 | Authentication | User sign-in (email + Google) |
-| Firestore | `projects`, `expenses`, `paymentAccounts`, `paymentImports`, `paymentTransactions`, `reconciliationActions` collections |
+| Firestore | `projects`, `expenses`, `paymentAccounts`, `paymentImports`, `paymentTransactions`, `reconciliationActions`, `merchantRules` collections |
 | Storage | Receipt images at `receipts/{uid}/{expenseId}/image{n}.{ext}`; original statement files at `statements/{uid}/{importId}/{filename}` |
 
 ### Firestore Collections
@@ -236,6 +236,22 @@ The frontend is a pure SPA deployed to Netlify. All API calls stay within the sa
   actionType: string,   // 'confirm_match' | 'ignore' | 'undo_ignore' | 'unmatch' | 'link_settlement' | ...
   beforeState: object,
   afterState: object,
+  createdAt: Timestamp
+}
+```
+
+**`merchantRules`** — one doc per `(projectId, merchantKey)`, upserted (see Company Review below), never accumulates duplicates for the same merchant
+```
+{
+  userId: string,
+  projectId: string,
+  merchantKey: string,        // normalizeMerchant() output — matches paymentTransactions.merchantNormalized
+  merchantLabel: string,      // original merchantRaw, for display
+  classification: string,     // the suggested/applied classification
+  confidence: number,
+  autoApprove: boolean,       // default false — suggestion-only until the user explicitly turns this on
+  source: string,             // 'user_confirmed'
+  lastConfirmedAt: Timestamp,
   createdAt: Timestamp
 }
 ```
@@ -387,9 +403,8 @@ Every state-changing action (`confirmMatch`, `ignoreTxn`, `undoIgnore`, `unmatch
 
 Handles the case where a user pays some company-related expenses from a personal
 bank/credit-card account that also carries unrelated personal spending. This is
-**Phase 1** of a three-phase spec (`~/Desktop/Expense App：Personal-to-Company
-Expense MVP Specification.md`) — merchant-learned rules and Company Package export
-are deferred to later phases.
+**Phase 1 + 2** of a three-phase spec (`~/Desktop/Expense App：Personal-to-Company
+Expense MVP Specification.md`) — Company Package export is deferred to Phase 3.
 
 An account is opted into this workflow by marking it `ownershipType: 'personal'`
 when created in Payment Sources (a checkbox on the create-account form). Only rows
@@ -399,24 +414,42 @@ unaffected — same import pipeline (`commitRows`), no schema change to their ro
 `classifyTransaction` in `src/lib/expenseClassification.js` runs at import time and
 is deliberately conservative — this app never auto-decides a final claim, tax
 category, or allocation, only defaulting the classification field so review can
-happen efficiently:
-1. Already linked to a matched Expense → `company_candidate`.
-2. Excluded transaction types (card repayments, transfers — the same
+happen efficiently. Priority order (spec §5.1, trimmed to what's actually built):
+1. A **merchant rule** with Auto-Approve on → applies that rule's classification
+   outright (`classificationSource: 'merchant_rule'`).
+2. Already linked to a matched Expense → `company_candidate`.
+3. Excluded transaction types (card repayments, transfers — the same
    `CREATE_EXPENSE_BLOCKED_TYPES` list `Reconciliation.jsx` already uses) → skipped
    entirely, no classification field set.
-3. Otherwise → `needs_accountant_review`. There's no merchant-rule/history table
-   yet (Phase 2), so nothing is auto-classified `personal` on a guess — every
-   ambiguous row surfaces for a human decision, which is itself what will
-   eventually build the Phase 2 rule history.
+4. Otherwise → `needs_accountant_review`.
+
+A merchant rule that exists but is **not** Auto-Approve never changes the actual
+`classification` — it's carried separately as `suggestedClassification` so the UI
+can offer a one-click "Apply Rule" action without ever silently overriding a
+human decision (mirrors how AI suggestions are treated everywhere else in this
+app: propose, never auto-confirm).
+
+**Merchant rules** (`merchantRules` collection, Phase 2) are built from Company
+Review's bulk-confirm flow — "Apply + Suggest Rule for '{merchant}'" upserts one
+rule per `(projectId, merchantKey)` (deterministic doc id via `merchantRuleDocId`,
+so re-confirming the same merchant updates the rule rather than duplicating it).
+A saved rule defaults to **suggestion-only** (`autoApprove: false`) per spec §7 —
+future transactions from that merchant are never auto-classified until the user
+explicitly flips Auto-Approve on for that specific merchant in the Merchant Rules
+list on the Company Review page. This is a new Firestore collection, so it needs
+its own security rule published in the Firebase Console (see
+[LESSONS_LEARNED.md](LESSONS_LEARNED.md#firebase-rules-live-outside-the-repo)) —
+same per-user pattern as every other collection here.
 
 The **Company Review** page (`/company-review`) groups classified transactions by
 merchant with bulk actions — Confirm All as Company, Mark All Personal, Send to
 Accountant Review — each showing the transaction count and total before applying
-(reusing the existing `ConfirmDialog` pattern, never a silent bulk update).
-Expanding a group reveals per-transaction controls: change classification, pick a
-quick business-purpose option (+ optional note), and **Create Expense from
-Transaction** for unmatched company candidates — adapted directly from
-`Reconciliation.jsx`'s `createExpenseFromTxn`.
+(reusing the existing `ConfirmDialog` pattern, extended with an optional third
+button for "apply + also save a rule", never a silent bulk update). Expanding a
+group reveals per-transaction controls: change classification, pick a quick
+business-purpose option (+ optional note), and **Create Expense from Transaction**
+for unmatched company candidates — adapted directly from `Reconciliation.jsx`'s
+`createExpenseFromTxn`.
 
 ### Export
 

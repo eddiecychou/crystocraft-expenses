@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react'
-import { collection, query, where, onSnapshot, doc, updateDoc, addDoc, writeBatch, serverTimestamp } from 'firebase/firestore'
+import { collection, query, where, onSnapshot, doc, setDoc, deleteDoc, updateDoc, addDoc, writeBatch, serverTimestamp } from 'firebase/firestore'
 import { db, auth } from '../firebase'
 import { useProject } from '../contexts/ProjectContext'
 import ProjectBanner from '../components/ProjectBanner'
 import ConfirmDialog from '../components/ConfirmDialog'
-import { CLASSIFICATION_LABELS, BUSINESS_PURPOSE_OPTIONS } from '../lib/expenseClassification'
+import { CLASSIFICATION_LABELS, BUSINESS_PURPOSE_OPTIONS, merchantRuleDocId } from '../lib/expenseClassification'
 import { CREATE_EXPENSE_BLOCKED_TYPES } from '../lib/paymentMatching'
 
 const CLASSIFICATION_BADGE_CLASS = {
@@ -29,6 +29,7 @@ export default function CompanyReview() {
   const { activeProject } = useProject()
   const [accounts, setAccounts] = useState([])
   const [transactions, setTransactions] = useState([])
+  const [rules, setRules] = useState([])
   const [expandedMerchant, setExpandedMerchant] = useState(null)
   const [confirmDialog, setConfirmDialog] = useState(null)
   const [busyId, setBusyId] = useState(null)
@@ -39,6 +40,15 @@ export default function CompanyReview() {
     const unsub = onSnapshot(
       query(collection(db, 'paymentAccounts'), where('userId', '==', auth.currentUser.uid), where('projectId', '==', activeProject.id)),
       snap => setAccounts(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+    )
+    return unsub
+  }, [activeProject?.id])
+
+  useEffect(() => {
+    if (!activeProject) return
+    const unsub = onSnapshot(
+      query(collection(db, 'merchantRules'), where('userId', '==', auth.currentUser.uid), where('projectId', '==', activeProject.id)),
+      snap => setRules(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (a.merchantKey || '').localeCompare(b.merchantKey || '')))
     )
     return unsub
   }, [activeProject?.id])
@@ -82,34 +92,64 @@ export default function CompanyReview() {
 
   function accountOf(id) { return accounts.find(a => a.id === id) }
 
-  async function applyClassificationToGroup(group, classification) {
+  async function applyClassificationToGroup(group, classification, { saveRule = false } = {}) {
     const ids = group.txns.map(t => t.id)
     for (let i = 0; i < ids.length; i += 400) {
       const batch = writeBatch(db)
       ids.slice(i, i + 400).forEach(id => batch.update(doc(db, 'paymentTransactions', id), {
         classification,
         classificationSource: 'user',
+        suggestedClassification: null,
         updatedAt: serverTimestamp(),
       }))
       await batch.commit()
+    }
+    if (saveRule) {
+      const merchantKey = group.txns[0]?.merchantNormalized
+      if (merchantKey) {
+        // Upserts one rule per (project, merchant) — re-confirming the same
+        // merchant later updates the existing rule rather than piling up
+        // duplicates. Saved as a SUGGESTION only (autoApprove: false) — per
+        // spec §7, future imports never auto-classify from this merchant
+        // until the user explicitly turns Auto-Approve on below.
+        await setDoc(doc(db, 'merchantRules', merchantRuleDocId(activeProject.id, merchantKey)), {
+          userId: auth.currentUser.uid,
+          projectId: activeProject.id,
+          merchantKey,
+          merchantLabel: group.merchant,
+          classification,
+          confidence: 0.95,
+          autoApprove: false,
+          source: 'user_confirmed',
+          lastConfirmedAt: serverTimestamp(),
+          createdAt: serverTimestamp(),
+        }, { merge: true })
+      }
     }
     setConfirmDialog(null)
   }
 
   function confirmGroupAction(group, classification, label) {
     const total = group.txns.reduce((s, t) => s + (t.settlementAmount || 0), 0)
+    const summary = (
+      <>
+        You are about to update {group.txns.length} transaction{group.txns.length === 1 ? '' : 's'}:<br />
+        Merchant: {group.merchant}<br />
+        Classification: {label}<br />
+        Estimated total: {group.txns[0]?.settlementCurrency || ''} {total.toFixed(2)}
+      </>
+    )
     setConfirmDialog({
-      message: (
-        <>
-          You are about to update {group.txns.length} transaction{group.txns.length === 1 ? '' : 's'}:<br />
-          Merchant: {group.merchant}<br />
-          Classification: {label}<br />
-          Estimated total: {group.txns[0]?.settlementCurrency || ''} {total.toFixed(2)}
-        </>
-      ),
-      confirmLabel: `Confirm ${group.txns.length} Transaction${group.txns.length === 1 ? '' : 's'}`,
+      message: summary,
+      confirmLabel: `Apply to These Only`,
       confirmClassName: 'btn-primary',
       onConfirm: () => applyClassificationToGroup(group, classification),
+      // Per spec §7: saving a rule is a separate, explicit choice — never
+      // the default action — so future transactions from this merchant are
+      // suggested (not auto-classified) until Auto-Approve is turned on.
+      extraLabel: `Apply + Suggest Rule for "${group.merchant}"`,
+      extraClassName: 'btn-ghost',
+      onExtra: () => applyClassificationToGroup(group, classification, { saveRule: true }),
     })
   }
 
@@ -200,6 +240,19 @@ export default function CompanyReview() {
     setBusyId(null)
   }
 
+  async function toggleRuleAutoApprove(rule) {
+    await updateDoc(doc(db, 'merchantRules', rule.id), { autoApprove: !rule.autoApprove, updatedAt: serverTimestamp() })
+  }
+
+  async function deleteRule(rule) {
+    setConfirmDialog({
+      message: <>Delete the rule for <strong>{rule.merchantLabel || rule.merchantKey}</strong>? Its transactions keep their current classification — only future imports stop using this rule.</>,
+      confirmLabel: 'Delete Rule',
+      confirmClassName: 'btn-danger',
+      onConfirm: async () => { await deleteDoc(doc(db, 'merchantRules', rule.id)); setConfirmDialog(null) },
+    })
+  }
+
   if (!activeProject) return <div className="page page-standard"><p className="loading">Loading…</p></div>
 
   return (
@@ -222,6 +275,31 @@ export default function CompanyReview() {
             <div className="stat-card"><div className="stat-label">Missing Receipt</div><div className="stat-value">{summary.missing_receipt}</div></div>
           </div>
 
+          {rules.length > 0 && (
+            <div className="card">
+              <h3>Merchant Rules</h3>
+              <p className="hint">
+                Built from "Apply + Suggest Rule" below. A rule only suggests a classification unless
+                Auto-Approve is turned on for that merchant — turning it on means future imports from
+                this merchant classify automatically.
+              </p>
+              {rules.map(rule => (
+                <div key={rule.id} className="category-row">
+                  <span>
+                    <strong>{rule.merchantLabel || rule.merchantKey}</strong>
+                    <span className="hint"> → {CLASSIFICATION_LABELS[rule.classification] || rule.classification}</span>
+                  </span>
+                  <span className="action-row" style={{ margin: 0 }}>
+                    <button className={`btn-small${rule.autoApprove ? ' btn-primary' : ' btn-ghost'}`} onClick={() => toggleRuleAutoApprove(rule)}>
+                      {rule.autoApprove ? 'Auto-Approve: On' : 'Auto-Approve: Off'}
+                    </button>
+                    <button className="btn-small btn-danger" onClick={() => deleteRule(rule)}>Delete</button>
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
           <div className="card">
             <h3>Grouped by Merchant</h3>
             {groups.length === 0 && <p className="empty">No transactions yet — import a statement for a personal account in Payment Sources.</p>}
@@ -231,6 +309,11 @@ export default function CompanyReview() {
               const suggested = group.txns[0]?.classification
               const currency = group.txns[0]?.settlementCurrency || ''
               const expanded = expandedMerchant === group.key
+              // A rule suggestion only ever shows up as metadata alongside
+              // the existing classification — applying it still goes
+              // through the same count+total confirm flow as any other
+              // bulk action, never a silent auto-apply.
+              const ruleSuggestion = group.txns.find(t => t.suggestedClassification)?.suggestedClassification
 
               return (
                 <div key={group.key} className="company-review-group">
@@ -241,6 +324,12 @@ export default function CompanyReview() {
                     </div>
                     <span className={`badge ${CLASSIFICATION_BADGE_CLASS[suggested] || 'badge-other'}`}>{CLASSIFICATION_LABELS[suggested] || suggested}</span>
                   </div>
+                  {ruleSuggestion && (
+                    <p className="hint">
+                      Rule suggests <strong>{CLASSIFICATION_LABELS[ruleSuggestion]}</strong> for this merchant.{' '}
+                      <button className="btn-small btn-ghost" style={{ display: 'inline-block' }} onClick={() => confirmGroupAction(group, ruleSuggestion, CLASSIFICATION_LABELS[ruleSuggestion])}>Apply Rule</button>
+                    </p>
+                  )}
                   <div className="action-row">
                     <button className="btn-small" onClick={() => confirmGroupAction(group, 'company_candidate', CLASSIFICATION_LABELS.company_candidate)}>Confirm All as Company</button>
                     <button className="btn-small btn-ghost" onClick={() => confirmGroupAction(group, 'personal', CLASSIFICATION_LABELS.personal)}>Mark All Personal</button>
@@ -361,6 +450,9 @@ export default function CompanyReview() {
           confirmClassName={confirmDialog.confirmClassName}
           onConfirm={confirmDialog.onConfirm}
           onCancel={() => setConfirmDialog(null)}
+          extraLabel={confirmDialog.extraLabel}
+          extraClassName={confirmDialog.extraClassName}
+          onExtra={confirmDialog.onExtra}
         />
       )}
     </div>
