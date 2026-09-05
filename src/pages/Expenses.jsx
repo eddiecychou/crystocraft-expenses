@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
-import { collection, query, where, onSnapshot, doc, updateDoc, deleteDoc } from 'firebase/firestore'
+import { collection, query, where, onSnapshot, doc, updateDoc, deleteDoc, serverTimestamp } from 'firebase/firestore'
 import { db, auth } from '../firebase'
 import { useProject } from '../contexts/ProjectContext'
 import ProjectBanner from '../components/ProjectBanner'
@@ -133,6 +133,35 @@ export default function Expenses() {
   function deleteExpense(id) {
     askConfirm('Delete this expense?', async () => {
       await deleteDoc(doc(db, 'expenses', id))
+    })
+  }
+
+  // The only place to undo a wrong statement match used to be
+  // Reconciliation's "Matched" tab — nothing on this page showed the link
+  // existed at all, let alone let you fix it. Reverts both sides, same as
+  // Reconciliation.jsx's unmatchTxn: the transaction goes back to
+  // 'unmatched' (re-matchable from Reconciliation's search), the expense
+  // loses its settlement info. The transaction-side update is best-effort
+  // (.catch) — the transaction may have been deleted independently since
+  // the match was made, which must never block unlinking the expense side.
+  function unlinkExpenseMatch(e) {
+    askConfirm('Unlink this expense from its matched statement transaction? You can re-match it from Reconciliation afterward.', async () => {
+      if (e.matchedPaymentTransactionId) {
+        await updateDoc(doc(db, 'paymentTransactions', e.matchedPaymentTransactionId), {
+          status: 'unmatched',
+          matchedExpenseIds: [],
+          confidenceScore: null,
+          matchReasons: [],
+          updatedAt: serverTimestamp(),
+        }).catch(() => {})
+      }
+      await updateDoc(doc(db, 'expenses', e.id), {
+        matchedPaymentTransactionId: null,
+        matchedPaymentAccountId: null,
+        settlementAmount: null,
+        settlementCurrency: null,
+        settlementStatus: 'unsettled',
+      })
     })
   }
 
@@ -461,6 +490,11 @@ export default function Expenses() {
                           Created from statement — receipt missing
                         </div>
                       )}
+                      {e.matchedPaymentTransactionId && (
+                        <div className="hint" title="Linked to a bank/card statement transaction">
+                          Linked to statement{e.settlementAmount != null ? ` · ${e.settlementCurrency} ${e.settlementAmount.toFixed(2)}` : ''}
+                        </div>
+                      )}
                       {e.notes && <div>{e.notes}</div>}
                       {e.paymentMethod && <div className="payment-sub">{e.paymentMethod}</div>}
                     </td>
@@ -469,6 +503,9 @@ export default function Expenses() {
                         <AttachIcon size={14} strokeWidth={ICON_STROKE_WIDTH} aria-hidden="true" /> {e.images?.length || 0}
                       </button>
                       <button onClick={() => startEdit(e)} className="btn-small">Edit</button>
+                      {e.matchedPaymentTransactionId && (
+                        <button onClick={() => unlinkExpenseMatch(e)} className="btn-small btn-ghost">Unlink</button>
+                      )}
                       <button onClick={() => deleteExpense(e.id)} className="btn-small btn-danger">Delete</button>
                     </td>
                   </>
@@ -524,12 +561,20 @@ export default function Expenses() {
                     Created from statement — receipt missing
                   </div>
                 )}
+                {e.matchedPaymentTransactionId && (
+                  <div className="hint" title="Linked to a bank/card statement transaction">
+                    Linked to statement{e.settlementAmount != null ? ` · ${e.settlementCurrency} ${e.settlementAmount.toFixed(2)}` : ''}
+                  </div>
+                )}
                 {e.notes && <div className="mob-card-notes">{e.notes}</div>}
                 <div className="mob-card-actions">
                   <button onClick={() => openLightbox(e)} className="btn-small" aria-label={`Manage receipts, ${e.images?.length || 0} attached`}>
                     <AttachIcon size={14} strokeWidth={ICON_STROKE_WIDTH} aria-hidden="true" /> {e.images?.length || 0}
                   </button>
                   <button onClick={() => startEdit(e)} className="btn-small">Edit</button>
+                  {e.matchedPaymentTransactionId && (
+                    <button onClick={() => unlinkExpenseMatch(e)} className="btn-small btn-ghost">Unlink</button>
+                  )}
                   <button onClick={() => deleteExpense(e.id)} className="btn-small btn-danger">Delete</button>
                 </div>
               </>

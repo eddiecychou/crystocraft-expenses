@@ -205,6 +205,7 @@ No functions — a pure dispatcher component (three link cards routing to Upload
 | `focusFirstError(errs)` | 109 | Scrolls to and focuses the first invalid field, checking both the desktop and mobile-card copies of the edit form (only one is visible via CSS at a time). |
 | `saveEdit()` | 116 | Validates and persists an in-place expense edit. |
 | `deleteExpense(id)` | 136 | Deletes an expense (with confirmation). |
+| `unlinkExpenseMatch(e)` | — | Reverts a wrong statement match from the Records page itself (with confirmation) — same both-sides revert as `Reconciliation.jsx`'s `unmatchTxn`, added because this page previously showed no indication a match even existed, let alone a way to undo it. |
 | `openLightbox(e)` | 142 | Opens the `Lightbox` for an expense's images. |
 | `handleAddImage(e)` | 146 | Uploads and attaches a new receipt image to an existing expense. |
 | `handleDeleteImage(img)` | 165 | Removes a receipt image from an expense (with confirmation). |
