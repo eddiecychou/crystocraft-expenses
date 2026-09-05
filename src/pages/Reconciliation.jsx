@@ -912,7 +912,19 @@ export default function Reconciliation() {
                           <div className="expense-search-results">
                             {results.length === 0 && <p className="hint">No matching expenses.</p>}
                             {results.map(e => {
-                              const linkedElsewhere = e.matchedPaymentTransactionId && e.id !== selectedExpense?.id
+                              // Compares against the TRANSACTION's own id
+                              // (matching exactly what confirmMatch itself
+                              // checks), not against selectedExpense — that
+                              // was a live bug: selectedExpense comes from
+                              // this transaction's own (possibly wrong,
+                              // merely-suggested, never-confirmed) matchedExpenseIds
+                              // link, which can point at an expense whose
+                              // REAL matchedPaymentTransactionId is actually
+                              // some other, already-confirmed transaction.
+                              // Comparing e.id to that suggestion silently
+                              // hid the real conflict — the expense showed
+                              // as selectable, then failed at Confirm.
+                              const linkedElsewhere = e.matchedPaymentTransactionId && e.matchedPaymentTransactionId !== selected.id
                               return linkedElsewhere ? (
                                 <div key={e.id} className="expense-search-result expense-search-result-linked">
                                   <span>{e.date} · {e.vendor} · {e.currency} {Number(e.amount || 0).toFixed(2)} <span className="hint">— matched elsewhere</span></span>
