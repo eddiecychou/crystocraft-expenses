@@ -295,7 +295,15 @@ export default function PaymentSources() {
     if (imp.sourceType !== 'pdf' || !imp.sourceFileUrl) return null
     setVerifyingImportId(imp.id)
     try {
-      const resp = await fetch(imp.sourceFileUrl)
+      // Firebase Storage download URLs don't allow a direct cross-origin
+      // fetch() from the browser (same reason receipts are downloaded
+      // through /api/download-receipt, not fetched directly) — route
+      // through the same Netlify edge-function proxy.
+      const resp = await fetch('/api/download-receipt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: imp.sourceFileUrl }),
+      })
       if (!resp.ok) throw new Error(`could not re-fetch the stored file (HTTP ${resp.status})`)
       const blob = await resp.blob()
       const { rows: reparsedRows, openingBalance, closingBalance } = await parsePdfStatement(blob)
@@ -742,22 +750,25 @@ export default function PaymentSources() {
                         {imp.sourceType !== 'pdf' ? '—' : !imp.verification ? (
                           <span className="hint">Not yet checked</span>
                         ) : imp.verification.error ? (
-                          <span className="badge badge-warning" title={imp.verification.error}>⚠ Couldn't re-check</span>
+                          <>
+                            <span className="badge badge-warning">⚠ Couldn't re-check</span>
+                            <div className="hint" style={{ maxWidth: 220 }}>{imp.verification.error}</div>
+                          </>
                         ) : imp.verification.consistent ? (
                           <span className="badge badge-office" title="Re-parsed statement matches the stored transactions and totals.">✓ Verified</span>
                         ) : (
-                          <span
-                            className="badge badge-warning"
-                            title={[
-                              imp.verification.missingFromRecords ? `${imp.verification.missingFromRecords} row(s) in the PDF not found in records` : null,
-                              imp.verification.extraInRecords ? `${imp.verification.extraInRecords} recorded row(s) not found in the PDF` : null,
-                              imp.verification.totalsCheck && !imp.verification.totalsCheck.consistent
-                                ? `Totals mismatch: expected closing ${imp.verification.totalsCheck.expectedClosingBalance.toFixed(2)}, statement shows ${imp.verification.totalsCheck.closingBalance.toFixed(2)}`
-                                : null,
-                            ].filter(Boolean).join(' · ')}
-                          >
-                            ⚠ Mismatch
-                          </span>
+                          <>
+                            <span className="badge badge-warning">⚠ Mismatch</span>
+                            <div className="hint" style={{ maxWidth: 220 }}>
+                              {[
+                                imp.verification.missingFromRecords ? `${imp.verification.missingFromRecords} row(s) in the PDF not found in records` : null,
+                                imp.verification.extraInRecords ? `${imp.verification.extraInRecords} recorded row(s) not found in the PDF` : null,
+                                imp.verification.totalsCheck && !imp.verification.totalsCheck.consistent
+                                  ? `Totals mismatch: expected closing ${imp.verification.totalsCheck.expectedClosingBalance.toFixed(2)}, statement shows ${imp.verification.totalsCheck.closingBalance.toFixed(2)}`
+                                  : null,
+                              ].filter(Boolean).join(' · ')}
+                            </div>
+                          </>
                         )}
                       </td>
                       <td>
