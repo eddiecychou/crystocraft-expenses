@@ -165,23 +165,30 @@ export default function PaymentSources() {
   async function saveEditAccount() {
     if (!editAccountData.label.trim()) return
     setSaving(true)
-    await updateDoc(doc(db, 'paymentAccounts', editAccountId), {
-      ...editAccountData,
-      label: editAccountData.label.trim(),
-      accountTail: editAccountData.accountTail.trim() || null,
-      institutionName: editAccountData.institutionName.trim() || null,
-    })
-    // classifyTransaction only ever runs at import time (in commitRows) — an
-    // account switched to personal AFTER its statements were already
-    // imported would otherwise sit with zero classified transactions
-    // forever, making Company Review look empty with no way in. Backfill
-    // classification on whatever's already there, same rule-lookup logic
-    // as a fresh import; only touches rows that don't have one yet, so this
-    // is safe to run every time an account is saved as personal.
-    if (editAccountData.ownershipType === 'personal') {
-      await backfillClassification(editAccountId)
+    try {
+      await updateDoc(doc(db, 'paymentAccounts', editAccountId), {
+        ...editAccountData,
+        label: editAccountData.label.trim(),
+        accountTail: editAccountData.accountTail.trim() || null,
+        institutionName: editAccountData.institutionName.trim() || null,
+      })
+      // classifyTransaction only ever runs at import time (in commitRows) — an
+      // account switched to personal AFTER its statements were already
+      // imported would otherwise sit with zero classified transactions
+      // forever, making Company Review look empty with no way in. Backfill
+      // classification on whatever's already there, same rule-lookup logic
+      // as a fresh import; only touches rows that don't have one yet, so this
+      // is safe to run every time an account is saved as personal.
+      if (editAccountData.ownershipType === 'personal') {
+        await backfillClassification(editAccountId)
+      }
+      setEditAccountId(null)
+    } catch (err) {
+      // Without this, a failure here (e.g. a not-yet-published security rule
+      // on a newer collection) left the edit form silently stuck open with
+      // no feedback — "I clicked Save and nothing happened."
+      alert('Could not save account: ' + err.message)
     }
-    setEditAccountId(null)
     setSaving(false)
   }
 
@@ -194,12 +201,20 @@ export default function PaymentSources() {
     const unclassified = txnSnap.docs.filter(d => d.data().classification == null)
     if (unclassified.length === 0) return
 
-    const rulesSnap = await getDocs(query(
-      collection(db, 'merchantRules'),
-      where('userId', '==', auth.currentUser.uid),
-      where('projectId', '==', activeProject.id)
-    ))
-    const rulesByMerchant = new Map(rulesSnap.docs.map(d => [d.data().merchantKey, d.data()]))
+    // Merchant rules are an optional enhancement — if this collection's
+    // security rule hasn't been published yet, don't let that block
+    // classification itself from happening at all.
+    let rulesByMerchant = new Map()
+    try {
+      const rulesSnap = await getDocs(query(
+        collection(db, 'merchantRules'),
+        where('userId', '==', auth.currentUser.uid),
+        where('projectId', '==', activeProject.id)
+      ))
+      rulesByMerchant = new Map(rulesSnap.docs.map(d => [d.data().merchantKey, d.data()]))
+    } catch (err) {
+      console.warn('Could not read merchant rules (continuing without them):', err.message)
+    }
 
     const updates = []
     for (const d of unclassified) {
