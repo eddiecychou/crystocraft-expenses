@@ -171,8 +171,57 @@ export default function PaymentSources() {
       accountTail: editAccountData.accountTail.trim() || null,
       institutionName: editAccountData.institutionName.trim() || null,
     })
+    // classifyTransaction only ever runs at import time (in commitRows) — an
+    // account switched to personal AFTER its statements were already
+    // imported would otherwise sit with zero classified transactions
+    // forever, making Company Review look empty with no way in. Backfill
+    // classification on whatever's already there, same rule-lookup logic
+    // as a fresh import; only touches rows that don't have one yet, so this
+    // is safe to run every time an account is saved as personal.
+    if (editAccountData.ownershipType === 'personal') {
+      await backfillClassification(editAccountId)
+    }
     setEditAccountId(null)
     setSaving(false)
+  }
+
+  async function backfillClassification(accountId) {
+    const txnSnap = await getDocs(query(
+      collection(db, 'paymentTransactions'),
+      where('userId', '==', auth.currentUser.uid),
+      where('paymentAccountId', '==', accountId)
+    ))
+    const unclassified = txnSnap.docs.filter(d => d.data().classification == null)
+    if (unclassified.length === 0) return
+
+    const rulesSnap = await getDocs(query(
+      collection(db, 'merchantRules'),
+      where('userId', '==', auth.currentUser.uid),
+      where('projectId', '==', activeProject.id)
+    ))
+    const rulesByMerchant = new Map(rulesSnap.docs.map(d => [d.data().merchantKey, d.data()]))
+
+    const updates = []
+    for (const d of unclassified) {
+      const t = d.data()
+      const classification = classifyTransaction(t, {
+        matchedExpenseId: t.matchedExpenseIds?.[0] || null,
+        rule: rulesByMerchant.get(t.merchantNormalized) || null,
+      })
+      if (!classification) continue // excluded type (payment/transfer) — leave unclassified, same as at import time
+      updates.push({ id: d.id, ...classification })
+    }
+    for (let i = 0; i < updates.length; i += 400) {
+      const batch = writeBatch(db)
+      updates.slice(i, i + 400).forEach(({ id, ...fields }) => batch.update(doc(db, 'paymentTransactions', id), {
+        ...fields,
+        businessPurpose: null,
+        reviewNote: null,
+        accountantStatus: 'not_required',
+        updatedAt: serverTimestamp(),
+      }))
+      await batch.commit()
+    }
   }
 
   // Shared write path for both CSV (trusted, structured) and confirmed PDF
