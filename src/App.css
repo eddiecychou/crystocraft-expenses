@@ -595,6 +595,43 @@ body {
   box-shadow: var(--shadow-sm);
 }
 .txn-detail-scroll { max-height: 60vh; overflow-y: auto; }
+[data-amount="true"] { font-variant-numeric: tabular-nums; }
+
+/* Same fixed-width discipline as .review-compact-table (see its comment):
+   every column needs an explicit share of 100%, or table-layout:fixed can
+   collapse an unspecified one to nothing. Date/Amount/Type/Actions are
+   short and fixed-ish; Description and Duplicate carry the variable
+   content and get the most room. */
+.txn-table-compact { table-layout: fixed; width: 100%; }
+/* Same rule as .review-compact-table: only Description and Duplicate carry
+   genuinely variable-length content, so only those two wrap — everything
+   else clips with an ellipsis rather than breaking one character per line
+   when the column is narrower than its own shortest word. */
+.txn-table-compact th, .txn-table-compact td { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.txn-table-compact th:nth-child(2), .txn-table-compact td:nth-child(2),
+.txn-table-compact th:nth-child(5), .txn-table-compact td:nth-child(5) { white-space: normal; overflow-wrap: break-word; }
+/* Edit/Delete sitting side by side as inline-block buttons is what
+   overflows the Actions column at narrow widths — stacked, each only
+   needs its own width, not both at once. */
+.txn-table-compact td:nth-child(6) .btn-small { display: block; width: 100%; margin: 0 0 4px; }
+.txn-table-compact th:nth-child(1), .txn-table-compact td:nth-child(1) { width: 12%; }
+.txn-table-compact th:nth-child(2), .txn-table-compact td:nth-child(2) { width: 24%; }
+.txn-table-compact th:nth-child(3), .txn-table-compact td:nth-child(3) { width: 11%; }
+.txn-table-compact th:nth-child(4), .txn-table-compact td:nth-child(4) { width: 12%; }
+.txn-table-compact th:nth-child(5), .txn-table-compact td:nth-child(5) { width: 28%; }
+.txn-table-compact th:nth-child(6), .txn-table-compact td:nth-child(6) { width: 13%; }
+
+@media (max-width: 640px) {
+  /* Type/Balance is the least essential column on a phone-width review —
+     dropped so Description and Duplicate (the two columns that actually
+     need room) don't get squeezed into unreadable slivers. */
+  .txn-table-compact th:nth-child(4), .txn-table-compact td:nth-child(4) { display: none; }
+  .txn-table-compact th:nth-child(1), .txn-table-compact td:nth-child(1) { width: 15%; }
+  .txn-table-compact th:nth-child(2), .txn-table-compact td:nth-child(2) { width: 26%; }
+  .txn-table-compact th:nth-child(3), .txn-table-compact td:nth-child(3) { width: 14%; }
+  .txn-table-compact th:nth-child(5), .txn-table-compact td:nth-child(5) { width: 29%; }
+  .txn-table-compact th:nth-child(6), .txn-table-compact td:nth-child(6) { width: 16%; }
+}
 .review-compact-table { table-layout: fixed; width: 100%; }
 /* Only Description has genuinely variable-length content — Date, Amount,
    Direction, Balance are short and near-fixed-width, so they should clip

@@ -397,6 +397,58 @@ export default function PaymentSources() {
     }).finally(() => setBusyId(null))
   }
 
+  // Shared between the desktop table cell and the mobile card — the
+  // duplicate-review UI (badge, reason, resolve actions) is identical
+  // either way, only the surrounding markup differs.
+  //
+  // "Resolved" = either the user explicitly acted on it (any of the three
+  // buttons below sets duplicateReviewedAt), or it was auto-classified
+  // into one of the two final states. A resolved row collapses to a
+  // compact badge instead of permanently showing all three action
+  // buttons — always showing every action (so a wrong auto-classification
+  // could still be corrected) had no sense of "done," so nothing ever
+  // visibly went away after acting on it. "Change" reopens the actions.
+  function renderDuplicateStatus(txn, imp) {
+    if (!txn.duplicateStatus) return '—'
+    const resolved = ['verified_separate', 'confirmed_duplicate'].includes(txn.duplicateStatus) || !!txn.duplicateReviewedAt
+    const expanded = !resolved || expandedDuplicateId === txn.id
+    return (
+      <>
+        <span
+          className={`badge ${txn.duplicateStatus === 'verified_separate' ? 'badge-office' : txn.duplicateStatus === 'confirmed_duplicate' ? 'badge-bank-charges' : 'badge-warning'}`}
+          title={txn.duplicateReason || ''}
+        >
+          {DUPLICATE_STATUS_LABELS[txn.duplicateStatus] || txn.duplicateStatus}
+        </span>
+        {resolved && !expanded && (
+          <button className="btn-small btn-ghost" style={{ marginLeft: 6 }} onClick={() => setExpandedDuplicateId(txn.id)}>Change</button>
+        )}
+        {expanded && (
+          <>
+            {txn.duplicateReason && <div className="hint" style={{ maxWidth: 220 }}>{txn.duplicateReason}</div>}
+            <div className="action-row" style={{ flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
+              {txn.duplicateStatus !== 'verified_separate' && (
+                <button className="btn-small" disabled={busyId === txn.id} onClick={() => { resolveDuplicate(txn, 'verified_separate'); setExpandedDuplicateId(null) }}>Keep as Separate</button>
+              )}
+              {txn.duplicateStatus !== 'confirmed_duplicate' && (
+                <button className="btn-small btn-danger" disabled={busyId === txn.id} onClick={() => { resolveDuplicate(txn, 'confirmed_duplicate'); setExpandedDuplicateId(null) }}>Confirm Duplicate</button>
+              )}
+              {!txn.duplicateReviewedAt && (
+                <button className="btn-small btn-ghost" disabled={busyId === txn.id} onClick={() => { dismissDuplicateWarning(txn); setExpandedDuplicateId(null) }}>Ignore Warning</button>
+              )}
+              {imp.sourceFileUrl && (
+                <a href={imp.sourceFileUrl} target="_blank" rel="noreferrer" className="btn-small btn-ghost">Open Source Row</a>
+              )}
+              {resolved && (
+                <button className="btn-small btn-ghost" onClick={() => setExpandedDuplicateId(null)}>Done</button>
+              )}
+            </div>
+          </>
+        )}
+      </>
+    )
+  }
+
   // Re-checks an already-imported PDF statement against its own stored
   // source file — re-parsing it from scratch and comparing the result to
   // what's actually recorded as transactions. This is the "did we parse
@@ -1046,9 +1098,15 @@ export default function PaymentSources() {
                             </div>
                           {importTxns.length === 0 ? <p className="empty" style={{ margin: '8px 0' }}>No transactions in this import.</p> : (
                             <div className="txn-detail-scroll">
-                            <table className="expense-table" style={{ margin: '8px 0' }}>
+                            {/* Desktop: compact table. A 6-column table with per-row action
+                                buttons and duplicate-review content simply doesn't fit a phone
+                                width no matter how the column shares are tuned (verified live —
+                                every column collapses to an unreadable sliver) — mobile gets its
+                                own card layout below instead, matching the pattern already used
+                                for Expenses' mobile view. */}
+                            <table className="expense-table txn-table-compact desktop-only" style={{ margin: '8px 0' }}>
                               <thead>
-                                <tr><th>Date</th><th>Description</th><th>Amount</th><th>Direction</th><th>Balance</th><th>Type</th><th>Duplicate</th><th>Actions</th></tr>
+                                <tr><th>Date</th><th>Description</th><th>Amount</th><th>Type</th><th>Duplicate</th><th>Actions</th></tr>
                               </thead>
                               <tbody>
                                 {importTxns.map(txn => (
@@ -1057,14 +1115,13 @@ export default function PaymentSources() {
                                       <>
                                         <td><input type="date" value={editTxnData.transactionDate} onChange={e => setEditTxnData({ ...editTxnData, transactionDate: e.target.value })} /></td>
                                         <td><input value={editTxnData.merchantRaw} onChange={e => setEditTxnData({ ...editTxnData, merchantRaw: e.target.value })} /></td>
-                                        <td><input type="number" inputMode="decimal" min="0" step="0.01" value={editTxnData.settlementAmount} onChange={e => setEditTxnData({ ...editTxnData, settlementAmount: e.target.value })} /></td>
                                         <td>
+                                          <input type="number" inputMode="decimal" min="0" step="0.01" data-amount="true" value={editTxnData.settlementAmount} onChange={e => setEditTxnData({ ...editTxnData, settlementAmount: e.target.value })} style={{ marginBottom: 4 }} />
                                           <select value={editTxnData.direction} onChange={e => setEditTxnData({ ...editTxnData, direction: e.target.value })}>
                                             <option value="debit">debit</option>
                                             <option value="credit">credit</option>
                                           </select>
                                         </td>
-                                        <td>{txn.balanceAfter != null ? txn.balanceAfter.toFixed(2) : '—'}</td>
                                         <td>{txn.transactionType}</td>
                                         <td>—</td>
                                         <td>
@@ -1076,59 +1133,12 @@ export default function PaymentSources() {
                                       <>
                                         <td>{txn.transactionDate}</td>
                                         <td>{txn.merchantRaw}</td>
-                                        <td>{txn.settlementAmount?.toFixed(2)}</td>
-                                        <td>{txn.direction}</td>
-                                        <td>{txn.balanceAfter != null ? txn.balanceAfter.toFixed(2) : '—'}</td>
-                                        <td>{txn.transactionType}{txn.status === 'matched' && ' · matched'}{txn.settlementGroupId && ' · linked'}</td>
-                                        <td style={{ minWidth: 200 }}>
-                                          {txn.duplicateStatus ? (() => {
-                                            // "Resolved" = either the user explicitly acted on it (any of the
-                                            // three buttons below sets duplicateReviewedAt), or it was
-                                            // auto-classified into one of the two final states. A resolved row
-                                            // collapses to a compact badge instead of permanently showing all
-                                            // three action buttons — the previous "always show every action"
-                                            // fix (so a wrong auto-classification could be corrected) had no
-                                            // sense of "done," so nothing ever visibly went away after acting
-                                            // on it. "Change" reopens the same actions on demand.
-                                            const resolved = ['verified_separate', 'confirmed_duplicate'].includes(txn.duplicateStatus) || !!txn.duplicateReviewedAt
-                                            const expanded = !resolved || expandedDuplicateId === txn.id
-                                            return (
-                                              <>
-                                                <span
-                                                  className={`badge ${txn.duplicateStatus === 'verified_separate' ? 'badge-office' : txn.duplicateStatus === 'confirmed_duplicate' ? 'badge-bank-charges' : 'badge-warning'}`}
-                                                  title={txn.duplicateReason || ''}
-                                                >
-                                                  {DUPLICATE_STATUS_LABELS[txn.duplicateStatus] || txn.duplicateStatus}
-                                                </span>
-                                                {resolved && !expanded && (
-                                                  <button className="btn-small btn-ghost" style={{ marginLeft: 6 }} onClick={() => setExpandedDuplicateId(txn.id)}>Change</button>
-                                                )}
-                                                {expanded && (
-                                                  <>
-                                                    {txn.duplicateReason && <div className="hint" style={{ maxWidth: 220 }}>{txn.duplicateReason}</div>}
-                                                    <div className="action-row" style={{ flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
-                                                      {txn.duplicateStatus !== 'verified_separate' && (
-                                                        <button className="btn-small" disabled={busyId === txn.id} onClick={() => { resolveDuplicate(txn, 'verified_separate'); setExpandedDuplicateId(null) }}>Keep as Separate</button>
-                                                      )}
-                                                      {txn.duplicateStatus !== 'confirmed_duplicate' && (
-                                                        <button className="btn-small btn-danger" disabled={busyId === txn.id} onClick={() => { resolveDuplicate(txn, 'confirmed_duplicate'); setExpandedDuplicateId(null) }}>Confirm Duplicate</button>
-                                                      )}
-                                                      {!txn.duplicateReviewedAt && (
-                                                        <button className="btn-small btn-ghost" disabled={busyId === txn.id} onClick={() => { dismissDuplicateWarning(txn); setExpandedDuplicateId(null) }}>Ignore Warning</button>
-                                                      )}
-                                                      {imp.sourceFileUrl && (
-                                                        <a href={imp.sourceFileUrl} target="_blank" rel="noreferrer" className="btn-small btn-ghost">Open Source Row</a>
-                                                      )}
-                                                      {resolved && (
-                                                        <button className="btn-small btn-ghost" onClick={() => setExpandedDuplicateId(null)}>Done</button>
-                                                      )}
-                                                    </div>
-                                                  </>
-                                                )}
-                                              </>
-                                            )
-                                          })() : '—'}
+                                        <td data-amount="true">{txn.direction === 'debit' ? '-' : '+'}{txn.settlementAmount?.toFixed(2)}</td>
+                                        <td>
+                                          {txn.transactionType}{txn.status === 'matched' && ' · matched'}{txn.settlementGroupId && ' · linked'}
+                                          {txn.balanceAfter != null && <div className="hint">Bal {txn.balanceAfter.toFixed(2)}</div>}
                                         </td>
+                                        <td style={{ minWidth: 200 }}>{renderDuplicateStatus(txn, imp)}</td>
                                         <td>
                                           <button className="btn-small" onClick={() => startEditTxn(txn)}>Edit</button>
                                           <button className="btn-small btn-danger" onClick={() => deleteTxn(txn)}>Delete</button>
@@ -1139,6 +1149,51 @@ export default function PaymentSources() {
                                 ))}
                               </tbody>
                             </table>
+
+                            {/* Mobile: one card per transaction, vertically stacked — the
+                                same fields and actions as the desktop table, just never
+                                forced into a horizontal row. */}
+                            <div className="mobile-only">
+                              {importTxns.map(txn => (
+                                <div key={txn.id} className="expense-mob-card">
+                                  {editTxnId === txn.id ? (
+                                    <>
+                                      <div className="result-grid">
+                                        <label>Date<input type="date" value={editTxnData.transactionDate} onChange={e => setEditTxnData({ ...editTxnData, transactionDate: e.target.value })} /></label>
+                                        <label>Vendor<input value={editTxnData.merchantRaw} onChange={e => setEditTxnData({ ...editTxnData, merchantRaw: e.target.value })} /></label>
+                                        <label>Amount<input type="number" inputMode="decimal" min="0" step="0.01" data-amount="true" value={editTxnData.settlementAmount} onChange={e => setEditTxnData({ ...editTxnData, settlementAmount: e.target.value })} /></label>
+                                        <label>Direction
+                                          <select value={editTxnData.direction} onChange={e => setEditTxnData({ ...editTxnData, direction: e.target.value })}>
+                                            <option value="debit">debit</option>
+                                            <option value="credit">credit</option>
+                                          </select>
+                                        </label>
+                                      </div>
+                                      <div className="mob-card-actions">
+                                        <button className="btn-small" onClick={() => saveEditTxn(txn)}>Save</button>
+                                        <button className="btn-small btn-ghost" onClick={() => setEditTxnId(null)}>Cancel</button>
+                                      </div>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <div className="mob-card-header">
+                                        <span className="mob-card-vendor">{txn.merchantRaw}</span>
+                                        <span className="mob-card-amount" data-amount="true">{txn.direction === 'debit' ? '-' : '+'}{txn.settlementAmount?.toFixed(2)}</span>
+                                      </div>
+                                      <div className="mob-card-sub">
+                                        <span className="mob-card-date">{txn.transactionDate}</span>
+                                        <span className="hint">{txn.transactionType}{txn.status === 'matched' && ' · matched'}{txn.settlementGroupId && ' · linked'}{txn.balanceAfter != null && ` · Bal ${txn.balanceAfter.toFixed(2)}`}</span>
+                                      </div>
+                                      {txn.duplicateStatus && <div style={{ marginTop: 6 }}>{renderDuplicateStatus(txn, imp)}</div>}
+                                      <div className="mob-card-actions">
+                                        <button className="btn-small" onClick={() => startEditTxn(txn)}>Edit</button>
+                                        <button className="btn-small btn-danger" onClick={() => deleteTxn(txn)}>Delete</button>
+                                      </div>
+                                    </>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
                             </div>
                           )}
                           </div>
