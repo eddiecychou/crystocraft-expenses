@@ -86,6 +86,39 @@ protection when the original file is bundled alongside it unfiltered.
 
 ---
 
+## A cross-document get() rule needs its target pinned by the query's own filter
+
+Refines the entry below: it's not just that a list query needs a `where`
+clause *somewhere* — when the rule resolves a cross-document reference via
+`get(/…/projects/$(resource.data.projectId))`, Firestore can only prove
+that safe for an entire list query when `projectId` (the field the `get()`
+path depends on) is itself constrained to one known value by the query's
+own `where()` clause. A query filtered only by `importId`, `paymentAccountId`,
+or `settlementGroupId` — even though `projectId` happens to be constant
+across every real matching document — doesn't give Firestore's rule engine
+that guarantee, and the whole request is denied with "Missing or
+insufficient permissions," not silently filtered.
+
+**How this actually surfaced:** several `paymentTransactions` queries in
+`PaymentSources.jsx` (`verifyImportAgainstSource`'s re-check, the
+`viewingImportId` transaction list, `backfillClassification`, `commitRows`'
+reprocess/duplicate-check lookups, `unlinkTransaction`, `deleteImport`) and
+one in `CompanyReview.jsx` filtered by everything except `projectId` — they
+all worked under the old ownership-only rules (`resource.data.userId ==
+uid`, no cross-document lookup needed) and broke silently the moment the
+rule became membership-based via `get()`. The broader queries in
+`Reconciliation.jsx` (already filtered by `where('projectId', ...)` from
+the start) never showed the symptom, which is what made this easy to miss
+across a large multi-file change.
+
+**How to apply:** any query against a collection whose rule does
+`get()`-based cross-document lookups keyed on a field must include
+`where('projectId', '==', activeProject.id)` (or whatever field the `get()`
+depends on) explicitly, even when another filter already narrows the
+result set to the same effect in practice. Audit with
+`grep -rn "collection(db, '<collection>')" src/pages` after any rule
+change, not just the query sites you remember touching.
+
 ## Firestore security rules can't filter a list query — only allow or deny it
 
 Building Project Sharing, the natural instinct was: write a rule that does a

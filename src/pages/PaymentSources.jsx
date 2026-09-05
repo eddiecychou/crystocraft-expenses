@@ -97,12 +97,16 @@ export default function PaymentSources() {
 
   useEffect(() => {
     if (!viewingImportId) { setImportTxns([]); return }
+    // projectId must be pinned by this query's own where() clause — see the
+    // comment on backfillClassification below for why an unconstrained
+    // cross-document get() in the security rule otherwise gets the whole
+    // list request denied outright, not just filtered.
     const unsub = onSnapshot(
-      paymentTransactionsQuery(query(collection(db, 'paymentTransactions'), where('importId', '==', viewingImportId)), activeProject, auth.currentUser.uid),
+      paymentTransactionsQuery(query(collection(db, 'paymentTransactions'), where('projectId', '==', activeProject.id), where('importId', '==', viewingImportId)), activeProject, auth.currentUser.uid),
       snap => setImportTxns(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (a.transactionDate || '').localeCompare(b.transactionDate || '')))
     )
     return unsub
-  }, [viewingImportId])
+  }, [viewingImportId, activeProject?.id])
 
   // Whatever opens the transaction list (View/Edit, or a "Fix from Stored
   // PDF" auto-expanding its own result) also brings it on screen — the
@@ -194,8 +198,17 @@ export default function PaymentSources() {
   }
 
   async function backfillClassification(accountId) {
+    // projectId must be one of this query's own where() clauses, not just a
+    // true-in-practice fact about the data — the security rule resolves
+    // resource.data.projectId via a cross-document get() on the project, and
+    // Firestore can only prove that safe for a whole list query when the
+    // query itself pins projectId to one known value; filtering by
+    // paymentAccountId alone leaves it unconstrained from the rule engine's
+    // perspective and the entire query gets denied outright. See
+    // LESSONS_LEARNED.md / the expense-ops-center skill.
     const txnSnap = await getDocs(query(
       collection(db, 'paymentTransactions'),
+      where('projectId', '==', activeProject.id),
       where('paymentAccountId', '==', accountId)
     ))
     const unclassified = txnSnap.docs.filter(d => d.data().classification == null)
@@ -256,6 +269,7 @@ export default function PaymentSources() {
       importRef = doc(db, 'paymentImports', reprocessImportId)
       const oldSnap = await getDocs(query(
         collection(db, 'paymentTransactions'),
+        where('projectId', '==', activeProject.id),
         where('importId', '==', reprocessImportId)
       ))
       for (const d of oldSnap.docs) await unlinkTransaction({ id: d.id, ...d.data() })
@@ -318,6 +332,7 @@ export default function PaymentSources() {
     // something a confirmed duplicate. See src/lib/duplicateDetection.js.
     const existingSnap = await getDocs(query(
       collection(db, 'paymentTransactions'),
+      where('projectId', '==', activeProject.id),
       where('paymentAccountId', '==', account.id)
     ))
     const existingByFingerprint = new Map()
@@ -598,6 +613,7 @@ export default function PaymentSources() {
 
       const storedSnap = await getDocs(query(
         collection(db, 'paymentTransactions'),
+        where('projectId', '==', activeProject.id),
         where('importId', '==', imp.id)
       ))
       const storedRows = storedSnap.docs.map(d => d.data())
@@ -668,6 +684,7 @@ export default function PaymentSources() {
     if (txn.settlementGroupId) {
       const partnerSnap = await getDocs(query(
         collection(db, 'paymentTransactions'),
+        where('projectId', '==', activeProject.id),
         where('settlementGroupId', '==', txn.settlementGroupId)
       ))
       for (const d of partnerSnap.docs) {
@@ -737,6 +754,7 @@ export default function PaymentSources() {
       onConfirm: async () => {
         const snap = await getDocs(query(
           collection(db, 'paymentTransactions'),
+          where('projectId', '==', activeProject.id),
           where('importId', '==', imp.id)
         ))
         for (const d of snap.docs) await unlinkTransaction({ id: d.id, ...d.data() })

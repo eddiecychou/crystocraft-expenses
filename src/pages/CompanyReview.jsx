@@ -108,8 +108,12 @@ export default function CompanyReview() {
     if (personalAccountIds.length === 0) { setTransactions([]); return }
     const chunks = chunk(personalAccountIds, 10)
     const byChunk = new Array(chunks.length).fill([])
+    // projectId must be pinned by this query's own where() clause, not just
+    // true in practice — see LESSONS_LEARNED.md / the expense-ops-center
+    // skill on why an unconstrained cross-document get() in the security
+    // rule otherwise gets the whole list request denied outright.
     const unsubs = chunks.map((ids, i) => onSnapshot(
-      paymentTransactionsQuery(query(collection(db, 'paymentTransactions'), where('paymentAccountId', 'in', ids)), activeProject, auth.currentUser.uid),
+      paymentTransactionsQuery(query(collection(db, 'paymentTransactions'), where('projectId', '==', activeProject.id), where('paymentAccountId', 'in', ids)), activeProject, auth.currentUser.uid),
       snap => {
         byChunk[i] = snap.docs.map(d => ({ id: d.id, ...d.data() }))
         setTransactions(byChunk.flat())

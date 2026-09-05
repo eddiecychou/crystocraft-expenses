@@ -104,7 +104,16 @@ anything it covers.
   clauses, or Firestore denies the whole query. To hide a subset of a
   collection from some readers, denormalize a boolean field onto the
   document and filter the query on it — see `visibleToMembers` /
-  `paymentTransactionsQuery` in `src/lib/projectAccess.js`.
+  `paymentTransactionsQuery` in `src/lib/projectAccess.js`. More precisely:
+  when the rule does `get()` on a path built from a field like
+  `resource.data.projectId`, that field must be pinned to one known value
+  by the query's OWN `where()` clause, or the whole query is denied —
+  filtering by `importId`/`paymentAccountId`/etc. alone isn't enough even
+  though `projectId` is constant in practice. **After any Firestore rule
+  change, `grep -rn "collection(db, '<name>')" src/pages` for every
+  affected collection** — this exact gap silently broke half a dozen query
+  sites in one page while the page's own broader (already `projectId`-
+  filtered) queries kept working, which is what let it hide.
 - **A rule requiring a field that a migration hasn't backfilled yet is a
   lockout, not a graceful degradation.** When switching a collection's
   access model to depend on a new field (e.g. `projects.memberUids`),
