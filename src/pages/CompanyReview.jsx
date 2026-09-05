@@ -712,7 +712,9 @@ export default function CompanyReview() {
                                 {txn.businessPurpose && <div className="hint">Saved: {txn.businessPurpose}</div>}
                                 <div className="mob-card-actions">
                                   {txn.status !== 'matched' && (
-                                    <button className="btn-small" disabled={busyId === txn.id} onClick={() => createExpenseFromTxn(txn)}>Create Expense</button>
+                                    <button className="btn-small" disabled={busyId === txn.id} onClick={() => createExpenseFromTxn(txn)}>
+                                      {busyId === txn.id ? 'Creating…' : 'Create Expense'}
+                                    </button>
                                   )}
                                   {txn.status === 'matched' && <span className="hint">Linked to Expense</span>}
                                 </div>
@@ -758,7 +760,9 @@ export default function CompanyReview() {
                                   </td>
                                   <td>
                                     {txn.status !== 'matched'
-                                      ? <button className="btn-small" disabled={busyId === txn.id} onClick={() => createExpenseFromTxn(txn)}>Create Expense</button>
+                                      ? <button className="btn-small" disabled={busyId === txn.id} onClick={() => createExpenseFromTxn(txn)}>
+                                          {busyId === txn.id ? 'Creating…' : 'Create Expense'}
+                                        </button>
                                       : <span className="hint">Linked to Expense</span>}
                                   </td>
                                 </tr>

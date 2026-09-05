@@ -858,12 +858,16 @@ export default function Reconciliation() {
                         fixed CTA, not a wall of equally-weighted buttons. */}
                     <div className="action-row" style={{ flexWrap: 'wrap' }}>
                       {selectedExpense && !CREATE_EXPENSE_BLOCKED_TYPES.includes(selected.transactionType) && (
-                        <button className="btn-ghost" disabled={busyId === selected.id} onClick={() => createExpenseFromTxn(selected)}>Create Expense</button>
+                        <button className="btn-ghost" disabled={busyId === selected.id} onClick={() => createExpenseFromTxn(selected)}>
+                          {busyId === selected.id ? 'Creating…' : 'Create Expense'}
+                        </button>
                       )}
                       {CREATE_EXPENSE_BLOCKED_TYPES.includes(selected.transactionType) && (
                         <button className="btn-ghost" disabled={busyId === selected.id} onClick={() => {
                           if (confirm(`This transaction was classified as ${selected.transactionType}, which is not normally a business expense. Create an Expense from it anyway?`)) createExpenseFromTxn(selected, { force: true })
-                        }}>Create Expense Anyway</button>
+                        }}>
+                          {busyId === selected.id ? 'Creating…' : 'Create Expense Anyway'}
+                        </button>
                       )}
                       {selectedCategory !== 'possible_refund' && (
                         <button className="btn-ghost" disabled={busyId === selected.id} onClick={() => markAs(selected, 'refund')}>Mark as Refund</button>
@@ -962,11 +966,17 @@ export default function Reconciliation() {
 
                     <div className="recon-sticky-actions">
                       {selectedExpense ? (
-                        <button className="btn-primary" disabled={busyId === selected.id} onClick={() => confirmMatch(selected)}>Confirm Match</button>
+                        <button className="btn-primary" disabled={busyId === selected.id} onClick={() => confirmMatch(selected)}>
+                          {busyId === selected.id ? 'Confirming…' : 'Confirm Match'}
+                        </button>
                       ) : !CREATE_EXPENSE_BLOCKED_TYPES.includes(selected.transactionType) ? (
-                        <button className="btn-primary" disabled={busyId === selected.id} onClick={() => createExpenseFromTxn(selected)}>Create Expense</button>
+                        <button className="btn-primary" disabled={busyId === selected.id} onClick={() => createExpenseFromTxn(selected)}>
+                          {busyId === selected.id ? 'Creating…' : 'Create Expense'}
+                        </button>
                       ) : (
-                        <button className="btn-primary" disabled={busyId === selected.id} onClick={() => ignoreTxn(selected)}>Ignore</button>
+                        <button className="btn-primary" disabled={busyId === selected.id} onClick={() => ignoreTxn(selected)}>
+                          {busyId === selected.id ? 'Ignoring…' : 'Ignore'}
+                        </button>
                       )}
                     </div>
                   </div>
