@@ -100,37 +100,74 @@ export default function PaymentSources() {
   // rows (reviewed by the user first). Classifies, fingerprints against
   // existing transactions on this account, and writes paymentImports +
   // paymentTransactions.
-  async function commitRows(mapped, account, file, sourceType, statementTotals) {
-    const importRef = await addDoc(collection(db, 'paymentImports'), {
-      userId: auth.currentUser.uid,
-      projectId: activeProject.id,
-      paymentAccountId: account.id,
-      sourceType,
-      sourceFileName: file.name,
-      sourceFileUrl: null,
-      sourceFilePath: null,
-      periodStart: mapped.reduce((min, t) => !min || (t.transactionDate && t.transactionDate < min) ? t.transactionDate : min, null),
-      periodEnd: mapped.reduce((max, t) => !max || (t.transactionDate && t.transactionDate > max) ? t.transactionDate : max, null),
-      importStatus: 'processing',
-      lineCount: mapped.length,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-      errorMessage: null,
-      openingBalance: statementTotals?.openingBalance ?? null,
-      closingBalance: statementTotals?.closingBalance ?? null,
-      totalsCheck: null,
-      verification: null,
-    })
+  //
+  // `reprocessImportId`, when given, means this is a re-parse of an
+  // ALREADY-stored file (see reprocessFromStoredPdf) — the bank's PDF is
+  // trusted; a mismatch found by Verify Against PDF means OUR parsing was
+  // wrong, not the source document. Rather than making the user delete and
+  // re-upload from their computer, this replaces the existing import's
+  // transactions in place: same import record, same stored file, freshly
+  // parsed rows.
+  async function commitRows(mapped, account, file, sourceType, statementTotals, reprocessImportId) {
+    let importRef
+    if (reprocessImportId) {
+      importRef = doc(db, 'paymentImports', reprocessImportId)
+      const oldSnap = await getDocs(query(
+        collection(db, 'paymentTransactions'),
+        where('userId', '==', auth.currentUser.uid),
+        where('importId', '==', reprocessImportId)
+      ))
+      for (const d of oldSnap.docs) await unlinkTransaction({ id: d.id, ...d.data() })
+      for (let i = 0; i < oldSnap.docs.length; i += 400) {
+        const batch = writeBatch(db)
+        oldSnap.docs.slice(i, i + 400).forEach(d => batch.delete(d.ref))
+        await batch.commit()
+      }
+      await updateDoc(importRef, {
+        periodStart: mapped.reduce((min, t) => !min || (t.transactionDate && t.transactionDate < min) ? t.transactionDate : min, null),
+        periodEnd: mapped.reduce((max, t) => !max || (t.transactionDate && t.transactionDate > max) ? t.transactionDate : max, null),
+        importStatus: 'processing',
+        lineCount: mapped.length,
+        updatedAt: serverTimestamp(),
+        errorMessage: null,
+        openingBalance: statementTotals?.openingBalance ?? null,
+        closingBalance: statementTotals?.closingBalance ?? null,
+        totalsCheck: null,
+        verification: null,
+      })
+    } else {
+      importRef = await addDoc(collection(db, 'paymentImports'), {
+        userId: auth.currentUser.uid,
+        projectId: activeProject.id,
+        paymentAccountId: account.id,
+        sourceType,
+        sourceFileName: file.name,
+        sourceFileUrl: null,
+        sourceFilePath: null,
+        periodStart: mapped.reduce((min, t) => !min || (t.transactionDate && t.transactionDate < min) ? t.transactionDate : min, null),
+        periodEnd: mapped.reduce((max, t) => !max || (t.transactionDate && t.transactionDate > max) ? t.transactionDate : max, null),
+        importStatus: 'processing',
+        lineCount: mapped.length,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        errorMessage: null,
+        openingBalance: statementTotals?.openingBalance ?? null,
+        closingBalance: statementTotals?.closingBalance ?? null,
+        totalsCheck: null,
+        verification: null,
+      })
 
-    // Keep the original statement file — the transaction rows are derived
-    // data, and proper accounting practice keeps the source document
-    // retrievable for audit trail, the same way receipts are kept for
-    // expenses. Uploaded as-is (no compression/re-encoding).
-    try {
-      const { url, path } = await uploadStatementFile(file, auth.currentUser.uid, importRef.id)
-      await updateDoc(doc(db, 'paymentImports', importRef.id), { sourceFileUrl: url, sourceFilePath: path })
-    } catch (err) {
-      console.error('Failed to store original statement file:', err.message)
+      // Keep the original statement file — the transaction rows are derived
+      // data, and proper accounting practice keeps the source document
+      // retrievable for audit trail, the same way receipts are kept for
+      // expenses. Uploaded as-is (no compression/re-encoding). Skipped on
+      // reprocess: the file is already stored and unchanged.
+      try {
+        const { url, path } = await uploadStatementFile(file, auth.currentUser.uid, importRef.id)
+        await updateDoc(doc(db, 'paymentImports', importRef.id), { sourceFileUrl: url, sourceFilePath: path })
+      } catch (err) {
+        console.error('Failed to store original statement file:', err.message)
+      }
     }
 
     // Check existing rows sharing a fingerprint on this account, so a
@@ -567,22 +604,69 @@ export default function PaymentSources() {
     const toImport = pdfPreview.rows.filter(r => r.include)
     const accountId = pdfPreview.accountId
     const queueAfter = pdfQueue
+    const reprocessImportId = pdfPreview.reprocessImportId || null
     setImporting(true)
     try {
       const { written, flagged } = await commitRows(toImport, account, pdfPreview.file, 'pdf', {
         openingBalance: pdfPreview.openingBalance,
         closingBalance: pdfPreview.closingBalance,
-      })
+      }, reprocessImportId)
       setImportMsg(prev => (prev ? prev + ' ' : '') +
-        `${pdfPreview.fileName}: imported ${written} transaction${written === 1 ? '' : 's'} from PDF` +
+        (reprocessImportId
+          ? `${pdfPreview.fileName}: re-processed from the stored PDF — ${written} transaction${written === 1 ? '' : 's'} now on record`
+          : `${pdfPreview.fileName}: imported ${written} transaction${written === 1 ? '' : 's'} from PDF`) +
         (flagged ? ` (${flagged} flagged for duplicate review — see View/Edit below)` : '') +
         '. Go to Reconciliation to review matches.'
       )
+      // Re-verify immediately so the ⚠ Mismatch badge clears (or shows what,
+      // if anything, is still off) without a separate manual step.
+      if (reprocessImportId) {
+        const imp = imports.find(i => i.id === reprocessImportId)
+        if (imp) await verifyImportAgainstSource({ ...imp, sourceFileName: pdfPreview.fileName })
+      }
     } catch (err) {
-      setImportMsg(prev => (prev ? prev + ' ' : '') + `${pdfPreview.fileName}: import failed — ${err.message || 'unknown error'}`)
+      setImportMsg(prev => (prev ? prev + ' ' : '') + `${pdfPreview.fileName}: ${reprocessImportId ? 're-processing' : 'import'} failed — ${err.message || 'unknown error'}`)
     }
     setImporting(false)
     await advancePdfQueue(queueAfter, accountId)
+  }
+
+  // One-click fix for a "Verify Against PDF" mismatch: the bank's PDF is
+  // trusted, so a mismatch means OUR parsing was wrong — re-fetches the
+  // ALREADY-stored original file (no re-upload from the user's computer)
+  // and shows it in the normal review screen, tagged so confirming it
+  // replaces this import's transactions in place instead of creating a
+  // second, duplicate import.
+  async function reprocessFromStoredPdf(imp) {
+    if (!imp.sourceFileUrl) return
+    setImporting(true)
+    setImportMsg('')
+    try {
+      const resp = await fetch('/api/download-receipt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: imp.sourceFileUrl }),
+      })
+      if (!resp.ok) throw new Error(`could not re-fetch the stored file (HTTP ${resp.status})`)
+      const blob = await resp.blob()
+      const file = new File([blob], imp.sourceFileName || 'statement.pdf', { type: blob.type })
+      const { rows, lineCount, pageCount, openingBalance, closingBalance } = await parsePdfStatement(file)
+      if (!rows.length) {
+        setImportMsg(`${imp.sourceFileName}: re-parsing the stored PDF found ${lineCount === 0 ? 'no text' : `${lineCount} lines across ${pageCount} page(s) but no recognizable transaction rows`} — this can't be auto-fixed. Try Delete and a manual re-upload instead.`)
+        setImporting(false)
+        return
+      }
+      const totalsCheck = validateStatementTotals({ openingBalance, closingBalance, rows })
+      setPdfPreview({
+        file, fileName: imp.sourceFileName, accountId: imp.paymentAccountId,
+        openingBalance, closingBalance, totalsCheck,
+        rows: rows.map(r => ({ ...r, include: true })),
+        reprocessImportId: imp.id,
+      })
+    } catch (err) {
+      setImportMsg(`${imp.sourceFileName}: could not re-fetch the stored PDF — ${err.message || 'unknown error'}`)
+    }
+    setImporting(false)
   }
 
   function skipPdfPreview() {
@@ -726,7 +810,7 @@ export default function PaymentSources() {
         {imports.length > 0 && (
           <div style={{ marginTop: 16 }}>
             <div className="action-row" style={{ alignItems: 'center' }}>
-              <button className="btn-ghost btn-small" disabled={verifyingAll || verifyingImportId} onClick={verifyAllImports}>
+              <button className="btn-primary btn-small" disabled={verifyingAll || verifyingImportId} onClick={verifyAllImports}>
                 {verifyingAll ? 'Verifying…' : 'Verify All Against PDFs'}
               </button>
               {verifyMsg && <span className="hint">{verifyMsg}</span>}
@@ -746,32 +830,41 @@ export default function PaymentSources() {
                       <td>{imp.periodStart && imp.periodEnd ? `${imp.periodStart} – ${imp.periodEnd}` : '—'}</td>
                       <td>{imp.lineCount}</td>
                       <td>{imp.importStatus}</td>
-                      <td>
-                        {imp.sourceType !== 'pdf' ? '—' : !imp.verification ? (
-                          <span className="hint">Not yet checked</span>
-                        ) : imp.verification.error ? (
-                          <>
-                            <span className="badge badge-warning">⚠ Couldn't re-check</span>
-                            <div className="hint" style={{ maxWidth: 220 }}>{imp.verification.error}</div>
-                          </>
-                        ) : imp.verification.consistent ? (
-                          <span className="badge badge-office" title="Re-parsed statement matches the stored transactions and totals.">✓ Verified</span>
-                        ) : (
-                          <>
-                            <span className="badge badge-warning">⚠ Mismatch</span>
-                            <div className="hint" style={{ maxWidth: 220 }}>
-                              {[
-                                imp.verification.missingFromRecords ? `${imp.verification.missingFromRecords} row(s) in the PDF not found in records` : null,
-                                imp.verification.extraInRecords ? `${imp.verification.extraInRecords} recorded row(s) not found in the PDF` : null,
-                                imp.verification.totalsCheck && !imp.verification.totalsCheck.consistent
-                                  ? `Totals mismatch: expected closing ${imp.verification.totalsCheck.expectedClosingBalance.toFixed(2)}, statement shows ${imp.verification.totalsCheck.closingBalance.toFixed(2)}`
-                                  : null,
-                              ].filter(Boolean).join(' · ')}
-                            </div>
-                          </>
-                        )}
+                      <td style={{ minWidth: 220 }}>
+                        {/* Fixed min-height regardless of content, so a check landing
+                            mid-list (Verify All runs them one at a time) doesn't grow
+                            this row and shove every row below it up/down while
+                            scrolling — the "bouncing" the badge text used to cause. */}
+                        <div style={{ minHeight: 40 }}>
+                          {imp.sourceType !== 'pdf' ? '—' : !imp.verification ? (
+                            <span className="hint">Not yet checked</span>
+                          ) : imp.verification.error ? (
+                            <>
+                              <span className="badge badge-warning">⚠ Couldn't re-check</span>
+                              <div className="hint" style={{ maxWidth: 220 }}>{imp.verification.error}</div>
+                            </>
+                          ) : imp.verification.consistent ? (
+                            <span className="badge badge-office" title="Re-parsed statement matches the stored transactions and totals.">✓ Verified</span>
+                          ) : (
+                            <>
+                              <span className="badge badge-warning">⚠ Mismatch</span>
+                              <div className="hint" style={{ maxWidth: 220 }}>
+                                {[
+                                  imp.verification.missingFromRecords ? `${imp.verification.missingFromRecords} row(s) in the PDF not found in records` : null,
+                                  imp.verification.extraInRecords ? `${imp.verification.extraInRecords} recorded row(s) not found in the PDF` : null,
+                                  imp.verification.totalsCheck && !imp.verification.totalsCheck.consistent
+                                    ? `Totals mismatch: expected closing ${imp.verification.totalsCheck.expectedClosingBalance.toFixed(2)}, statement shows ${imp.verification.totalsCheck.closingBalance.toFixed(2)}`
+                                    : null,
+                                ].filter(Boolean).join(' · ')}
+                              </div>
+                              <button className="btn-small" style={{ marginTop: 4 }} disabled={importing} onClick={() => reprocessFromStoredPdf(imp)}>
+                                Fix from Stored PDF
+                              </button>
+                            </>
+                          )}
+                        </div>
                       </td>
-                      <td>
+                      <td style={{ minWidth: 150 }}>
                         <button className="btn-small" onClick={() => setViewingImportId(viewingImportId === imp.id ? null : imp.id)}>
                           {viewingImportId === imp.id ? 'Hide' : 'View/Edit'}
                         </button>
@@ -781,7 +874,7 @@ export default function PaymentSources() {
                               {attachingImportId === imp.id ? 'Uploading…' : 'Attach Original'}
                             </button>}
                         {imp.sourceType === 'pdf' && imp.sourceFileUrl && (
-                          <button className="btn-small" disabled={verifyingImportId === imp.id || verifyingAll} onClick={() => verifyImportAgainstSource(imp)}>
+                          <button className="btn-small" style={{ minWidth: 130, display: 'inline-block' }} disabled={verifyingImportId === imp.id || verifyingAll} onClick={() => verifyImportAgainstSource(imp)}>
                             {verifyingImportId === imp.id ? 'Checking…' : 'Verify Against PDF'}
                           </button>
                         )}
