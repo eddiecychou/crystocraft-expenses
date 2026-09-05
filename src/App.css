@@ -426,7 +426,7 @@ body {
   flex: 1;
   box-shadow: var(--shadow-sm);
 }
-.stat-label { color: #718096; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
+.stat-label { color: #718096; font-size: var(--type-caption-size); line-height: var(--type-caption-line); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
 .stat-value { font-size: 24px; font-weight: 700; color: var(--t-dark); font-variant-numeric: tabular-nums; }
 
 /* ── Expense rows (dashboard) ── */
@@ -550,7 +550,7 @@ body {
 .dropzone:hover { border-color: var(--t-btn); background: #ecf7ef; }
 .dropzone-icon { font-size: 40px; margin-bottom: 12px; }
 .dropzone p { color: #4a5568; margin-bottom: 4px; }
-.hint { color: #a0aec0; font-size: 12px; }
+.hint { color: #a0aec0; font-size: var(--type-caption-size); line-height: var(--type-caption-line); }
 
 .file-list {
   background: #fff;
@@ -899,7 +899,7 @@ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
   overflow-y: auto;
   position: relative;
 }
-.lightbox-title { font-size: 15px; font-weight: 600; margin-bottom: 16px; color: var(--t-dark); }
+.lightbox-title { font-size: var(--type-card-title-size); line-height: var(--type-card-title-line); font-weight: var(--type-card-title-weight); margin-bottom: 16px; color: var(--t-dark); }
 .lightbox-close {
   position: absolute;
   top: 12px; right: 14px;
@@ -1160,7 +1160,7 @@ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
   box-shadow: 0 1px 4px rgba(0,0,0,0.06);
 }
 .settings-section-title {
-  font-size: 16px; font-weight: 700; color: var(--t-dark); margin-bottom: 4px;
+  font-size: var(--type-card-title-size); line-height: var(--type-card-title-line); font-weight: var(--type-card-title-weight); color: var(--t-dark); margin-bottom: 4px;
 }
 .project-list { display: flex; flex-direction: column; gap: var(--space-3); margin-top: var(--space-4); }
 .project-card {
@@ -1291,8 +1291,8 @@ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
   grid-template-columns: 1fr 1fr;
   gap: var(--space-4);
 }
-.meta-field-label { font-size: 12px; color: #6b8577; margin-bottom: var(--space-2); }
-.meta-field-value { color: var(--t-dark); }
+.meta-field-label { font-size: var(--type-caption-size); line-height: var(--type-caption-line); color: #6b8577; margin-bottom: var(--space-2); }
+.meta-field-value { font-size: var(--type-body-small-size); line-height: var(--type-body-small-line); color: var(--t-dark); }
 @media (max-width: 640px) {
   .meta-grid { grid-template-columns: 1fr; }
 }
