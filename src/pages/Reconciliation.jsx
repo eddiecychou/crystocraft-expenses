@@ -111,6 +111,13 @@ export default function Reconciliation() {
         })
       }
       setMatchProgress({ done: i + 1, total: candidates.length })
+      // Only transactions that actually score high enough above ever hit an
+      // `await` — with thousands of candidates that mostly DON'T match
+      // anything, the loop could otherwise run for a long stretch with no
+      // `await` at all, freezing the tab solid with zero visible progress
+      // (looks exactly like the button doing nothing). Yielding periodically
+      // keeps the browser painting the progress bar/counter and responsive.
+      if (i % 20 === 0) await new Promise(resolve => setTimeout(resolve, 0))
     }
     setMatching(false)
   }
