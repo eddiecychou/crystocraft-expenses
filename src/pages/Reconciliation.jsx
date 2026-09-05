@@ -541,13 +541,32 @@ export default function Reconciliation() {
 
                 <div className="recon-detail-section">
                   <div className="recon-detail-label">Transaction</div>
-                  <p>
-                    Transaction date: {selected.transactionDate || selected.rawDateText || '—'}<br />
-                    {selected.postDate && <>Posting date: {selected.postDate}<br /></>}
-                    Direction: {selected.direction}<br />
-                    {selected.balanceAfter != null && <>Balance after: {selected.balanceAfter.toFixed(2)}<br /></>}
-                    Type: {selected.transactionType}
-                  </p>
+                  <div className="meta-grid">
+                    <div className="meta-field">
+                      <div className="meta-field-label">Transaction date</div>
+                      <div className="meta-field-value">{selected.transactionDate || selected.rawDateText || '—'}</div>
+                    </div>
+                    {selected.postDate && (
+                      <div className="meta-field">
+                        <div className="meta-field-label">Posting date</div>
+                        <div className="meta-field-value">{selected.postDate}</div>
+                      </div>
+                    )}
+                    <div className="meta-field">
+                      <div className="meta-field-label">Direction</div>
+                      <div className="meta-field-value">{selected.direction}</div>
+                    </div>
+                    {selected.balanceAfter != null && (
+                      <div className="meta-field">
+                        <div className="meta-field-label">Balance after</div>
+                        <div className="meta-field-value">{selected.balanceAfter.toFixed(2)}</div>
+                      </div>
+                    )}
+                    <div className="meta-field">
+                      <div className="meta-field-label">Type</div>
+                      <div className="meta-field-value">{selected.transactionType}</div>
+                    </div>
+                  </div>
                 </div>
 
                 {unresolvedDuplicateFlag(selected) && (

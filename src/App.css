@@ -418,11 +418,11 @@ body {
 .card-header h3 { margin-bottom: 0; }
 
 /* ── Stats ── */
-.stat-row { display: flex; gap: 16px; margin-bottom: 20px; }
+.stat-row { display: flex; gap: var(--space-4); margin-bottom: 20px; }
 .stat-card {
   background: #fff;
   border-radius: var(--radius-md);
-  padding: 20px 24px;
+  padding: var(--space-6);
   flex: 1;
   box-shadow: var(--shadow-sm);
 }
@@ -540,7 +540,7 @@ body {
 .dropzone {
   border: 2px dashed #cbd5e0;
   border-radius: 10px;
-  padding: 48px 24px;
+  padding: var(--space-8);
   text-align: center;
   cursor: pointer;
   background: #fff;
@@ -1096,7 +1096,9 @@ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
   }
   .action-row { gap: var(--space-3); }
 
-  .stat-row { flex-direction: column; }
+  .stat-row { flex-direction: column; gap: var(--space-3); }
+  .stat-card { padding: var(--space-4); }
+  .dropzone { padding: var(--space-6); }
 
   .result-grid { grid-template-columns: 1fr; }
 
@@ -1282,6 +1284,18 @@ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
 }
 .recon-reasons { margin: 8px 0; padding-left: 18px; color: #4a5568; }
 .recon-reasons li { margin-bottom: 2px; }
+
+/* ── Metadata field grid (detail views) ── */
+.meta-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+}
+.meta-field-label { font-size: 12px; color: #6b8577; margin-bottom: var(--space-2); }
+.meta-field-value { color: var(--t-dark); }
+@media (max-width: 640px) {
+  .meta-grid { grid-template-columns: 1fr; }
+}
 .recon-receipt-thumb {
   max-width: 160px;
   max-height: 160px;
