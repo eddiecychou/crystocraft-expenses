@@ -85,21 +85,30 @@ export default function Settings() {
   async function saveEdit() {
     if (!editName.trim()) return
     setSaving(true)
-    await updateDoc(doc(db, 'projects', editId), { name: editName.trim(), color: editColor })
-    updateProject(editId, { name: editName.trim(), color: editColor })
-    setEditId(null); setSaving(false)
+    try {
+      await updateDoc(doc(db, 'projects', editId), { name: editName.trim(), color: editColor })
+      updateProject(editId, { name: editName.trim(), color: editColor })
+      setEditId(null)
+    } catch (err) {
+      alert('Could not save: ' + err.message)
+    }
+    setSaving(false)
   }
 
   function deleteProject(p) {
     setConfirmDialog({
       message: `Delete "${p.name}"? Its expenses will remain but won't appear until reassigned.`,
       onConfirm: async () => {
-        await deleteDoc(doc(db, 'projects', p.id))
-        if (activeProject?.id === p.id) {
-          const remaining = projects.filter(x => x.id !== p.id)
-          if (remaining.length) selectProject(remaining[0].id)
+        try {
+          await deleteDoc(doc(db, 'projects', p.id))
+          if (activeProject?.id === p.id) {
+            const remaining = projects.filter(x => x.id !== p.id)
+            if (remaining.length) selectProject(remaining[0].id)
+          }
+          await reloadProjects()
+        } catch (err) {
+          alert('Could not delete: ' + err.message)
         }
-        await reloadProjects()
       }
     })
   }
@@ -142,20 +151,33 @@ export default function Settings() {
                       <span className="project-dot" style={{ background: c.dot }} />
                       <span className="project-card-name">{p.name}</span>
                       {isActive && <span className="project-active-badge" style={{ background: c.bg, color: c.text }}>Active</span>}
+                      {p.userId !== auth.currentUser.uid && (
+                        <span className="hint">Shared by {p.members?.[p.userId]?.email || 'the owner'}</span>
+                      )}
                     </div>
                     <div className="project-card-actions">
                       {!isActive && (
                         <button onClick={() => selectProject(p.id)} className="btn-small btn-primary">Set Active</button>
                       )}
-                      <button onClick={() => startEdit(p)} className="btn-small">Edit</button>
-                      {p.userId === auth.currentUser.uid && (
-                        <button onClick={() => (sharingId === p.id ? setSharingId(null) : startShare(p))} className="btn-small">
-                          {sharingId === p.id ? 'Hide Sharing' : 'Share'}
-                        </button>
-                      )}
-                      {projects.length > 1 && !isActive && (
-                        <button onClick={() => deleteProject(p)} className="btn-small btn-danger">Delete</button>
-                      )}
+                      {p.userId === auth.currentUser.uid ? (
+                        <>
+                          <button onClick={() => startEdit(p)} className="btn-small">Edit</button>
+                          <button onClick={() => (sharingId === p.id ? setSharingId(null) : startShare(p))} className="btn-small">
+                            {sharingId === p.id ? 'Hide Sharing' : 'Share'}
+                          </button>
+                          {projects.length > 1 && !isActive && (
+                            <button onClick={() => deleteProject(p)} className="btn-small btn-danger">Delete</button>
+                          )}
+                        </>
+                      ) : null /* Only the owner can rename/recolor/delete/manage
+                                  membership — the security rule enforces this
+                                  server-side too, so showing those controls to
+                                  a collaborator would just be a button that
+                                  silently fails. A self-service "Leave
+                                  Project" would need its own narrower rule
+                                  (a member may remove only themselves) —
+                                  not added yet, ask the owner to remove you
+                                  from Settings for now. */}
                     </div>
                     {sharingId === p.id && (
                       <div className="project-share-panel">
