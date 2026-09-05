@@ -418,12 +418,23 @@ export default function CompanyReview() {
         .map(t => ({ TransactionDate: t.transactionDate || '', Merchant: t.merchantRaw || '', Amount: t.settlementAmount, Currency: t.settlementCurrency, Note: 'Requires accountant decision: reimbursement vs. director current account' }))
       zip.file('reimbursement-or-director-current-account.csv', toCsv(['TransactionDate', 'Merchant', 'Amount', 'Currency', 'Note'], sharedRows))
 
-      // source-statements/ — original files for every import represented
+      // source-statements/ — original files for every import represented.
+      // A personal account's statement mixes personal and company charges in
+      // ONE file — bundling it whole would expose every personal transaction
+      // on it regardless of how carefully the register/CSVs above filter by
+      // classification, defeating the entire point of that filter. Company
+      // accounts never mix personal data, so their statements are always
+      // safe to include in full.
       setExportProgress('Downloading source statements…')
       const importIds = [...new Set(included.map(t => t.importId).filter(Boolean))]
+      const omittedPersonalStatements = []
       for (const importId of importIds) {
         const imp = imports.find(i => i.id === importId)
         if (!imp?.sourceFileUrl) continue
+        if (accountOf(imp.paymentAccountId)?.ownershipType === 'personal') {
+          omittedPersonalStatements.push(imp.sourceFileName || importId)
+          continue
+        }
         try {
           const res = await fetch('/api/download-receipt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: imp.sourceFileUrl }) })
           if (!res.ok) throw new Error(`HTTP ${res.status}`)
@@ -431,6 +442,12 @@ export default function CompanyReview() {
         } catch (err) {
           console.warn('Could not download source statement:', imp.sourceFileName, err.message)
         }
+      }
+      if (omittedPersonalStatements.length > 0) {
+        zip.file(
+          'source-statements/PERSONAL_ACCOUNT_STATEMENTS_OMITTED.txt',
+          `The following original statement files were intentionally left out of this package because they come from a personal account and would expose personal transactions alongside the company ones:\n\n${omittedPersonalStatements.join('\n')}\n\nEach included company transaction from these statements is still fully documented in expense-register.xlsx.`
+        )
       }
 
       // receipts/ — images from any linked Expense
@@ -466,6 +483,7 @@ export default function CompanyReview() {
         missingReceiptCount: missingRows.length,
         includedStatuses: Object.entries(exportModal.include).filter(([, v]) => v).map(([k]) => k),
         sourceStatementIds: importIds,
+        personalAccountStatementsOmitted: omittedPersonalStatements.length,
       }
       zip.file('manifest.json', JSON.stringify(manifest, null, 2))
 

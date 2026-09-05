@@ -6,6 +6,28 @@ Each entry says what happened, why it matters, and how to apply it going forward
 
 ---
 
+## A classification filter on structured data doesn't protect the raw source file
+
+Company Package Export (Phase 3) filters the expense-register/CSVs by
+classification, excluding Personal by default — but it also bundled the
+**entire original statement file** for any import with at least one included
+transaction. A personal account's statement mixes personal and company
+charges in one file; attaching it whole exposes every personal transaction
+on it regardless of how carefully the structured export filters, defeating
+the entire point of the classification system. This is exactly the manual
+workaround Eddie's previous bookkeeper had to do by hand (hiding personal
+lines before handing statements to an auditor).
+
+**How to apply:** When an export bundles both structured, filterable data
+AND a raw source document, check whether the raw document can *itself*
+contain the excluded data. If so, either omit it (what this app does now —
+personal-account statements are excluded from Company Package exports
+entirely, with a `.txt` note explaining why) or regenerate a redacted
+version — never assume filtering the derived/structured copy is sufficient
+protection when the original file is bundled alongside it unfiltered.
+
+---
+
 ## Firestore security rules can't filter a list query — only allow or deny it
 
 Building Project Sharing, the natural instinct was: write a rule that does a

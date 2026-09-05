@@ -540,6 +540,11 @@ by period + selected classifications, then builds a ZIP:
 ├── company-expense-summary.csv  — totals by classification × currency
 ├── accountant-review-list.csv   — accountantStatus:'pending' or needs_accountant_review/shared
 ├── source-statements/           — original statement files (via /api/download-receipt), one per unique importId
+│                                   for COMPANY accounts only — a personal account's statement mixes
+│                                   personal and company charges in one file, so including it whole
+│                                   would leak personal transactions regardless of classification
+│                                   filtering; a PERSONAL_ACCOUNT_STATEMENTS_OMITTED.txt lists what
+│                                   was left out and why
 ├── receipts/                    — linked Expense images (same proxy, same pattern as Expenses.jsx's exportZip)
 ├── missing-receipts.csv         — rows with no linked Expense or receiptStatus:'missing'
 ├── reimbursement-or-director-current-account.csv  — 'shared' rows flagged as CANDIDATES only;
