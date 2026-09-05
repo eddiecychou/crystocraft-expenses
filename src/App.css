@@ -581,6 +581,12 @@ body {
 .btn-small.btn-danger:hover { background: var(--color-danger-bg); }
 
 .action-row { display: flex; gap: 12px; margin-top: 24px; }
+/* Desktop base for the primary action pinned below a secondary one (e.g.
+   Reconciliation's "Not Related" action-row followed by "Link Settlement")
+   — without this, the two button groups had no rule between them at all
+   on desktop (only the mobile fixed-bar variant below sets any spacing),
+   so they rendered flush against each other. */
+.recon-sticky-actions { margin-top: 24px; }
 .export-row { display: flex; align-items: center; gap: 10px; margin: 12px 0; }
 .attach-row { display: flex; align-items: center; gap: 10px; margin-top: 12px; padding-top: 12px; border-top: 1px solid #e8f5e9; }
 
@@ -742,6 +748,7 @@ body {
   border: 1px solid #d5ddd8;
   border-radius: var(--radius-md);
   padding: 12px;
+  margin-top: var(--space-4);
   box-shadow: var(--shadow-sm);
 }
 .txn-detail-scroll { max-height: 60vh; overflow-y: auto; }
@@ -1347,6 +1354,7 @@ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
   grid-template-columns: 1fr 1fr;
   gap: var(--space-4);
 }
+.meta-field { display: flex; flex-direction: column; }
 .meta-field-label { font-size: var(--type-caption-size); line-height: var(--type-caption-line); color: #6b8577; margin-bottom: var(--space-2); }
 .meta-field-value { font-size: var(--type-body-small-size); line-height: var(--type-body-small-line); color: var(--t-dark); }
 @media (max-width: 640px) {
