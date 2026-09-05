@@ -65,6 +65,7 @@ export default function Reconciliation() {
   const [matchProgress, setMatchProgress] = useState({ done: 0, total: 0 })
   const [busyId, setBusyId] = useState(null)
   const [chosenExpenseId, setChosenExpenseId] = useState('')
+  const [expenseSearchText, setExpenseSearchText] = useState('')
   const [pickingSettlement, setPickingSettlement] = useState(false)
   const [chosenCounterpart, setChosenCounterpart] = useState('')
 
@@ -88,7 +89,10 @@ export default function Reconciliation() {
 
   // Reset the detail selection whenever the visible list changes shape, so
   // a stale selection from a different tab/filter can't linger unseen.
-  useEffect(() => { setSelectedId(null); setChosenExpenseId(''); setPickingSettlement(false) }, [topTab, exceptionFilter, sourceTypeFilter, searchText])
+  useEffect(() => { setSelectedId(null); setChosenExpenseId(''); setExpenseSearchText(''); setPickingSettlement(false) }, [topTab, exceptionFilter, sourceTypeFilter, searchText])
+  // Switching to a different transaction should never carry over a manual
+  // search/selection from whichever one was open before.
+  useEffect(() => { setChosenExpenseId(''); setExpenseSearchText('') }, [selectedId])
 
   const accountOf = id => accounts.find(a => a.id === id)
   const accountLabel = id => accountOf(id)?.label || '—'
@@ -845,14 +849,49 @@ export default function Reconciliation() {
                       <button className="btn-ghost" disabled={busyId === selected.id} onClick={() => ignoreTxn(selected)}>Ignore</button>
                     </div>
 
-                    <div className="filter-row" style={{ marginTop: 10 }}>
-                      <select value={chosenExpenseId} onChange={e => setChosenExpenseId(e.target.value)}>
-                        <option value="">Find another expense…</option>
-                        {expenses.filter(e => !e.matchedPaymentTransactionId || e.id === selectedExpense?.id).map(e => (
-                          <option key={e.id} value={e.id}>{e.date} · {e.vendor} · {e.currency} {parseFloat(e.amount).toFixed(2)}</option>
-                        ))}
-                      </select>
-                      <button className="btn-small" disabled={busyId === selected.id || !chosenExpenseId} onClick={() => confirmMatch(selected, chosenExpenseId)}>Confirm Chosen Expense</button>
+                    {/* A native <select> listing every unmatched expense
+                        project-wide, unsorted, made manual matching mean
+                        scrolling through dozens of unrelated vendors to find
+                        one by eye. Type-to-search instead: filters by
+                        vendor/amount/date as you type, results sorted by
+                        date distance from the transaction being matched so
+                        the likeliest candidates lead even with a broad
+                        search term. */}
+                    <div className="expense-search" style={{ marginTop: 10 }}>
+                      <input
+                        type="text"
+                        placeholder="Type a vendor name, amount, or date to find the matching expense…"
+                        value={expenseSearchText}
+                        onChange={e => { setExpenseSearchText(e.target.value); setChosenExpenseId('') }}
+                      />
+                      {expenseSearchText.trim() && (() => {
+                        const q = expenseSearchText.trim().toLowerCase()
+                        const results = expenses
+                          .filter(e => !e.matchedPaymentTransactionId || e.id === selectedExpense?.id)
+                          .filter(e => [e.vendor, e.date, e.currency, parseFloat(e.amount).toFixed(2)].join(' ').toLowerCase().includes(q))
+                          .sort((a, b) => {
+                            const da = Math.abs(Date.parse(a.date) - Date.parse(selected.transactionDate))
+                            const db = Math.abs(Date.parse(b.date) - Date.parse(selected.transactionDate))
+                            return (Number.isNaN(da) ? Infinity : da) - (Number.isNaN(db) ? Infinity : db)
+                          })
+                          .slice(0, 8)
+                        return (
+                          <div className="expense-search-results">
+                            {results.length === 0 && <p className="hint">No matching expenses.</p>}
+                            {results.map(e => (
+                              <button
+                                key={e.id}
+                                type="button"
+                                className={`expense-search-result${chosenExpenseId === e.id ? ' is-selected' : ''}`}
+                                onClick={() => setChosenExpenseId(e.id)}
+                              >
+                                {e.date} · {e.vendor} · {e.currency} {parseFloat(e.amount).toFixed(2)}
+                              </button>
+                            ))}
+                          </div>
+                        )
+                      })()}
+                      <button className="btn-small" style={{ marginTop: 8 }} disabled={busyId === selected.id || !chosenExpenseId} onClick={() => confirmMatch(selected, chosenExpenseId)}>Confirm Chosen Expense</button>
                     </div>
 
                     {pickingSettlement && (
