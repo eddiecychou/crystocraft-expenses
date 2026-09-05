@@ -399,6 +399,32 @@ export default function Reconciliation() {
     setSelectedId(next ? next.id : null)
   }
 
+  // Lets an already-matched expense be freed up right from the search
+  // results, instead of "found it, but can't use it" with no way to see
+  // which transaction has it or undo that match without leaving this page
+  // to go hunt for it on Records. Same both-sides revert as Expenses.jsx's
+  // unlinkExpenseMatch — the transaction-side update is best-effort, since
+  // that transaction may have been deleted independently since the match.
+  async function unlinkExpense(e) {
+    if (!confirm(`Unmatch "${e.vendor}" (${e.date}) from its current transaction so you can match it here instead?`)) return
+    if (e.matchedPaymentTransactionId) {
+      await updateDoc(doc(db, 'paymentTransactions', e.matchedPaymentTransactionId), {
+        status: 'unmatched',
+        matchedExpenseIds: [],
+        confidenceScore: null,
+        matchReasons: [],
+        updatedAt: serverTimestamp(),
+      }).catch(() => {})
+    }
+    await updateDoc(doc(db, 'expenses', e.id), {
+      matchedPaymentTransactionId: null,
+      matchedPaymentAccountId: null,
+      settlementAmount: null,
+      settlementCurrency: null,
+      settlementStatus: 'unsettled',
+    })
+  }
+
   async function confirmMatch(txn, expenseIdOverride) {
     const expenseId = expenseIdOverride || txn.matchedExpenseIds?.[0]
     if (!expenseId) return
@@ -866,42 +892,43 @@ export default function Reconciliation() {
                       />
                       {expenseSearchText.trim() && (() => {
                         const q = expenseSearchText.trim().toLowerCase()
-                        const allMatches = expenses
+                        // Was completely capped at 8 (the results box
+                        // already scrolls, so no reason to truncate), and
+                        // an already-matched expense was silently excluded
+                        // entirely — "found it, but can't use it, and no
+                        // way to see which transaction has it or free it
+                        // up" without leaving this page to go hunt for it
+                        // on Records. Both fixed: no cap, and an
+                        // already-matched result stays visible with its own
+                        // Unmatch action right here.
+                        const results = expenses
                           .filter(e => [e.vendor, e.date, e.currency, Number(e.amount || 0).toFixed(2)].join(' ').toLowerCase().includes(q))
-                        // A capped-at-8 result list looked exactly like
-                        // "some records are missing" once a merchant had
-                        // more than 8 candidates (e.g. every month of a
-                        // recurring charge, all unmatched at once) — the
-                        // results box already scrolls (see .expense-search-
-                        // results), so there's no reason to truncate.
-                        const results = allMatches
-                          .filter(e => !e.matchedPaymentTransactionId || e.id === selectedExpense?.id)
                           .sort((a, b) => {
                             const da = Math.abs(Date.parse(a.date) - Date.parse(selected.transactionDate))
                             const db = Math.abs(Date.parse(b.date) - Date.parse(selected.transactionDate))
                             return (Number.isNaN(da) ? Infinity : da) - (Number.isNaN(db) ? Infinity : db)
                           })
-                        const hiddenAlreadyMatched = allMatches.length - results.length
                         return (
                           <div className="expense-search-results">
                             {results.length === 0 && <p className="hint">No matching expenses.</p>}
-                            {hiddenAlreadyMatched > 0 && (
-                              <p className="hint" style={{ padding: '6px 12px 0' }}>
-                                {hiddenAlreadyMatched} matching expense{hiddenAlreadyMatched === 1 ? ' is' : 's are'} already linked to a
-                                different transaction — unlink {hiddenAlreadyMatched === 1 ? 'it' : 'them'} from Records first if one of
-                                these should actually match this transaction instead.
-                              </p>
-                            )}
-                            {results.map(e => (
-                              <button
-                                key={e.id}
-                                type="button"
-                                className={`expense-search-result${chosenExpenseId === e.id ? ' is-selected' : ''}`}
-                                onClick={() => setChosenExpenseId(e.id)}
-                              >
-                                {e.date} · {e.vendor} · {e.currency} {Number(e.amount || 0).toFixed(2)}
-                              </button>
-                            ))}
+                            {results.map(e => {
+                              const linkedElsewhere = e.matchedPaymentTransactionId && e.id !== selectedExpense?.id
+                              return linkedElsewhere ? (
+                                <div key={e.id} className="expense-search-result expense-search-result-linked">
+                                  <span>{e.date} · {e.vendor} · {e.currency} {Number(e.amount || 0).toFixed(2)} <span className="hint">— matched elsewhere</span></span>
+                                  <button type="button" className="btn-small btn-ghost" onClick={() => unlinkExpense(e)}>Unmatch</button>
+                                </div>
+                              ) : (
+                                <button
+                                  key={e.id}
+                                  type="button"
+                                  className={`expense-search-result${chosenExpenseId === e.id ? ' is-selected' : ''}`}
+                                  onClick={() => setChosenExpenseId(e.id)}
+                                >
+                                  {e.date} · {e.vendor} · {e.currency} {Number(e.amount || 0).toFixed(2)}
+                                </button>
+                              )
+                            })}
                           </div>
                         )
                       })()}

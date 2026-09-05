@@ -912,6 +912,17 @@ body {
 .expense-search-result:last-child { border-bottom: none; }
 .expense-search-result:hover { background: #f7fbf8; }
 .expense-search-result.is-selected { background: #eaf5ee; font-weight: 600; }
+.expense-search-result-linked {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 8px 12px;
+  border-bottom: 1px solid #f5f5f7;
+  cursor: default;
+  color: #718096;
+}
+.expense-search-result-linked:last-child { border-bottom: none; }
 
 .filter-search {
   padding: 6px 10px;
