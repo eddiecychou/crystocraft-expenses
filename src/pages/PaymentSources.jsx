@@ -1099,6 +1099,9 @@ export default function PaymentSources() {
               <input type="file" multiple accept=".csv,.pdf,text/csv,application/pdf" hidden ref={fileRef} onChange={handleFileSelected} />
               <input type="file" accept=".csv,.pdf,text/csv,application/pdf" hidden ref={attachFileRef} onChange={handleAttachOriginal} />
             </div>
+            {importing && !pdfPreview && (
+              <div className="scan-progress-bar"><div className="scan-progress-fill" /></div>
+            )}
             <p className="hint">Select multiple CSV/PDF files at once for a batch import. CSV needs Date, Description, and Amount columns (or separate Debit/Credit). PDF must be a digital statement (not a scanned image) — each PDF's parsed rows are shown for review before import, one file at a time.</p>
             {importMsg && <p className={/import failed|could not read|no text found|couldn't recognize/i.test(importMsg) ? 'error-msg' : 'success-msg'}>{importMsg}</p>}
           </>
@@ -1154,6 +1157,9 @@ export default function PaymentSources() {
               </button>
               <button className="btn-ghost" disabled={importing} onClick={skipPdfPreview}>{pdfQueue.length > 0 ? 'Skip' : 'Cancel'}</button>
             </div>
+            {importing && (
+              <div className="scan-progress-bar"><div className="scan-progress-fill" /></div>
+            )}
           </div>
         )}
 
@@ -1165,6 +1171,9 @@ export default function PaymentSources() {
               </button>
               {verifyMsg && <span className="hint">{verifyMsg}</span>}
             </div>
+            {verifyingAll && (
+              <div className="scan-progress-bar"><div className="scan-progress-fill" /></div>
+            )}
             <p className="hint">
               Re-parses each PDF import's stored original file from scratch and checks it against what's recorded — catches a misread row or a parser fix that changes results, independent of the one-time review at import.
               Fixing a mismatch always goes through the same review screen as a normal import — use "Fix from Stored PDF" on the row below.
@@ -1239,6 +1248,9 @@ export default function PaymentSources() {
                               <button className="btn-small" style={{ marginTop: 4, minWidth: 140 }} disabled={importing || !!pdfPreview || verifyingAll} onClick={() => reprocessFromStoredPdf(imp)}>
                                 {reprocessingImportId === imp.id ? 'Reading PDF…' : 'Fix from Stored PDF'}
                               </button>
+                              {reprocessingImportId === imp.id && (
+                                <div className="scan-progress-bar" style={{ maxWidth: 220 }}><div className="scan-progress-fill" /></div>
+                              )}
                             </>
                           )}
                         </div>

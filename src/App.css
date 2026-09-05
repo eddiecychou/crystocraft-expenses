@@ -1319,6 +1319,7 @@ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
 .recon-row:hover { background: #f7fbf8; }
 .recon-row.is-selected { background: #eaf5ee; border-left: 3px solid var(--t-btn); }
 .recon-row-top { display: flex; justify-content: space-between; font-size: 12px; color: #6b8577; margin-bottom: 2px; }
+.recon-row-date { font-weight: 600; color: var(--t-dark); }
 .recon-row-amount { font-weight: 600; color: var(--t-dark); font-variant-numeric: tabular-nums; }
 .recon-row-merchant { font-weight: 500; margin-bottom: 2px; }
 .recon-row-source { font-size: 12px; color: #6b8577; margin-bottom: 6px; }

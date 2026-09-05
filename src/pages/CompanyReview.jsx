@@ -723,7 +723,12 @@ export default function CompanyReview() {
                 </label>
               ))}
             </div>
-            {exporting && <p className="hint">{exportProgress}</p>}
+            {exporting && (
+              <>
+                <p className="hint">{exportProgress}</p>
+                <div className="scan-progress-bar"><div className="scan-progress-fill" /></div>
+              </>
+            )}
             <div className="confirm-actions">
               <button className="btn-ghost" disabled={exporting} onClick={() => setExportModal(null)}>Cancel</button>
               <button className="btn-primary" disabled={exporting} onClick={generateCompanyPackage}>

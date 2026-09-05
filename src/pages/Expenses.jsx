@@ -381,6 +381,9 @@ export default function Expenses() {
           <span className="hint">{filtered.length} record{filtered.length !== 1 ? 's' : ''}</span>
         </div>
       )}
+      {(exportingXls || exportingZip) && (
+        <div className="scan-progress-bar"><div className="scan-progress-fill" /></div>
+      )}
 
       {/* Hidden file input for adding images */}
       <input ref={fileInputRef} type="file" accept="image/*,.heic,.heif,.pdf" hidden onChange={handleAddImage} />

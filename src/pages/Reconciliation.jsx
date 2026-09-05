@@ -39,6 +39,7 @@ export default function Reconciliation() {
   const [searchText, setSearchText] = useState('')
   const [selectedId, setSelectedId] = useState(null)
   const [matching, setMatching] = useState(false)
+  const [matchProgress, setMatchProgress] = useState({ done: 0, total: 0 })
   const [busyId, setBusyId] = useState(null)
   const [chosenExpenseId, setChosenExpenseId] = useState('')
   const [pickingSettlement, setPickingSettlement] = useState(false)
@@ -91,7 +92,9 @@ export default function Reconciliation() {
   async function runMatching() {
     setMatching(true)
     const candidates = transactions.filter(t => t.status === 'unmatched')
-    for (const txn of candidates) {
+    setMatchProgress({ done: 0, total: candidates.length })
+    for (let i = 0; i < candidates.length; i++) {
+      const txn = candidates[i]
       let best = null
       for (const exp of expenses) {
         const result = scoreExpenseMatch(txn, exp)
@@ -106,6 +109,7 @@ export default function Reconciliation() {
           updatedAt: serverTimestamp(),
         })
       }
+      setMatchProgress({ done: i + 1, total: candidates.length })
     }
     setMatching(false)
   }
@@ -239,6 +243,18 @@ export default function Reconciliation() {
   const selectedExpense = selected?.matchedExpenseIds?.[0] ? expenses.find(e => e.id === selected.matchedExpenseIds[0]) : null
   const selectedCategory = selected ? categoryFor(selected) : null
 
+  // Resolving one item in the Needs Action queue used to leave the detail
+  // panel showing the now-resolved transaction until the user manually went
+  // back to the list and picked the next one — wasted a click per item on a
+  // queue that can run into the hundreds. Jumps straight to whatever's next
+  // in the currently-displayed order (list is already sorted Needs Action
+  // first), falling back to no selection once the queue is actually empty.
+  function selectNextNeedingAction(resolvedId) {
+    const idx = filteredRows.findIndex(t => t.id === resolvedId)
+    const next = filteredRows.slice(idx + 1).find(t => t.id !== resolvedId && needsAction(t))
+    setSelectedId(next ? next.id : null)
+  }
+
   async function confirmMatch(txn, expenseIdOverride) {
     const expenseId = expenseIdOverride || txn.matchedExpenseIds?.[0]
     if (!expenseId) return
@@ -266,6 +282,7 @@ export default function Reconciliation() {
     await logAction(txn, expenseId, 'matched', { status: txn.status }, { status: 'matched' })
     setBusyId(null)
     setChosenExpenseId('')
+    selectNextNeedingAction(txn.id)
   }
 
   async function ignoreTxn(txn) {
@@ -273,6 +290,7 @@ export default function Reconciliation() {
     await updateDoc(doc(db, 'paymentTransactions', txn.id), { status: 'ignored', updatedAt: serverTimestamp() })
     await logAction(txn, null, 'ignored', { status: txn.status }, { status: 'ignored' })
     setBusyId(null)
+    selectNextNeedingAction(txn.id)
   }
 
   async function undoIgnore(txn) {
@@ -324,6 +342,7 @@ export default function Reconciliation() {
     })
     await logAction(txn, null, `marked_${transactionType}`, { transactionType: txn.transactionType }, { transactionType })
     setBusyId(null)
+    selectNextNeedingAction(txn.id)
   }
 
   async function createExpenseFromTxn(txn, { force = false } = {}) {
@@ -362,6 +381,7 @@ export default function Reconciliation() {
     })
     await logAction(txn, expenseRef.id, 'expense_created', null, { expenseId: expenseRef.id })
     setBusyId(null)
+    selectNextNeedingAction(txn.id)
   }
 
   async function linkSettlement(card, bankTxn) {
@@ -385,6 +405,7 @@ export default function Reconciliation() {
     setBusyId(null)
     setPickingSettlement(false)
     setChosenCounterpart('')
+    selectNextNeedingAction(card.id)
   }
 
   async function resolveDuplicate(txn, newStatus) {
@@ -397,6 +418,7 @@ export default function Reconciliation() {
       updatedAt: serverTimestamp(),
     })
     setBusyId(null)
+    selectNextNeedingAction(txn.id)
   }
 
   function dismissDuplicateWarning(txn) {
@@ -405,7 +427,7 @@ export default function Reconciliation() {
       duplicateReviewedBy: auth.currentUser.email,
       duplicateReviewedAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
-    }).finally(() => setBusyId(null))
+    }).finally(() => { setBusyId(null); selectNextNeedingAction(txn.id) })
   }
 
   // Any active, unlinked transaction on a different account can be picked
@@ -422,12 +444,18 @@ export default function Reconciliation() {
   return (
     <div className="page page-wide">
       <ProjectBanner />
-      <div className="card-header" style={{ marginBottom: 16 }}>
+      <div className="card-header" style={{ marginBottom: matching ? 4 : 16 }}>
         <h2 style={{ marginBottom: 0 }}>Reconciliation</h2>
-        <button className="btn-ghost" onClick={runMatching} disabled={matching}>
-          {matching ? 'Matching…' : 'Run Matching'}
-        </button>
+        <span className="action-row" style={{ margin: 0, alignItems: 'center' }}>
+          {matching && <span className="hint">Matching {matchProgress.done} of {matchProgress.total}…</span>}
+          <button className="btn-ghost" onClick={runMatching} disabled={matching}>
+            {matching ? 'Matching…' : 'Run Matching'}
+          </button>
+        </span>
       </div>
+      {matching && (
+        <div className="scan-progress-bar" style={{ marginBottom: 16 }}><div className="scan-progress-fill" /></div>
+      )}
 
       <div className="recon-cards">
         <button className={`recon-card ${topTab === 'Needs Action' ? 'is-active' : ''}`} onClick={() => setTopTab('Needs Action')}>
@@ -585,8 +613,13 @@ export default function Reconciliation() {
                 {selectedSettlement ? (
                   <div className="recon-detail-section">
                     <div className="recon-detail-label">Possible Credit Card Settlement</div>
-                    <p><strong>Card payment:</strong> {selectedSettlement.card.merchantRaw} — {selectedSettlement.card.settlementCurrency} {selectedSettlement.card.settlementAmount.toFixed(2)} on {selectedSettlement.card.transactionDate} ({accountLabel(selectedSettlement.card.paymentAccountId)})</p>
-                    <p><strong>Bank debit:</strong> {selectedSettlement.bankTxn.merchantRaw} — {selectedSettlement.bankTxn.settlementCurrency} {selectedSettlement.bankTxn.settlementAmount.toFixed(2)} on {selectedSettlement.bankTxn.transactionDate} ({accountLabel(selectedSettlement.bankTxn.paymentAccountId)})</p>
+                    {/* Date and amount are what actually has to match between
+                        the two rows — bolded so the eye can jump straight to
+                        the two values worth comparing instead of reading the
+                        whole sentence, per feedback that this took too long
+                        to eyeball across a long settlement queue. */}
+                    <p><strong>Card payment:</strong> {selectedSettlement.card.merchantRaw} — <strong data-amount="true">{selectedSettlement.card.settlementCurrency} {selectedSettlement.card.settlementAmount.toFixed(2)}</strong> on <strong>{selectedSettlement.card.transactionDate}</strong> ({accountLabel(selectedSettlement.card.paymentAccountId)})</p>
+                    <p><strong>Bank debit:</strong> {selectedSettlement.bankTxn.merchantRaw} — <strong data-amount="true">{selectedSettlement.bankTxn.settlementCurrency} {selectedSettlement.bankTxn.settlementAmount.toFixed(2)}</strong> on <strong>{selectedSettlement.bankTxn.transactionDate}</strong> ({accountLabel(selectedSettlement.bankTxn.paymentAccountId)})</p>
                     <p className="hint">{selectedSettlement.reasons.join(' · ')} · Score {selectedSettlement.score}</p>
                     <p className="hint">This links a credit-card repayment, not a business expense — it will never be counted in the Expense total.</p>
                     <div className="action-row">
