@@ -42,6 +42,8 @@ export default function PaymentSources() {
   const [imports, setImports] = useState([])
   const [creating, setCreating] = useState(false)
   const [newAccount, setNewAccount] = useState({ label: '', sourceType: 'bank', accountTail: '', institutionName: '', settlementCurrency: 'HKD', ownershipType: 'company' })
+  const [editAccountId, setEditAccountId] = useState(null)
+  const [editAccountData, setEditAccountData] = useState({})
   const [saving, setSaving] = useState(false)
   const [importAccountId, setImportAccountId] = useState('')
   const [importing, setImporting] = useState(false)
@@ -145,6 +147,31 @@ export default function PaymentSources() {
     })
     setNewAccount({ label: '', sourceType: 'bank', accountTail: '', institutionName: '', settlementCurrency: 'HKD', ownershipType: 'company' })
     setCreating(false)
+    setSaving(false)
+  }
+
+  function startEditAccount(a) {
+    setEditAccountId(a.id)
+    setEditAccountData({
+      label: a.label || '',
+      sourceType: a.sourceType || 'bank',
+      accountTail: a.accountTail || '',
+      institutionName: a.institutionName || '',
+      settlementCurrency: a.settlementCurrency || 'HKD',
+      ownershipType: a.ownershipType || 'company',
+    })
+  }
+
+  async function saveEditAccount() {
+    if (!editAccountData.label.trim()) return
+    setSaving(true)
+    await updateDoc(doc(db, 'paymentAccounts', editAccountId), {
+      ...editAccountData,
+      label: editAccountData.label.trim(),
+      accountTail: editAccountData.accountTail.trim() || null,
+      institutionName: editAccountData.institutionName.trim() || null,
+    })
+    setEditAccountId(null)
     setSaving(false)
   }
 
@@ -885,12 +912,60 @@ export default function PaymentSources() {
         <div className="project-list">
           {accounts.map(a => (
             <div key={a.id} className="project-card">
-              <div className="project-card-main">
-                <span className="badge badge-office">{SOURCE_TYPES.find(s => s.value === a.sourceType)?.label}</span>
-                {a.ownershipType === 'personal' && <span className="badge badge-warning">Personal</span>}
-                <span className="project-card-name">{a.label}{a.accountTail ? ` ****${a.accountTail}` : ''}</span>
-                <span className="hint">{a.settlementCurrency}</span>
-              </div>
+              {editAccountId === a.id ? (
+                <>
+                  <input
+                    className="project-name-input"
+                    placeholder="Label, e.g. HSBC Visa ****1234"
+                    value={editAccountData.label}
+                    onChange={e => setEditAccountData({ ...editAccountData, label: e.target.value })}
+                    autoFocus
+                  />
+                  <div className="filter-row" style={{ marginTop: 10 }}>
+                    <select value={editAccountData.sourceType} onChange={e => setEditAccountData({ ...editAccountData, sourceType: e.target.value })}>
+                      {SOURCE_TYPES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+                    </select>
+                    <input
+                      placeholder="Institution (optional)"
+                      value={editAccountData.institutionName}
+                      onChange={e => setEditAccountData({ ...editAccountData, institutionName: e.target.value })}
+                    />
+                    <input
+                      placeholder="Last 4 digits (optional)"
+                      maxLength={4}
+                      value={editAccountData.accountTail}
+                      onChange={e => setEditAccountData({ ...editAccountData, accountTail: e.target.value.replace(/\D/g, '') })}
+                    />
+                    <select value={editAccountData.settlementCurrency} onChange={e => setEditAccountData({ ...editAccountData, settlementCurrency: e.target.value })}>
+                      {CURRENCIES.filter(c => c !== 'Other').map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                  <label className="checkbox-row" style={{ marginTop: 10 }}>
+                    <input
+                      type="checkbox"
+                      checked={editAccountData.ownershipType === 'personal'}
+                      onChange={e => setEditAccountData({ ...editAccountData, ownershipType: e.target.checked ? 'personal' : 'company' })}
+                    />
+                    This is a personal account that mixes personal and company spending — transactions will need review in Company Review
+                  </label>
+                  <div className="project-card-actions" style={{ marginTop: 10 }}>
+                    <button onClick={saveEditAccount} disabled={saving || !editAccountData.label.trim()} className="btn-small btn-primary">Save</button>
+                    <button onClick={() => setEditAccountId(null)} className="btn-small btn-ghost">Cancel</button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="project-card-main">
+                    <span className="badge badge-office">{SOURCE_TYPES.find(s => s.value === a.sourceType)?.label}</span>
+                    {a.ownershipType === 'personal' && <span className="badge badge-warning">Personal</span>}
+                    <span className="project-card-name">{a.label}{a.accountTail ? ` ****${a.accountTail}` : ''}</span>
+                    <span className="hint">{a.settlementCurrency}</span>
+                  </div>
+                  <div className="project-card-actions">
+                    <button onClick={() => startEditAccount(a)} className="btn-small">Edit</button>
+                  </div>
+                </>
+              )}
             </div>
           ))}
         </div>
