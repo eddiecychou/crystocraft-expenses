@@ -439,6 +439,28 @@ first when the bug is likely client-side logic.
 
 ---
 
+## A manual-only action can sidestep a two-scorer race, cheaper than a tiebreak
+
+Phase 2 of Invoices & POs needed a debit transaction to be matchable to
+either an `expenses` record or a `purchaseOrders` record, mutually
+exclusively — a payment is one real-world event, not two. The tempting
+approach is a single combined scorer that returns whichever candidate
+type wins; the actually-simpler approach was to keep PO-linking a
+**manual-only** action (a search picker, `linkPurchaseOrder` in
+`Reconciliation.jsx`) while leaving `runMatching()`'s existing automatic
+expense-scoring untouched. Once either path resolves a transaction, its
+`status` becomes `'matched'`, which already excludes it from
+`runMatching()`'s candidate pool (`status === 'unmatched' || 'suggested'`)
+— exclusivity comes free from logic that already existed, with no new
+tiebreak rule to design, test, or explain to a user wondering why the app
+silently picked expense over PO for their income. Income-matching (credit
+transactions against `salesInvoices`) didn't need this treatment — it has
+no existing automatic competitor on the credit side, so it's automatic
+like expense-matching always has been. **Rule of thumb**: before writing a
+tiebreak between two automatic suggestion sources, check whether one of
+them can just be manual instead — a user's explicit choice is simpler
+than an algorithm's guess, and here it happened to be free.
+
 ## Arbitrary-layout PDFs need AI extraction, not a positional parser
 
 `pdfStatementParser.js`'s column-position parsing works because a bank

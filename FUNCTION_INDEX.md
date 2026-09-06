@@ -35,9 +35,10 @@ some of these functions look the way they do, see [LESSONS_LEARNED.md](LESSONS_L
 | `computeFingerprints({...})` | 172 | Builds the fingerprint string(s) used to detect fingerprint collisions during import. |
 | `daysBetween(a, b)` | 179 | Internal — date-diff helper for match scoring. |
 | `merchantSimilarity(a, b)` | 184 | Internal — fuzzy string similarity between two normalized merchant names. |
-| `scoreExpenseMatch(txn, expense)` | 200 | Scores how well an imported transaction matches a candidate expense (merchant + date + amount). Disqualifies (returns `null`) any pairing more than `MAX_MATCH_DAYS` (90) apart before scoring — amount+currency alone is never sufficient evidence regardless of score. |
-| `scoreSettlementMatch(cardTxn, bankTxn)` | 235 | Scores whether a bank debit is the settlement of a given credit-card charge. |
-| `classifyReviewCategory(txn, { hasDuplicate })` | 265 | Buckets a transaction into a review category for the Reconciliation queue. |
+| `scoreExpenseMatch(txn, expense)` | 211 | Scores how well an imported transaction matches a candidate expense (merchant + date + amount). Disqualifies (returns `null`) any pairing more than `MAX_MATCH_DAYS` (90) apart before scoring — amount+currency alone is never sufficient evidence regardless of score. |
+| `scoreInvoiceMatch(txn, invoice)` | 249 | Income-side mirror of `scoreExpenseMatch` — scores a **credit** transaction (excluding `'payment'`-type) against a `salesInvoices` record on amount/currency/date/counterparty-name, same `MAX_MATCH_DAYS` disqualifier. |
+| `scoreSettlementMatch(cardTxn, bankTxn)` | 285 | Scores whether a bank debit is the settlement of a given credit-card charge. |
+| `classifyReviewCategory(txn, { hasDuplicate })` | 315 | Buckets a transaction into a review category for the Reconciliation queue — `'possible_income'` for a credit with an invoice suggestion, checked before the generic `'possible_refund'` fallback. |
 
 ### [documentImport.js](src/lib/documentImport.js)
 
@@ -266,7 +267,7 @@ No functions — a pure dispatcher component (three link cards routing to Upload
 | Function | Line | Purpose |
 |---|---|---|
 | `logAction(txn, expenseId, actionType, beforeState, afterState)` | 77 | Writes one entry to the append-only `reconciliationActions` log. |
-| `runMatching()` | 91 | Scores all unmatched transactions against candidate expenses/settlements using `paymentMatching.js` scorers; populates the review queue. For a recurring merchant+amount group with an equal count of transactions and expenses, pairs them positionally in chronological order instead of independent per-transaction scoring — see LESSONS_LEARNED.md. |
+| `runMatching()` | 134 | Scores all unmatched transactions against candidate expenses (debit) or `salesInvoices` (credit, via `scoreInvoiceMatch`) using `paymentMatching.js` scorers; populates the review queue. For a recurring merchant+amount group with an equal count of transactions and records, pairs them positionally in chronological order instead of independent per-transaction scoring — see LESSONS_LEARNED.md. Never auto-suggests `purchaseOrders` — see `linkPurchaseOrder`. |
 | `categoryFor(txn)` | 149 | Buckets a transaction for queue grouping/display. |
 | `unresolvedDuplicateFlag(txn)` | 154 | Whether a transaction has a duplicate flag still awaiting resolution. |
 | `shortReasonFor(txn)` | 161 | One-line match/no-match reason shown in the queue row. |
@@ -274,9 +275,13 @@ No functions — a pure dispatcher component (three link cards routing to Upload
 | `isException(txn)` | 176 | Whether a transaction is in an exception/error state. |
 | `selectNextNeedingAction(resolvedId)` | — | Jumps the detail panel to the next item still needing action in the currently-displayed order after resolving one — added so resolving an item doesn't leave the user staring at a stale detail panel with an extra click back into the list. |
 | `confirmMatch(txn, expenseIdOverride)` | 242 | Confirms a transaction-to-expense match; logs the action; advances to the next Needs Action item. |
+| `unlinkInvoice(inv)` | 511 | Income-side mirror of `unlinkExpense` — frees an invoice from its current transaction so it can be matched elsewhere. |
+| `confirmInvoiceMatch(txn, invoiceIdOverride)` | 531 | Income-side mirror of `confirmMatch` — confirms a credit transaction to a `salesInvoices` record. |
+| `linkPurchaseOrder(txn, poId)` | 561 | Manually links a debit transaction to a `purchaseOrders` record. Deliberately not part of `runMatching()` — keeps PO-linking mutually exclusive with expense-matching without a two-scorer tiebreak (see LESSONS_LEARNED.md). |
+| `unlinkPurchaseOrder(po)` | 588 | Mirrors `unlinkExpense`/`unlinkInvoice` for a PO. |
 | `ignoreTxn(txn)` | 271 | Marks a transaction as ignored (not a business expense); logs the action; advances to the next Needs Action item. |
 | `undoIgnore(txn)` | 278 | Reverts an ignore; logs the action. |
-| `unmatchTxn(txn)` | 289 | Removes a confirmed match; logs the action. |
+| `unmatchTxn(txn)` | 623 | Removes a confirmed match (expense, invoice, or PO) and any settlement link; logs the action. |
 | `markAs(txn, transactionType)` | 318 | Manually sets a transaction's type classification; advances to the next Needs Action item. |
 | `createExpenseFromTxn(txn, { force })` | 329 | Creates a new expense record directly from an unmatched transaction; advances to the next Needs Action item. |
 | `linkSettlement(card, bankTxn)` | 367 | Links a credit-card charge to its settling bank debit; logs the action; advances to the next Needs Action item. |

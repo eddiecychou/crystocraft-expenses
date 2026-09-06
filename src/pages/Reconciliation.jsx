@@ -4,7 +4,7 @@ import { collection, query, where, onSnapshot, doc, updateDoc, addDoc, serverTim
 import { db, auth } from '../firebase'
 import { useProject } from '../contexts/ProjectContext'
 import ProjectBanner from '../components/ProjectBanner'
-import { scoreExpenseMatch, scoreSettlementMatch, classifyReviewCategory, CREATE_EXPENSE_BLOCKED_TYPES, merchantSimilarity } from '../lib/paymentMatching'
+import { scoreExpenseMatch, scoreInvoiceMatch, scoreSettlementMatch, classifyReviewCategory, CREATE_EXPENSE_BLOCKED_TYPES, merchantSimilarity } from '../lib/paymentMatching'
 import { DUPLICATE_STATUS_LABELS } from '../lib/duplicateDetection'
 import { paymentTransactionsQuery } from '../lib/projectAccess'
 import { BackIcon, ICON_STROKE_WIDTH } from '../icons'
@@ -13,6 +13,7 @@ const TOP_TABS = ['Needs Action', 'All', 'Matched', 'Exceptions']
 
 const REVIEW_CATEGORY_LABELS = {
   possible_expense: 'Possible Expense',
+  possible_income: 'Possible Income',
   possible_settlement: 'Possible Credit Card Settlement',
   possible_refund: 'Possible Refund',
   possible_transfer: 'Possible Transfer',
@@ -55,6 +56,8 @@ export default function Reconciliation() {
   const { activeProject } = useProject()
   const [transactions, setTransactions] = useState([])
   const [expenses, setExpenses] = useState([])
+  const [invoices, setInvoices] = useState([])
+  const [purchaseOrders, setPurchaseOrders] = useState([])
   const [accounts, setAccounts] = useState([])
   const [topTab, setTopTab] = useState('Needs Action')
   const [exceptionFilter, setExceptionFilter] = useState('all')
@@ -66,6 +69,10 @@ export default function Reconciliation() {
   const [busyId, setBusyId] = useState(null)
   const [chosenExpenseId, setChosenExpenseId] = useState('')
   const [expenseSearchText, setExpenseSearchText] = useState('')
+  const [chosenInvoiceId, setChosenInvoiceId] = useState('')
+  const [invoiceSearchText, setInvoiceSearchText] = useState('')
+  const [pickingPo, setPickingPo] = useState(false)
+  const [poSearchText, setPoSearchText] = useState('')
   const [pickingSettlement, setPickingSettlement] = useState(false)
   const [chosenCounterpart, setChosenCounterpart] = useState('')
 
@@ -84,15 +91,23 @@ export default function Reconciliation() {
       query(collection(db, 'paymentAccounts'), where('projectId', '==', activeProject.id)),
       snap => setAccounts(snap.docs.map(d => ({ id: d.id, ...d.data() })))
     )
-    return () => { unsubT(); unsubE(); unsubA() }
+    const unsubI = onSnapshot(
+      query(collection(db, 'salesInvoices'), where('projectId', '==', activeProject.id)),
+      snap => setInvoices(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+    )
+    const unsubP = onSnapshot(
+      query(collection(db, 'purchaseOrders'), where('projectId', '==', activeProject.id)),
+      snap => setPurchaseOrders(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+    )
+    return () => { unsubT(); unsubE(); unsubA(); unsubI(); unsubP() }
   }, [activeProject?.id])
 
   // Reset the detail selection whenever the visible list changes shape, so
   // a stale selection from a different tab/filter can't linger unseen.
-  useEffect(() => { setSelectedId(null); setChosenExpenseId(''); setExpenseSearchText(''); setPickingSettlement(false) }, [topTab, exceptionFilter, sourceTypeFilter, searchText])
+  useEffect(() => { setSelectedId(null); setChosenExpenseId(''); setExpenseSearchText(''); setChosenInvoiceId(''); setInvoiceSearchText(''); setPickingSettlement(false); setPickingPo(false) }, [topTab, exceptionFilter, sourceTypeFilter, searchText])
   // Switching to a different transaction should never carry over a manual
   // search/selection from whichever one was open before.
-  useEffect(() => { setChosenExpenseId(''); setExpenseSearchText('') }, [selectedId])
+  useEffect(() => { setChosenExpenseId(''); setExpenseSearchText(''); setChosenInvoiceId(''); setInvoiceSearchText(''); setPickingPo(false); setPoSearchText('') }, [selectedId])
 
   const accountOf = id => accounts.find(a => a.id === id)
   const accountLabel = id => accountOf(id)?.label || '—'
@@ -126,6 +141,16 @@ export default function Reconciliation() {
     const candidates = transactions.filter(t => t.status === 'unmatched' || t.status === 'suggested')
     setMatchProgress({ done: 0, total: candidates.length })
 
+    // Credit transactions never compete with debit transactions for the
+    // same match — expenses are debit-only (scoreExpenseMatch already
+    // enforces this), invoices are credit-only (scoreInvoiceMatch). Split
+    // once up front so the recurring-series pairing and per-candidate
+    // scoring below run against the right counterpart collection for each
+    // side. 'payment'-type credits (card-balance payments) belong to
+    // settlement linking, not income — excluded here too.
+    const debitCandidates = candidates.filter(t => t.direction !== 'credit')
+    const creditCandidates = candidates.filter(t => t.direction === 'credit' && t.transactionType !== 'payment')
+
     // A recurring subscription's several charges (and their matching
     // Expense records) all score IDENTICALLY against each other — same
     // amount, same currency, same merchant — so nearest-absolute-date can
@@ -147,58 +172,82 @@ export default function Reconciliation() {
     // is rarely byte-identical to how the expense's vendor was entered,
     // e.g. "CSL MOBILE LIMITED 168 HONG KONG HK" vs. "CSL Mobile", so an
     // exact-string group key would silently never match real data).
-    const groupKey = t => `${t.merchantNormalized || t.merchantRaw || ''}|${Math.abs(t.settlementAmount || 0).toFixed(2)}|${t.settlementCurrency}`
-    const txnGroups = new Map()
-    for (const t of candidates) {
-      const k = groupKey(t)
-      if (!txnGroups.has(k)) txnGroups.set(k, [])
-      txnGroups.get(k).push(t)
-    }
-    const sequentialMatch = new Map() // txn.id -> { expenseId, score, reasons }
-    for (const txns of txnGroups.values()) {
-      if (txns.length < 2) continue
-      const sample = txns[0]
-      const exps = expenses.filter(e =>
-        !e.matchedPaymentTransactionId &&
-        Math.abs(parseFloat(e.amount) - sample.settlementAmount) < 0.01 &&
-        e.currency === sample.settlementCurrency &&
-        merchantSimilarity(sample.merchantRaw, e.vendor) === 'high'
-      )
-      if (exps.length !== txns.length) continue
-      const sortedTxns = [...txns].sort((a, b) => (a.transactionDate || '').localeCompare(b.transactionDate || ''))
-      const sortedExps = [...exps].sort((a, b) => (a.date || '').localeCompare(b.date || ''))
-      for (let i = 0; i < sortedTxns.length; i++) {
-        const result = scoreExpenseMatch(sortedTxns[i], sortedExps[i])
-        if (result && result.score >= 50) sequentialMatch.set(sortedTxns[i].id, { expenseId: sortedExps[i].id, score: result.score, reasons: result.reasons })
+    function groupSequentialMatches(txns, records, recordAmount, recordCurrency, recordName, recordDate, scoreFn) {
+      const groupKey = t => `${t.merchantNormalized || t.merchantRaw || ''}|${Math.abs(t.settlementAmount || 0).toFixed(2)}|${t.settlementCurrency}`
+      const groups = new Map()
+      for (const t of txns) {
+        const k = groupKey(t)
+        if (!groups.has(k)) groups.set(k, [])
+        groups.get(k).push(t)
       }
+      const sequentialMatch = new Map() // txn.id -> { recordId, score, reasons }
+      for (const group of groups.values()) {
+        if (group.length < 2) continue
+        const sample = group[0]
+        const candidates = records.filter(r =>
+          !r.matchedPaymentTransactionId &&
+          Math.abs(recordAmount(r) - sample.settlementAmount) < 0.01 &&
+          recordCurrency(r) === sample.settlementCurrency &&
+          merchantSimilarity(sample.merchantRaw, recordName(r)) === 'high'
+        )
+        if (candidates.length !== group.length) continue
+        const sortedTxns = [...group].sort((a, b) => (a.transactionDate || '').localeCompare(b.transactionDate || ''))
+        const sortedRecords = [...candidates].sort((a, b) => (recordDate(a) || '').localeCompare(recordDate(b) || ''))
+        for (let i = 0; i < sortedTxns.length; i++) {
+          const result = scoreFn(sortedTxns[i], sortedRecords[i])
+          if (result && result.score >= 50) sequentialMatch.set(sortedTxns[i].id, { recordId: sortedRecords[i].id, score: result.score, reasons: result.reasons })
+        }
+      }
+      return sequentialMatch
     }
+
+    // Same recurring-series pairing logic (see block comment above) applied
+    // to both sides: debit transactions against expenses, credit
+    // transactions against invoices.
+    const sequentialExpenseMatch = groupSequentialMatches(
+      debitCandidates, expenses,
+      e => parseFloat(e.amount), e => e.currency, e => e.vendor, e => e.date,
+      scoreExpenseMatch
+    )
+    const sequentialInvoiceMatch = groupSequentialMatches(
+      creditCandidates, invoices,
+      inv => parseFloat(inv.amount), inv => inv.currency, inv => inv.counterpartyName, inv => inv.date,
+      scoreInvoiceMatch
+    )
 
     for (let i = 0; i < candidates.length; i++) {
       const txn = candidates[i]
+      const isCredit = txn.direction === 'credit' && txn.transactionType !== 'payment'
+      const records = isCredit ? invoices : expenses
+      const scoreFn = isCredit ? scoreInvoiceMatch : scoreExpenseMatch
+      const sequentialMatch = isCredit ? sequentialInvoiceMatch : sequentialExpenseMatch
+      const matchField = isCredit ? 'matchedInvoiceIds' : 'matchedExpenseIds'
+
       let best = sequentialMatch.get(txn.id) || null
       if (!best) {
         // A recurring same-merchant/same-amount charge (a monthly
         // subscription, say) scores IDENTICALLY against every month's
-        // Expense record when it didn't qualify for the sequential pairing
-        // above (mismatched series counts) — the score alone can't tell
-        // June's charge from August's. Without a tiebreaker, `>` picks
-        // whichever candidate happens to come first in Firestore's
-        // arbitrary document order, not the one actually closest in date.
+        // record when it didn't qualify for the sequential pairing above
+        // (mismatched series counts) — the score alone can't tell June's
+        // from August's. Without a tiebreaker, `>` picks whichever
+        // candidate happens to come first in Firestore's arbitrary
+        // document order, not the one actually closest in date.
         let bestDays = Infinity
-        for (const exp of expenses) {
-          const result = scoreExpenseMatch(txn, exp)
+        for (const rec of records) {
+          const result = scoreFn(txn, rec)
           if (!result) continue
-          const days = Math.abs(Date.parse(txn.transactionDate) - Date.parse(exp.date)) / 86400000
+          const days = Math.abs(Date.parse(txn.transactionDate) - Date.parse(rec.date)) / 86400000
           const better = !best || result.score > best.score || (result.score === best.score && days < bestDays)
-          if (better) { best = { ...result, expenseId: exp.id }; bestDays = days }
+          if (better) { best = { ...result, recordId: rec.id }; bestDays = days }
         }
       }
       if (best && best.score >= 50) {
-        const unchanged = txn.status === 'suggested' && txn.matchedExpenseIds?.[0] === best.expenseId && txn.confidenceScore === best.score
+        const unchanged = txn.status === 'suggested' && txn[matchField]?.[0] === best.recordId && txn.confidenceScore === best.score
         if (!unchanged) {
           await updateDoc(doc(db, 'paymentTransactions', txn.id), {
             status: 'suggested',
-            matchedExpenseIds: [best.expenseId],
+            matchedExpenseIds: isCredit ? [] : [best.recordId],
+            matchedInvoiceIds: isCredit ? [best.recordId] : [],
             confidenceScore: best.score,
             matchReasons: best.reasons,
             updatedAt: serverTimestamp(),
@@ -211,6 +260,7 @@ export default function Reconciliation() {
         await updateDoc(doc(db, 'paymentTransactions', txn.id), {
           status: 'unmatched',
           matchedExpenseIds: [],
+          matchedInvoiceIds: [],
           confidenceScore: null,
           matchReasons: [],
           updatedAt: serverTimestamp(),
@@ -324,7 +374,7 @@ export default function Reconciliation() {
   function isException(txn) {
     if (txn.status === 'ignored' || txn.status === 'matched') return false
     const cat = categoryFor(txn)
-    if (cat && cat !== 'possible_expense') return true
+    if (cat && cat !== 'possible_expense' && cat !== 'possible_income') return true
     if (settlementCandidateByCardId.has(txn.id)) return true
     if (unresolvedDuplicateFlag(txn)) return true
     return false
@@ -385,6 +435,8 @@ export default function Reconciliation() {
   const selected = filteredRows.find(t => t.id === selectedId) || null
   const selectedSettlement = selected ? settlementCandidateByCardId.get(selected.id) : null
   const selectedExpense = selected?.matchedExpenseIds?.[0] ? expenses.find(e => e.id === selected.matchedExpenseIds[0]) : null
+  const selectedInvoice = selected?.matchedInvoiceIds?.[0] ? invoices.find(inv => inv.id === selected.matchedInvoiceIds[0]) : null
+  const selectedPo = selected?.matchedPoId ? purchaseOrders.find(po => po.id === selected.matchedPoId) : null
   const selectedCategory = selected ? categoryFor(selected) : null
 
   // Resolving one item in the Needs Action queue used to leave the detail
@@ -455,6 +507,100 @@ export default function Reconciliation() {
     selectNextNeedingAction(txn.id)
   }
 
+  // Mirrors unlinkExpense, for the income side.
+  async function unlinkInvoice(inv) {
+    if (!confirm(`Unmatch "${inv.counterpartyName}" (${inv.date}) from its current transaction so you can match it here instead?`)) return
+    if (inv.matchedPaymentTransactionId) {
+      await updateDoc(doc(db, 'paymentTransactions', inv.matchedPaymentTransactionId), {
+        status: 'unmatched',
+        matchedInvoiceIds: [],
+        confidenceScore: null,
+        matchReasons: [],
+        updatedAt: serverTimestamp(),
+      }).catch(() => {})
+    }
+    await updateDoc(doc(db, 'salesInvoices', inv.id), {
+      matchedPaymentTransactionId: null,
+      matchedPaymentAccountId: null,
+      settlementStatus: 'unsettled',
+    })
+  }
+
+  // Mirrors confirmMatch, for the income side: links a credit transaction
+  // to a salesInvoices record instead of an expense.
+  async function confirmInvoiceMatch(txn, invoiceIdOverride) {
+    const invoiceId = invoiceIdOverride || txn.matchedInvoiceIds?.[0]
+    if (!invoiceId) return
+    const invoice = invoices.find(inv => inv.id === invoiceId)
+    if (!invoice) return
+    if (invoice.matchedPaymentTransactionId && invoice.matchedPaymentTransactionId !== txn.id) {
+      alert('That invoice is already matched to a different transaction. Unmatch it first, or choose a different invoice.')
+      return
+    }
+    setBusyId(txn.id)
+    await updateDoc(doc(db, 'paymentTransactions', txn.id), {
+      status: 'matched',
+      matchedInvoiceIds: [invoiceId],
+      updatedAt: serverTimestamp(),
+    })
+    await updateDoc(doc(db, 'salesInvoices', invoiceId), {
+      matchedPaymentTransactionId: txn.id,
+      matchedPaymentAccountId: txn.paymentAccountId,
+      settlementStatus: 'confirmed',
+    })
+    await logAction(txn, invoiceId, 'invoice_matched', { status: txn.status }, { status: 'matched' })
+    setBusyId(null)
+    setChosenInvoiceId('')
+    selectNextNeedingAction(txn.id)
+  }
+
+  // Manual-only PO linking (see LESSONS_LEARNED.md) — mutually exclusive
+  // with expense-matching because both apply only to debit transactions,
+  // and this always sets status:'matched', removing the transaction from
+  // runMatching()'s candidate pool.
+  async function linkPurchaseOrder(txn, poId) {
+    const po = purchaseOrders.find(p => p.id === poId)
+    if (!po) return
+    if (po.matchedPaymentTransactionId && po.matchedPaymentTransactionId !== txn.id) {
+      alert('That purchase order is already matched to a different transaction. Unmatch it first, or choose a different one.')
+      return
+    }
+    setBusyId(txn.id)
+    await updateDoc(doc(db, 'paymentTransactions', txn.id), {
+      status: 'matched',
+      matchedPoId: poId,
+      updatedAt: serverTimestamp(),
+    })
+    await updateDoc(doc(db, 'purchaseOrders', poId), {
+      matchedPaymentTransactionId: txn.id,
+      matchedPaymentAccountId: txn.paymentAccountId,
+      settlementStatus: 'confirmed',
+    })
+    await logAction(txn, null, 'po_linked', { status: txn.status }, { status: 'matched', poId })
+    setBusyId(null)
+    setPickingPo(false)
+    setPoSearchText('')
+    selectNextNeedingAction(txn.id)
+  }
+
+  // Mirrors unlinkExpense, for a PO linked from within the Records-style
+  // search picker below.
+  async function unlinkPurchaseOrder(po) {
+    if (!confirm(`Unmatch "${po.counterpartyName}" (${po.date}) from its current transaction so you can match it here instead?`)) return
+    if (po.matchedPaymentTransactionId) {
+      await updateDoc(doc(db, 'paymentTransactions', po.matchedPaymentTransactionId), {
+        status: 'unmatched',
+        matchedPoId: null,
+        updatedAt: serverTimestamp(),
+      }).catch(() => {})
+    }
+    await updateDoc(doc(db, 'purchaseOrders', po.id), {
+      matchedPaymentTransactionId: null,
+      matchedPaymentAccountId: null,
+      settlementStatus: 'unsettled',
+    })
+  }
+
   async function ignoreTxn(txn) {
     setBusyId(txn.id)
     await updateDoc(doc(db, 'paymentTransactions', txn.id), { status: 'ignored', updatedAt: serverTimestamp() })
@@ -485,6 +631,20 @@ export default function Reconciliation() {
         settlementStatus: 'unsettled',
       })
     }
+    if (txn.matchedInvoiceIds?.[0]) {
+      await updateDoc(doc(db, 'salesInvoices', txn.matchedInvoiceIds[0]), {
+        matchedPaymentTransactionId: null,
+        matchedPaymentAccountId: null,
+        settlementStatus: 'unsettled',
+      })
+    }
+    if (txn.matchedPoId) {
+      await updateDoc(doc(db, 'purchaseOrders', txn.matchedPoId), {
+        matchedPaymentTransactionId: null,
+        matchedPaymentAccountId: null,
+        settlementStatus: 'unsettled',
+      })
+    }
     if (txn.settlementGroupId) {
       const partner = transactions.find(t => t.id !== txn.id && t.settlementGroupId === txn.settlementGroupId)
       if (partner) await updateDoc(doc(db, 'paymentTransactions', partner.id), { settlementGroupId: null, matchStatus: null, linkedTransactionIds: [], status: 'unmatched', updatedAt: serverTimestamp() })
@@ -492,6 +652,8 @@ export default function Reconciliation() {
     await updateDoc(doc(db, 'paymentTransactions', txn.id), {
       status: 'unmatched',
       matchedExpenseIds: [],
+      matchedInvoiceIds: [],
+      matchedPoId: null,
       settlementGroupId: null,
       matchStatus: null,
       linkedTransactionIds: [],
@@ -810,10 +972,14 @@ export default function Reconciliation() {
                         )}
                         <ReceiptThumb key={selectedExpense.id} images={selectedExpense.images} />
                       </>
+                    ) : selectedInvoice ? (
+                      <p>Income invoice: {selectedInvoice.date} · {selectedInvoice.counterpartyName} · {selectedInvoice.number} · {selectedInvoice.currency} {Number(selectedInvoice.amount || 0).toFixed(2)}</p>
+                    ) : selectedPo ? (
+                      <p>Purchase order: {selectedPo.date} · {selectedPo.counterpartyName} · {selectedPo.number} · {selectedPo.currency} {Number(selectedPo.amount || 0).toFixed(2)}</p>
                     ) : selected.settlementGroupId ? (
                       <p className="hint">Linked as a credit-card settlement — not a business expense.</p>
                     ) : (
-                      <p className="hint">Matched, but the linked Expense could not be found (it may have been deleted).</p>
+                      <p className="hint">Matched, but the linked record could not be found (it may have been deleted).</p>
                     )}
                     <div className="action-row recon-sticky-actions">
                       <button className="btn-ghost" disabled={busyId === selected.id} onClick={() => unmatchTxn(selected)}>Unmatch</button>
@@ -835,7 +1001,7 @@ export default function Reconciliation() {
                       <p className="hint">
                         Another transaction with the same amount and merchant was recorded within a few days
                         of this one — worth a quick check that it isn't the same charge counted twice. This
-                        doesn't affect the expense match below: if it's a genuine separate charge, just confirm
+                        doesn't affect the match below: if it's a genuine separate charge, just confirm
                         the match as normal.
                       </p>
                     )}
@@ -844,6 +1010,9 @@ export default function Reconciliation() {
                         <p>Suggested Expense: {selectedExpense.date} · {selectedExpense.vendor} · {selectedExpense.currency} {parseFloat(selectedExpense.amount).toFixed(2)} · {selectedExpense.category}</p>
                         <ReceiptThumb key={selectedExpense.id} images={selectedExpense.images} />
                       </>
+                    )}
+                    {selectedInvoice && (
+                      <p>Suggested Invoice: {selectedInvoice.date} · {selectedInvoice.counterpartyName} · {selectedInvoice.number} · {selectedInvoice.currency} {Number(selectedInvoice.amount || 0).toFixed(2)}</p>
                     )}
                     {selected.confidenceScore != null && <p><strong>Match score: {selected.confidenceScore}</strong></p>}
                     {selected.matchReasons?.length > 0 && (
@@ -857,17 +1026,20 @@ export default function Reconciliation() {
                         guidance that a phone screen should have exactly one
                         fixed CTA, not a wall of equally-weighted buttons. */}
                     <div className="action-row" style={{ flexWrap: 'wrap' }}>
-                      {selectedExpense && !CREATE_EXPENSE_BLOCKED_TYPES.includes(selected.transactionType) && (
+                      {selected.direction !== 'credit' && selectedExpense && !CREATE_EXPENSE_BLOCKED_TYPES.includes(selected.transactionType) && (
                         <button className="btn-ghost" disabled={busyId === selected.id} onClick={() => createExpenseFromTxn(selected)}>
                           {busyId === selected.id ? 'Creating…' : 'Create Expense'}
                         </button>
                       )}
-                      {CREATE_EXPENSE_BLOCKED_TYPES.includes(selected.transactionType) && (
+                      {selected.direction !== 'credit' && CREATE_EXPENSE_BLOCKED_TYPES.includes(selected.transactionType) && (
                         <button className="btn-ghost" disabled={busyId === selected.id} onClick={() => {
                           if (confirm(`This transaction was classified as ${selected.transactionType}, which is not normally a business expense. Create an Expense from it anyway?`)) createExpenseFromTxn(selected, { force: true })
                         }}>
                           {busyId === selected.id ? 'Creating…' : 'Create Expense Anyway'}
                         </button>
+                      )}
+                      {selected.direction !== 'credit' && (
+                        <button className="btn-ghost" disabled={busyId === selected.id} onClick={() => setPickingPo(true)}>Link to Purchase Order</button>
                       )}
                       {selectedCategory !== 'possible_refund' && (
                         <button className="btn-ghost" disabled={busyId === selected.id} onClick={() => markAs(selected, 'refund')}>Mark as Refund</button>
@@ -887,6 +1059,7 @@ export default function Reconciliation() {
                         date distance from the transaction being matched so
                         the likeliest candidates lead even with a broad
                         search term. */}
+                    {selected.direction !== 'credit' && (
                     <div className="expense-search" style={{ marginTop: 10 }}>
                       <input
                         type="text"
@@ -950,6 +1123,97 @@ export default function Reconciliation() {
                       })()}
                       <button className="btn-small" style={{ marginTop: 8 }} disabled={busyId === selected.id || !chosenExpenseId} onClick={() => confirmMatch(selected, chosenExpenseId)}>Confirm Chosen Expense</button>
                     </div>
+                    )}
+
+                    {/* Income side: same type-to-search pattern as the
+                        expense picker above, but over salesInvoices,
+                        matching by customer name/number/amount/date. */}
+                    {selected.direction === 'credit' && (
+                    <div className="expense-search" style={{ marginTop: 10 }}>
+                      <input
+                        type="text"
+                        placeholder="Type a customer name, invoice #, amount, or date to find the matching invoice…"
+                        value={invoiceSearchText}
+                        onChange={e => { setInvoiceSearchText(e.target.value); setChosenInvoiceId('') }}
+                      />
+                      {invoiceSearchText.trim() && (() => {
+                        const q = invoiceSearchText.trim().toLowerCase()
+                        const results = invoices
+                          .filter(inv => [inv.counterpartyName, inv.number, inv.date, inv.currency, Number(inv.amount || 0).toFixed(2)].join(' ').toLowerCase().includes(q))
+                          .sort((a, b) => {
+                            const da = Math.abs(Date.parse(a.date) - Date.parse(selected.transactionDate))
+                            const db = Math.abs(Date.parse(b.date) - Date.parse(selected.transactionDate))
+                            return (Number.isNaN(da) ? Infinity : da) - (Number.isNaN(db) ? Infinity : db)
+                          })
+                        return (
+                          <div className="expense-search-results">
+                            {results.length === 0 && <p className="hint">No matching invoices.</p>}
+                            {results.map(inv => {
+                              const linkedElsewhere = inv.matchedPaymentTransactionId && inv.matchedPaymentTransactionId !== selected.id
+                              return linkedElsewhere ? (
+                                <div key={inv.id} className="expense-search-result expense-search-result-linked">
+                                  <span>{inv.date} · {inv.counterpartyName} · {inv.number} · {inv.currency} {Number(inv.amount || 0).toFixed(2)} <span className="hint">— matched elsewhere</span></span>
+                                  <button type="button" className="btn-small btn-ghost" onClick={() => unlinkInvoice(inv)}>Unmatch</button>
+                                </div>
+                              ) : (
+                                <button
+                                  key={inv.id}
+                                  type="button"
+                                  className={`expense-search-result${chosenInvoiceId === inv.id ? ' is-selected' : ''}`}
+                                  onClick={() => setChosenInvoiceId(inv.id)}
+                                >
+                                  {inv.date} · {inv.counterpartyName} · {inv.number} · {inv.currency} {Number(inv.amount || 0).toFixed(2)}
+                                </button>
+                              )
+                            })}
+                          </div>
+                        )
+                      })()}
+                      <button className="btn-small" style={{ marginTop: 8 }} disabled={busyId === selected.id || !chosenInvoiceId} onClick={() => confirmInvoiceMatch(selected, chosenInvoiceId)}>Confirm Chosen Invoice</button>
+                    </div>
+                    )}
+
+                    {/* Manual PO linking (debit only) — deliberately not
+                        auto-suggested, see LESSONS_LEARNED.md: keeps this
+                        mutually exclusive with expense-matching without a
+                        two-scorer tiebreak. */}
+                    {selected.direction !== 'credit' && pickingPo && (() => {
+                      const q = poSearchText.trim().toLowerCase()
+                      const results = purchaseOrders
+                        .filter(po => !q || [po.counterpartyName, po.number, po.date, po.currency, Number(po.amount || 0).toFixed(2)].join(' ').toLowerCase().includes(q))
+                        .sort((a, b) => {
+                          const da = Math.abs(Date.parse(a.date) - Date.parse(selected.transactionDate))
+                          const db = Math.abs(Date.parse(b.date) - Date.parse(selected.transactionDate))
+                          return (Number.isNaN(da) ? Infinity : da) - (Number.isNaN(db) ? Infinity : db)
+                        })
+                      return (
+                        <div className="expense-search" style={{ marginTop: 10 }}>
+                          <input
+                            type="text"
+                            placeholder="Type a supplier name, PO #, amount, or date to find the matching purchase order…"
+                            value={poSearchText}
+                            onChange={e => setPoSearchText(e.target.value)}
+                          />
+                          <div className="expense-search-results">
+                            {results.length === 0 && <p className="hint">No matching purchase orders.</p>}
+                            {results.map(po => {
+                              const linkedElsewhere = po.matchedPaymentTransactionId && po.matchedPaymentTransactionId !== selected.id
+                              return linkedElsewhere ? (
+                                <div key={po.id} className="expense-search-result expense-search-result-linked">
+                                  <span>{po.date} · {po.counterpartyName} · {po.number} · {po.currency} {Number(po.amount || 0).toFixed(2)} <span className="hint">— matched elsewhere</span></span>
+                                  <button type="button" className="btn-small btn-ghost" onClick={() => unlinkPurchaseOrder(po)}>Unmatch</button>
+                                </div>
+                              ) : (
+                                <button key={po.id} type="button" className="expense-search-result" onClick={() => linkPurchaseOrder(selected, po.id)}>
+                                  {po.date} · {po.counterpartyName} · {po.number} · {po.currency} {Number(po.amount || 0).toFixed(2)}
+                                </button>
+                              )
+                            })}
+                          </div>
+                          <button className="btn-small btn-ghost" style={{ marginTop: 8 }} onClick={() => { setPickingPo(false); setPoSearchText('') }}>Cancel</button>
+                        </div>
+                      )
+                    })()}
 
                     {pickingSettlement && (
                       <div className="filter-row" style={{ marginTop: 10 }}>
@@ -965,9 +1229,17 @@ export default function Reconciliation() {
                     )}
 
                     <div className="recon-sticky-actions">
-                      {selectedExpense ? (
+                      {selectedInvoice ? (
+                        <button className="btn-primary" disabled={busyId === selected.id} onClick={() => confirmInvoiceMatch(selected)}>
+                          {busyId === selected.id ? 'Confirming…' : 'Confirm Match'}
+                        </button>
+                      ) : selectedExpense ? (
                         <button className="btn-primary" disabled={busyId === selected.id} onClick={() => confirmMatch(selected)}>
                           {busyId === selected.id ? 'Confirming…' : 'Confirm Match'}
+                        </button>
+                      ) : selected.direction === 'credit' ? (
+                        <button className="btn-primary" disabled={busyId === selected.id} onClick={() => ignoreTxn(selected)}>
+                          {busyId === selected.id ? 'Ignoring…' : 'Ignore'}
                         </button>
                       ) : !CREATE_EXPENSE_BLOCKED_TYPES.includes(selected.transactionType) ? (
                         <button className="btn-primary" disabled={busyId === selected.id} onClick={() => createExpenseFromTxn(selected)}>

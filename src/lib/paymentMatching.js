@@ -206,7 +206,7 @@ export function merchantSimilarity(a, b) {
 // 250. A pairing this far apart in time is never a genuine match regardless
 // of what else lines up, so it's disqualified outright rather than merely
 // scored lower.
-const MAX_MATCH_DAYS = 90
+export const MAX_MATCH_DAYS = 90
 
 export function scoreExpenseMatch(txn, expense) {
   if (!['purchase', 'fee', 'interest'].includes(txn.transactionType)) return null
@@ -236,6 +236,43 @@ export function scoreExpenseMatch(txn, expense) {
   if (txn.transactionType === 'purchase') { score += 5 }
 
   if (expense.matchedPaymentTransactionId) { score -= 50; reasons.push('Expense already matched to another transaction') }
+
+  return { score, reasons }
+}
+
+// ---- Matching: transaction -> sales invoice (income) ---------------------
+
+// Mirrors scoreExpenseMatch exactly, but for the income side: a bank/card
+// CREDIT matched against a customer invoice, instead of a debit matched
+// against an expense. Excludes 'payment'-type credits (card-balance
+// payments) — those belong to settlement linking, not income.
+export function scoreInvoiceMatch(txn, invoice) {
+  if (txn.direction !== 'credit') return null
+  if (txn.transactionType === 'payment') return null
+  if (txn.pendingOrPosted === 'pending') return null
+
+  const days = daysBetween(txn.transactionDate, invoice.date)
+  if (days !== null && days > MAX_MATCH_DAYS) return null
+
+  let score = 0
+  const reasons = []
+
+  const amtMatch = Math.abs(txn.settlementAmount - parseFloat(invoice.amount)) < 0.01
+  if (amtMatch) { score += 45; reasons.push('Same amount') }
+  else { reasons.push('Amount does not match') }
+
+  if (txn.settlementCurrency === invoice.currency) { score += 15; reasons.push('Same currency') }
+
+  if (days === 0) { score += 15; reasons.push('Same date') }
+  else if (days !== null && days <= 3) { score += 10; reasons.push(`Date within ${Math.ceil(days)} day(s)`) }
+  else if (days !== null) { reasons.push(`Date differs by ${Math.ceil(days)} day(s)`) }
+
+  const sim = merchantSimilarity(txn.merchantRaw, invoice.counterpartyName)
+  if (sim === 'high') { score += 20; reasons.push('Customer name matches closely') }
+  else if (sim === 'medium') { score += 10; reasons.push('Customer name partially matches') }
+  else { reasons.push('Customer name does not match') }
+
+  if (invoice.matchedPaymentTransactionId) { score -= 50; reasons.push('Invoice already matched to another transaction') }
 
   return { score, reasons }
 }
@@ -278,6 +315,12 @@ export const CREATE_EXPENSE_BLOCKED_TYPES = ['payment', 'transfer']
 export function classifyReviewCategory(txn, { hasDuplicate = false } = {}) {
   if (txn.transactionType === 'payment') return 'possible_settlement'
   if (txn.transactionType === 'transfer') return 'possible_transfer'
+  // Checked before the 'refund' fallback below: an unlabelled credit
+  // defaults to transactionType 'refund' (classifyTransactionType), but a
+  // credit with an invoice suggestion attached is far more likely a
+  // customer payment than a genuine refund — an actual unmatched refund
+  // still falls through to 'possible_refund' as before.
+  if (txn.direction === 'credit' && txn.confidenceScore != null) return 'possible_income'
   if (txn.transactionType === 'refund') return 'possible_refund'
   if (hasDuplicate) return 'possible_duplicate'
   if (txn.confidenceScore != null) return 'possible_expense'
