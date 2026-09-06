@@ -7,6 +7,7 @@ import Upload from './pages/Upload'
 import Capture from './pages/Capture'
 import Expenses from './pages/Expenses'
 import PaymentSources from './pages/PaymentSources'
+import Invoices from './pages/Invoices'
 import Reconciliation from './pages/Reconciliation'
 import CompanyReview from './pages/CompanyReview'
 import Settings from './pages/Settings'
@@ -39,6 +40,7 @@ export default function App() {
           <Route path="capture" element={<Capture />} />
           <Route path="expenses" element={<Expenses />} />
           <Route path="payment-sources" element={<PaymentSources />} />
+          <Route path="invoices" element={<Invoices />} />
           <Route path="reconciliation" element={<Reconciliation />} />
           <Route path="company-review" element={<CompanyReview />} />
           <Route path="settings" element={<Settings />} />

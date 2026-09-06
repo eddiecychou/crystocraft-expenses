@@ -39,6 +39,14 @@ some of these functions look the way they do, see [LESSONS_LEARNED.md](LESSONS_L
 | `scoreSettlementMatch(cardTxn, bankTxn)` | 235 | Scores whether a bank debit is the settlement of a given credit-card charge. |
 | `classifyReviewCategory(txn, { hasDuplicate })` | 265 | Buckets a transaction into a review category for the Reconciliation queue. |
 
+### [documentImport.js](src/lib/documentImport.js)
+
+| Function | Line | Purpose |
+|---|---|---|
+| `findColumn(headers, aliases)` | 23 | Internal — same alias-resolution pattern as `paymentMatching.js`'s helper of the same name. |
+| `mapDocumentCsvRecords(records, headers, kind)` | 31 | Maps raw CSV rows into the `salesInvoices`/`purchaseOrders` shape (`kind`: `'invoice'`\|`'po'`) — header-level only (number, counterparty, date, amount, currency, notes), no line items. |
+| `uploadDocumentFile(file, projectId, kind, docId)` | 59 | Uploads the original source file to Storage under `invoices/{projectId}/{docId}/` or `purchaseOrders/{projectId}/{docId}/`, same audit-trail rationale as `statementStorage.js`'s `uploadStatementFile`. |
+
 ### [pdfStatementParser.js](src/lib/pdfStatementParser.js)
 
 | Function | Line | Purpose |
@@ -244,6 +252,15 @@ No functions — a pure dispatcher component (three link cards routing to Upload
 | `reprocessFromStoredPdf(imp)` | 801 | "Fix from Stored PDF" — re-downloads and re-parses an import's original file for correction. |
 | `skipPdfPreview()` | 836 | Skips the current PDF in a multi-file queue without importing it. |
 
+### [Invoices.jsx](src/pages/Invoices.jsx) — customer invoice & supplier PO import (Phase 1: import/list only, no reconciliation)
+
+| Function | Line | Purpose |
+|---|---|---|
+| `readFiles(rawFiles)` | 59 | Reads dropped/selected files — CSV files are tagged for direct parsing, PDF/image files are base64-encoded for the extraction API. |
+| `processFiles(items)` | 92 | For CSV: parses via `parseCSV`/`mapDocumentCsvRecords` directly (one result row per CSV row). For PDF/image: posts to `/api/process-invoice` with the active tab's `docKind`. |
+| `saveAll()` | 150 | Writes each reviewed result to `salesInvoices` or `purchaseOrders` (per active tab), then uploads the original source file via `uploadDocumentFile` and attaches its URL. |
+| `startEdit(rec)` / `saveEdit(rec)` | 187 | Inline edit of an already-saved record in the list below. |
+
 ### [Reconciliation.jsx](src/pages/Reconciliation.jsx) — transaction matching workspace
 
 | Function | Line | Purpose |
@@ -312,6 +329,7 @@ No functions — a pure dispatcher component (three link cards routing to Upload
 | File | Purpose |
 |---|---|
 | [process-receipt.js](netlify/edge-functions/process-receipt.js) | Deno edge function. Receives a receipt image/PDF, optionally runs Cloud Vision OCR first (`callVisionOCR`, when `GOOGLE_VISION_API_KEY` is set), then calls Gemini (`gemini-2.5-flash` → `gemini-2.5-pro` fallback) to extract structured JSON fields. |
+| [process-invoice.js](netlify/edge-functions/process-invoice.js) | Deno edge function, same OCR+Gemini pipeline as `process-receipt.js`. Takes a `docKind` (`'invoice'`\|`'po'`) and extracts `{ number, counterpartyName, date, amount, currency, notes }` — used for customer invoices and supplier POs, whose arbitrary per-counterparty layouts rule out a positional parser like `pdfStatementParser.js`. |
 | [download-receipt.js](netlify/edge-functions/download-receipt.js) | Deno edge function. CORS proxy — accepts `{ url }`, fetches a Firebase Storage file server-side, returns the raw bytes with permissive CORS headers. Used generically for both receipt images and statement files despite the name. |
 
 ## `netlify/functions/`

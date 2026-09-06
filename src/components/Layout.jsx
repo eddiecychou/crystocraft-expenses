@@ -34,6 +34,7 @@ export default function Layout() {
         <NavLink to="/upload">Upload</NavLink>
         <NavLink to="/expenses">Records</NavLink>
         <NavLink to="/payment-sources">Payments</NavLink>
+        <NavLink to="/invoices">Invoices & POs</NavLink>
         <NavLink to="/reconciliation">Reconcile</NavLink>
         <NavLink to="/company-review">Company Review</NavLink>
         <NavLink to="/settings">Settings</NavLink>
@@ -79,6 +80,7 @@ export default function Layout() {
           <div className="mobile-sheet" role="menu">
             <NavLink to="/expenses" className="mobile-sheet-item" onClick={() => setMoreOpen(false)}>Records</NavLink>
             <NavLink to="/payment-sources" className="mobile-sheet-item" onClick={() => setMoreOpen(false)}>Payments</NavLink>
+            <NavLink to="/invoices" className="mobile-sheet-item" onClick={() => setMoreOpen(false)}>Invoices & POs</NavLink>
             <NavLink to="/company-review" className="mobile-sheet-item" onClick={() => setMoreOpen(false)}>Company Review</NavLink>
             <NavLink to="/settings" className="mobile-sheet-item" onClick={() => setMoreOpen(false)}>Settings</NavLink>
             <button type="button" className="mobile-sheet-item mobile-sheet-danger" onClick={handleLogout}>Logout</button>

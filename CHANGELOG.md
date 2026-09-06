@@ -55,6 +55,11 @@ non-obvious bugs and decisions behind it.
 - **Dashboard** — date-filtered totals, category breakdown, recent expenses, in
   a 12-column responsive grid.
 - **Settings** — multi-project management with per-project color identity.
+- **Invoices & POs** (Phase 1) — import customer invoices (income) and
+  supplier purchase orders via CSV or PDF/image, AI field extraction
+  (Gemini, shared pipeline with Upload), manual review before save,
+  per-project list with edit/delete. No bank-transaction reconciliation
+  yet — Phase 2.
 
 **Design system at this release:**
 

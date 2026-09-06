@@ -439,6 +439,24 @@ first when the bug is likely client-side logic.
 
 ---
 
+## Arbitrary-layout PDFs need AI extraction, not a positional parser
+
+`pdfStatementParser.js`'s column-position parsing works because a bank
+statement has exactly one issuer and one fixed layout per account — the
+parser can afford to be a rule-based, coordinate-calibrated table
+extractor. Customer invoices and supplier purchase orders (Invoices.jsx,
+Phase 1) have no such guarantee: every counterparty prints their own
+layout, so a rule-based parser would need per-counterparty tuning
+forever. The right tool here is the same OCR (Cloud Vision) + Gemini
+structured-extraction pipeline already proven for receipts
+(`process-receipt.js` → `process-invoice.js`), where the model reads
+whatever layout is in front of it and every field it returns is shown in
+an editable review table before saving — never trusted blindly, exactly
+like receipt extraction. **Decision rule going forward:** one issuer/one
+fixed template → positional parser (cheap, deterministic, no API cost);
+many issuers/arbitrary templates → OCR+AI extraction with mandatory human
+review.
+
 ## OCR architecture direction (in progress, not yet built)
 
 Agreed direction for receipt OCR accuracy: **Cloud Vision `DOCUMENT_TEXT_DETECTION`
