@@ -407,9 +407,32 @@ export default function PaymentSources() {
       // Only personal accounts get transaction-level classification —
       // existing company accounts assume every transaction is inherently
       // company-related already, exactly as before this feature existed.
+      const matchedRule = rulesByMerchant.get(merchantNormalized) || null
       const classification = account.ownershipType === 'personal'
-        ? classifyTransaction(t, { matchedExpenseId: null, rule: rulesByMerchant.get(merchantNormalized) || null })
+        ? classifyTransaction(t, { matchedExpenseId: null, rule: matchedRule })
         : null
+
+      // Generated up front (no network call — doc() assigns an id
+      // client-side) so an auto-created Expense below can reference this
+      // row's id, and this row can reference the expense's, in the same
+      // batch write.
+      const txnRef = doc(collection(db, 'paymentTransactions'))
+
+      // Auto-Approve classifies; a SEPARATE "Auto-Create Expense" opt-in
+      // on the same rule (see expense-classification.md / CompanyReview.jsx)
+      // actually mints the Expense record too, with no manual click — but
+      // only for an unambiguous 'company_confirmed' rule result, and never
+      // for a row whose OWN duplicate status is anything but a clean,
+      // resolved "not a duplicate": auto-writing a real financial record
+      // for a transaction still flagged uncertain would contradict the
+      // "duplicates must surface, never silently skip/act" rule elsewhere
+      // in this app.
+      const shouldAutoCreateExpense =
+        classification?.classification === 'company_confirmed' &&
+        classification.classificationSource === 'merchant_rule' &&
+        matchedRule?.autoCreateExpense &&
+        !['confirmed_duplicate', 'possible_duplicate', 'needs_review'].includes(duplicateStatus)
+      const expenseRef = shouldAutoCreateExpense ? doc(collection(db, 'expenses')) : null
 
       const rowDoc = {
         userId: auth.currentUser.uid,
@@ -437,7 +460,11 @@ export default function PaymentSources() {
           suggestedClassification: classification.suggestedClassification,
           businessPurpose: null,
           reviewNote: null,
-          accountantStatus: 'not_required',
+          // The Expense record itself was created with no human in the
+          // loop — 'pending' keeps the accountant sign-off step open
+          // rather than marking it 'not_required', so automating record
+          // CREATION never quietly automates the final claim decision too.
+          accountantStatus: expenseRef ? 'pending' : 'not_required',
         } : {}),
         balanceAfter: t.balanceAfter ?? null,
         installmentIndicator: false,
@@ -448,8 +475,8 @@ export default function PaymentSources() {
         fingerprintLoose,
         // Every row is written — a duplicate warning is metadata for
         // review, never a reason to silently drop a real transaction.
-        status: 'unmatched',
-        matchedExpenseIds: [],
+        status: expenseRef ? 'matched' : 'unmatched',
+        matchedExpenseIds: expenseRef ? [expenseRef.id] : [],
         settlementGroupId: null,
         confidenceScore: null,
         matchReasons: [],
@@ -468,12 +495,50 @@ export default function PaymentSources() {
       // Add this row itself to the collision pool so a later row in the
       // same batch sees it too (e.g. a third same-day repeat).
       existingByFingerprint.set(fingerprintExact, [...collisionRows, { importId: importRef.id, rawRowText: t.rawRowText, balanceAfter: t.balanceAfter, merchantRaw: t.merchantRaw }])
-      rowsToWrite.push(rowDoc)
+      rowsToWrite.push({ ref: txnRef, data: rowDoc })
+
+      if (expenseRef) {
+        // Mirrors CompanyReview.jsx's createExpenseFromTxn exactly, minus
+        // the manual click — same shape, same fields, just triggered by
+        // the merchant rule instead of a person pressing the button.
+        rowsToWrite.push({
+          ref: expenseRef,
+          data: {
+            userId: auth.currentUser.uid,
+            userEmail: auth.currentUser.email,
+            projectId: activeProject.id,
+            date: t.transactionDate || t.postDate || '',
+            vendor: merchantNormalized ? merchantNormalized.replace(/\b\w/g, c => c.toUpperCase()) : t.merchantRaw,
+            amount: t.settlementAmount,
+            currency: account.settlementCurrency,
+            category: matchedRule.autoCreateCategory || 'Other',
+            notes: `Auto-created from merchant rule for "${matchedRule.merchantLabel || merchantNormalized}". Statement description: "${t.merchantRaw}".`,
+            paymentMethod: '',
+            images: [],
+            receiptStatus: 'missing',
+            reconciliationStatus: 'created_from_statement',
+            source: 'personal_statement',
+            sourceTransactionId: txnRef.id,
+            sourceStatementImportId: importRef.id,
+            sourceStatementRowText: t.rawRowText || null,
+            settlementAmount: t.settlementAmount,
+            settlementCurrency: account.settlementCurrency,
+            settlementStatus: 'confirmed',
+            matchedPaymentTransactionId: txnRef.id,
+            matchedPaymentAccountId: account.id,
+            createdAt: serverTimestamp(),
+          },
+        })
+      }
     }
 
+    // Chunked by WRITE COUNT, not row count — an auto-created row
+    // contributes 2 writes (transaction + expense), so chunking by row
+    // count alone could silently exceed Firestore's 400-write batch limit
+    // on a large statement with many auto-created merchants.
     for (let i = 0; i < rowsToWrite.length; i += 400) {
       const batch = writeBatch(db)
-      rowsToWrite.slice(i, i + 400).forEach(row => batch.set(doc(collection(db, 'paymentTransactions')), row))
+      rowsToWrite.slice(i, i + 400).forEach(({ ref, data }) => batch.set(ref, data))
       await batch.commit()
     }
 

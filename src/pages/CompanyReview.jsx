@@ -7,6 +7,7 @@ import { useProject } from '../contexts/ProjectContext'
 import ProjectBanner from '../components/ProjectBanner'
 import ConfirmDialog from '../components/ConfirmDialog'
 import { CLASSIFICATION_LABELS, BUSINESS_PURPOSE_OPTIONS, merchantRuleDocId, computeVisibleToMembers } from '../lib/expenseClassification'
+import { CATEGORIES } from '../constants'
 import { CREATE_EXPENSE_BLOCKED_TYPES } from '../lib/paymentMatching'
 import { paymentTransactionsQuery } from '../lib/projectAccess'
 import { parsePdfStatement } from '../lib/pdfStatementParser'
@@ -51,6 +52,11 @@ function chunk(arr, size) {
   return out
 }
 
+// Same date-range/preset pattern as Dashboard.jsx — the merchant-grouped
+// view below had no date filter at all, forcing a scan across every
+// merchant group to find one month's worth of transactions.
+function isoDate(d) { return d.toISOString().slice(0, 10) }
+
 export default function CompanyReview() {
   const { activeProject } = useProject()
   const [accounts, setAccounts] = useState([])
@@ -59,6 +65,8 @@ export default function CompanyReview() {
   const [imports, setImports] = useState([])
   const [expenses, setExpenses] = useState([])
   const [expandedMerchant, setExpandedMerchant] = useState(null)
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
   const [confirmDialog, setConfirmDialog] = useState(null)
   const [busyId, setBusyId] = useState(null)
   const [purposeDraft, setPurposeDraft] = useState({}) // { [txnId]: { option, note } }
@@ -122,7 +130,30 @@ export default function CompanyReview() {
     return () => unsubs.forEach(u => u())
   }, [personalAccountIds.join(',')])
 
-  const classified = transactions.filter(t => t.classification)
+  function setDatePreset(preset) {
+    const now = new Date()
+    if (preset === 'this-month') {
+      setDateFrom(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`)
+      setDateTo(isoDate(now))
+    } else if (preset === 'last-month') {
+      const y = now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear()
+      const m = now.getMonth() === 0 ? 12 : now.getMonth()
+      setDateFrom(`${y}-${String(m).padStart(2, '0')}-01`)
+      setDateTo(isoDate(new Date(now.getFullYear(), now.getMonth(), 0)))
+    } else if (preset === 'this-year') {
+      setDateFrom(`${now.getFullYear()}-01-01`)
+      setDateTo(isoDate(now))
+    } else {
+      setDateFrom('')
+      setDateTo('')
+    }
+  }
+
+  const classified = transactions.filter(t => t.classification).filter(t => {
+    if (dateFrom && t.transactionDate < dateFrom) return false
+    if (dateTo && t.transactionDate > dateTo) return false
+    return true
+  })
 
   const summary = {
     company_candidate: classified.filter(t => t.classification === 'company_candidate').length,
@@ -573,6 +604,17 @@ export default function CompanyReview() {
     await updateDoc(doc(db, 'merchantRules', rule.id), { autoApprove: !rule.autoApprove, updatedAt: serverTimestamp() })
   }
 
+  // Only meaningful for a rule that classifies as 'company_confirmed' —
+  // see commitRows() in PaymentSources.jsx, which checks this alongside
+  // autoApprove before minting an Expense with no manual click at all.
+  async function toggleRuleAutoCreateExpense(rule) {
+    await updateDoc(doc(db, 'merchantRules', rule.id), { autoCreateExpense: !rule.autoCreateExpense, updatedAt: serverTimestamp() })
+  }
+
+  async function setRuleAutoCreateCategory(rule, category) {
+    await updateDoc(doc(db, 'merchantRules', rule.id), { autoCreateCategory: category, updatedAt: serverTimestamp() })
+  }
+
   async function deleteRule(rule) {
     setConfirmDialog({
       message: <>Delete the rule for <strong>{rule.merchantLabel || rule.merchantKey}</strong>? Its transactions keep their current classification — only future imports stop using this rule.</>,
@@ -597,6 +639,20 @@ export default function CompanyReview() {
         <p className="empty">No personal accounts yet. Mark an account as personal in Payment Sources to start reviewing its transactions here.</p>
       ) : (
         <>
+          <div className="filter-row">
+            <div className="date-range">
+              <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} />
+              <span className="date-sep">–</span>
+              <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} />
+            </div>
+            <div className="preset-btns">
+              <button onClick={() => setDatePreset('this-month')} className="btn-small btn-ghost">This Month</button>
+              <button onClick={() => setDatePreset('last-month')} className="btn-small btn-ghost">Last Month</button>
+              <button onClick={() => setDatePreset('this-year')} className="btn-small btn-ghost">This Year</button>
+              <button onClick={() => setDatePreset('all')} className="btn-small btn-ghost">All</button>
+            </div>
+          </div>
+
           <div className="stat-row">
             <div className="stat-card"><div className="stat-label">Company Candidates</div><div className="stat-value">{summary.company_candidate}</div></div>
             <div className="stat-card"><div className="stat-label">Personal</div><div className="stat-value">{summary.personal}</div></div>
@@ -614,7 +670,9 @@ export default function CompanyReview() {
               <p className="hint">
                 Built from "Apply + Suggest Rule" below. A rule only suggests a classification unless
                 Auto-Approve is turned on for that merchant — turning it on means future imports from
-                this merchant classify automatically.
+                this merchant classify automatically. For a Company Confirmed rule, Auto-Create Expense
+                goes one step further: future imports from this merchant get their Expense record
+                created immediately too, with no manual click at all.
               </p>
               {rules.map(rule => (
                 <div key={rule.id} className="category-row">
@@ -622,10 +680,24 @@ export default function CompanyReview() {
                     <strong>{rule.merchantLabel || rule.merchantKey}</strong>
                     <span className="hint"> → {CLASSIFICATION_LABELS[rule.classification] || rule.classification}</span>
                   </span>
-                  <span className="action-row" style={{ margin: 0 }}>
+                  <span className="action-row" style={{ margin: 0, flexWrap: 'wrap' }}>
                     <button className={`btn-small${rule.autoApprove ? ' btn-primary' : ' btn-ghost'}`} onClick={() => toggleRuleAutoApprove(rule)}>
                       {rule.autoApprove ? 'Auto-Approve: On' : 'Auto-Approve: Off'}
                     </button>
+                    {rule.classification === 'company_confirmed' ? (
+                      <>
+                        <button className={`btn-small${rule.autoCreateExpense ? ' btn-primary' : ' btn-ghost'}`} onClick={() => toggleRuleAutoCreateExpense(rule)}>
+                          {rule.autoCreateExpense ? 'Auto-Create Expense: On' : 'Auto-Create Expense: Off'}
+                        </button>
+                        {rule.autoCreateExpense && (
+                          <select value={rule.autoCreateCategory || 'Other'} onChange={e => setRuleAutoCreateCategory(rule, e.target.value)}>
+                            {CATEGORIES.map(c => <option key={c}>{c}</option>)}
+                          </select>
+                        )}
+                      </>
+                    ) : (
+                      <span className="hint">Auto-Create Expense only applies to a Company Confirmed rule.</span>
+                    )}
                     <button className="btn-small btn-danger" onClick={() => deleteRule(rule)}>Delete</button>
                   </span>
                 </div>
