@@ -169,6 +169,8 @@ the project-list query ever runs against `memberUids`.
   // Added from Upload.jsx (receipt scan + manual entry) at Cindy's request,
   // 2026-09-07 — bookkeeping fields, not extracted by AI (not reliably
   // printed on a receipt), typed in during review regardless of source.
+  // Also editable from Records (Expenses.jsx) and included in its Excel
+  // export.
   poNumber: string,          // free text, not linked to a purchaseOrders record
   vendorCode: string,
   paymentStage: string,      // 'Full Payment' | 'Deposit' | 'Balance'

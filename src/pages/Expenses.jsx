@@ -7,7 +7,7 @@ import ProjectBanner from '../components/ProjectBanner'
 import JSZip from 'jszip'
 import ExcelJS from 'exceljs'
 import { uploadReceiptImage, deleteReceiptImage, MAX_IMAGES } from '../receiptStorage'
-import { CATEGORIES, CURRENCIES, PAYMENT_METHODS } from '../constants'
+import { CATEGORIES, CURRENCIES, PAYMENT_METHODS, PAYMENT_STAGES } from '../constants'
 import ConfirmDialog from '../components/ConfirmDialog'
 import LoadingBar from '../components/LoadingBar'
 import { AttachIcon, CloseIcon, DownloadIcon, ICON_STROKE_WIDTH } from '../icons'
@@ -216,6 +216,10 @@ export default function Expenses() {
         { header: 'Currency',   key: 'currency',    width: 10 },
         { header: 'Category',   key: 'category',    width: 22 },
         { header: 'Paid via',   key: 'paymentMethod', width: 18 },
+        { header: 'PU No.',     key: 'poNumber',    width: 14 },
+        { header: 'Vendor Code', key: 'vendorCode', width: 14 },
+        { header: 'Payment Stage', key: 'paymentStage', width: 14 },
+        { header: 'Handling Charge', key: 'handlingCharge', width: 14 },
         { header: 'Notes',      key: 'notes',       width: 32 },
         { header: 'Project',    key: 'project',     width: 18 },
         { header: 'Receipts',   key: 'receipts',    width: 10 },
@@ -235,6 +239,10 @@ export default function Expenses() {
           currency: e.currency,
           category: e.category,
           paymentMethod: e.paymentMethod || '',
+          poNumber: e.poNumber || '',
+          vendorCode: e.vendorCode || '',
+          paymentStage: e.paymentStage || '',
+          handlingCharge: e.handlingCharge || '',
           notes: e.notes || '',
           project: projectName,
           receipts: (e.images || []).length,
@@ -470,9 +478,15 @@ export default function Expenses() {
                     <td><select value={editData.category} onChange={ev => upd('category', ev.target.value)}>{CATEGORIES.map(c => <option key={c}>{c}</option>)}</select></td>
                     <td>
                       <input value={editData.notes || ''} onChange={ev => upd('notes', ev.target.value)} style={{ marginBottom: 4 }} />
-                      <select value={editData.paymentMethod || ''} onChange={ev => upd('paymentMethod', ev.target.value)}>
+                      <select value={editData.paymentMethod || ''} onChange={ev => upd('paymentMethod', ev.target.value)} style={{ marginBottom: 4 }}>
                         <option value="">— Paid via —</option>
                         {PAYMENT_METHODS.map(m => <option key={m}>{m}</option>)}
+                      </select>
+                      <input placeholder="PU No." value={editData.poNumber || ''} onChange={ev => upd('poNumber', ev.target.value)} style={{ marginBottom: 4 }} />
+                      <input placeholder="Vendor Code" value={editData.vendorCode || ''} onChange={ev => upd('vendorCode', ev.target.value)} style={{ marginBottom: 4 }} />
+                      <input type="number" inputMode="decimal" step="0.01" placeholder="Handling Charge" value={editData.handlingCharge || ''} onChange={ev => upd('handlingCharge', ev.target.value)} style={{ marginBottom: 4 }} />
+                      <select value={editData.paymentStage || 'Full Payment'} onChange={ev => upd('paymentStage', ev.target.value)}>
+                        {PAYMENT_STAGES.map(s => <option key={s}>{s}</option>)}
                       </select>
                     </td>
                     <td>
@@ -497,6 +511,11 @@ export default function Expenses() {
                       )}
                       {e.notes && <div>{e.notes}</div>}
                       {e.paymentMethod && <div className="payment-sub">{e.paymentMethod}</div>}
+                      {(e.poNumber || e.vendorCode) && (
+                        <div className="hint">{[e.poNumber && `PU ${e.poNumber}`, e.vendorCode].filter(Boolean).join(' · ')}</div>
+                      )}
+                      {e.paymentStage && e.paymentStage !== 'Full Payment' && <div className="hint">{e.paymentStage}</div>}
+                      {Number(e.handlingCharge) > 0 && <div className="hint">Handling charge: {e.currency} {Number(e.handlingCharge).toFixed(2)}</div>}
                     </td>
                     <td>
                       <button onClick={() => openLightbox(e)} className="btn-small" title="Manage receipts" aria-label={`Manage receipts, ${e.images?.length || 0} attached`}>
@@ -538,6 +557,10 @@ export default function Expenses() {
                   <label>Currency<select value={editData.currency} onChange={ev => upd('currency', ev.target.value)}>{CURRENCIES.map(c => <option key={c}>{c}</option>)}</select></label>
                   <label>Category<select value={editData.category} onChange={ev => upd('category', ev.target.value)}>{CATEGORIES.map(c => <option key={c}>{c}</option>)}</select></label>
                   <label>Paid via<select value={editData.paymentMethod || ''} onChange={ev => upd('paymentMethod', ev.target.value)}><option value="">—</option>{PAYMENT_METHODS.map(m => <option key={m}>{m}</option>)}</select></label>
+                  <label>PU No.<input value={editData.poNumber || ''} onChange={ev => upd('poNumber', ev.target.value)} /></label>
+                  <label>Vendor Code<input value={editData.vendorCode || ''} onChange={ev => upd('vendorCode', ev.target.value)} /></label>
+                  <label>Handling Charge<input type="number" inputMode="decimal" step="0.01" value={editData.handlingCharge || ''} onChange={ev => upd('handlingCharge', ev.target.value)} /></label>
+                  <label>Payment Stage<select value={editData.paymentStage || 'Full Payment'} onChange={ev => upd('paymentStage', ev.target.value)}>{PAYMENT_STAGES.map(s => <option key={s}>{s}</option>)}</select></label>
                   <label className="full-width">Notes<input value={editData.notes || ''} onChange={ev => upd('notes', ev.target.value)} /></label>
                 </div>
                 <div className="mob-card-actions">
@@ -567,6 +590,11 @@ export default function Expenses() {
                   </div>
                 )}
                 {e.notes && <div className="mob-card-notes">{e.notes}</div>}
+                {(e.poNumber || e.vendorCode) && (
+                  <div className="hint">{[e.poNumber && `PU ${e.poNumber}`, e.vendorCode].filter(Boolean).join(' · ')}</div>
+                )}
+                {e.paymentStage && e.paymentStage !== 'Full Payment' && <div className="hint">{e.paymentStage}</div>}
+                {Number(e.handlingCharge) > 0 && <div className="hint">Handling charge: {e.currency} {Number(e.handlingCharge).toFixed(2)}</div>}
                 <div className="mob-card-actions">
                   <button onClick={() => openLightbox(e)} className="btn-small" aria-label={`Manage receipts, ${e.images?.length || 0} attached`}>
                     <AttachIcon size={14} strokeWidth={ICON_STROKE_WIDTH} aria-hidden="true" /> {e.images?.length || 0}
