@@ -385,20 +385,30 @@ body {
 .dashboard-span-8 { grid-column: span 8; }
 .dashboard-span-12 { grid-column: span 12; }
 
-@media (max-width: 1023px) {
-  .dashboard-grid { gap: var(--space-4); }
-  .dashboard-span-4,
-  .dashboard-span-6,
-  .dashboard-span-8 { grid-column: span 6; }
-  .dashboard-span-12 { grid-column: span 12; }
-}
-
-@media (max-width: 767px) {
-  .dashboard-grid { grid-template-columns: 1fr; gap: var(--space-3); }
+/* The desktop sidebar (200px + 32px*2 page padding = 264px) is present
+   for the whole window-width range below, so a "halves" tablet tier keyed
+   purely off window width (as this used to be, at max-width:1023px)
+   badly overestimates the actual content width available — e.g. an
+   844px-wide window leaves only ~580px for .main-content, and splitting
+   that in half left each card too narrow for its own contents (a CJK
+   vendor name wrapping one character per line, category totals wrapping
+   mid-value). Stack to a single column through the whole width range
+   where the sidebar eats real space but the window itself isn't yet wide
+   enough to comfortably afford two ~380px+ columns (empirically ~1099px
+   window ⇒ ~835px content ⇒ two ~400px columns) — below 768px there's no
+   sidebar at all (mobile chrome takes over, see .mobile-only/.desktop-only
+   further down), so single-column is correct there for an unrelated
+   reason (a phone screen), not this one. */
+@media (max-width: 1099px) {
+  .dashboard-grid { grid-template-columns: 1fr; gap: var(--space-4); }
   .dashboard-span-4,
   .dashboard-span-6,
   .dashboard-span-8,
   .dashboard-span-12 { grid-column: span 1; }
+}
+
+@media (max-width: 767px) {
+  .dashboard-grid { gap: var(--space-3); }
 }
 
 .loading { color: #718096; padding: 48px; text-align: center; }
