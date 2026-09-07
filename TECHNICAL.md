@@ -145,7 +145,15 @@ The frontend is a pure SPA deployed to Netlify. All API calls stay within the sa
                          // every project-scoped query and security rule keys off
   members: {
     [uid]: { role: 'owner' | 'editor', email: string, addedAt: Timestamp }
-  }
+  },
+  // Per-project Categories/Payment Methods (Settings) — this app is shared
+  // across companies, so these are no longer one global hardcoded list.
+  // Absent on a project falls back to CATEGORIES/PAYMENT_METHODS in
+  // constants.js (every project that predates this feature) — see
+  // projectCategories()/projectPaymentMethods() there, used everywhere a
+  // page needs either list instead of importing the constant directly.
+  categories: string[] | undefined,
+  paymentMethods: string[] | undefined,
 }
 ```
 Existing projects created before sharing lack `memberUids`/`members` —

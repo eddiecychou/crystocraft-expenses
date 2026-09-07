@@ -7,7 +7,7 @@ import ProjectBanner from '../components/ProjectBanner'
 import JSZip from 'jszip'
 import ExcelJS from 'exceljs'
 import { uploadReceiptImage, deleteReceiptImage, MAX_IMAGES } from '../receiptStorage'
-import { CATEGORIES, CURRENCIES, PAYMENT_METHODS, PAYMENT_STAGES } from '../constants'
+import { CURRENCIES, PAYMENT_STAGES, projectCategories, projectPaymentMethods } from '../constants'
 import ConfirmDialog from '../components/ConfirmDialog'
 import LoadingBar from '../components/LoadingBar'
 import { AttachIcon, CloseIcon, DownloadIcon, ICON_STROKE_WIDTH } from '../icons'
@@ -54,6 +54,8 @@ function Lightbox({ expenseId, images, onClose, onAdd, onDelete, uploading }) {
 
 export default function Expenses() {
   const { activeProject, projects, loading: projectLoading } = useProject()
+  const categories = projectCategories(activeProject)
+  const paymentMethods = projectPaymentMethods(activeProject)
   const [expenses, setExpenses] = useState([])
   const [loading, setLoading] = useState(true)
   const [editId, setEditId] = useState(null)
@@ -400,11 +402,11 @@ export default function Expenses() {
         </div>
         <select value={filterCategory} onChange={ev => setFilterCategory(ev.target.value)} style={{ padding: '8px 10px', borderRadius: 6, border: '1px solid #c6e0c0', fontSize: 14 }}>
           <option value="">All Categories</option>
-          {CATEGORIES.map(c => <option key={c}>{c}</option>)}
+          {categories.map(c => <option key={c}>{c}</option>)}
         </select>
         <select value={filterPayment} onChange={ev => setFilterPayment(ev.target.value)} style={{ padding: '8px 10px', borderRadius: 6, border: '1px solid #c6e0c0', fontSize: 14 }}>
           <option value="">All Payment Methods</option>
-          {PAYMENT_METHODS.map(m => <option key={m}>{m}</option>)}
+          {paymentMethods.map(m => <option key={m}>{m}</option>)}
         </select>
         {(filterFrom || filterTo || filterCategory || filterPayment || filterSearch || filterMissingReceipt) && (
           <button className="btn-small btn-ghost" onClick={() => {
@@ -492,12 +494,12 @@ export default function Expenses() {
                       {editErrors.amount && <span className="field-error-msg">Enter an amount greater than 0</span>}
                     </td>
                     <td><select value={editData.currency} onChange={ev => upd('currency', ev.target.value)}>{CURRENCIES.map(c => <option key={c}>{c}</option>)}</select></td>
-                    <td><select value={editData.category} onChange={ev => upd('category', ev.target.value)}>{CATEGORIES.map(c => <option key={c}>{c}</option>)}</select></td>
+                    <td><select value={editData.category} onChange={ev => upd('category', ev.target.value)}>{categories.map(c => <option key={c}>{c}</option>)}</select></td>
                     <td>
                       <input value={editData.notes || ''} onChange={ev => upd('notes', ev.target.value)} style={{ marginBottom: 4 }} />
                       <select value={editData.paymentMethod || ''} onChange={ev => upd('paymentMethod', ev.target.value)} style={{ marginBottom: 4 }}>
                         <option value="">— Paid via —</option>
-                        {PAYMENT_METHODS.map(m => <option key={m}>{m}</option>)}
+                        {paymentMethods.map(m => <option key={m}>{m}</option>)}
                       </select>
                       <input placeholder="PU No." value={editData.poNumber || ''} onChange={ev => upd('poNumber', ev.target.value)} style={{ marginBottom: 4 }} />
                       <input placeholder="Vendor Code" value={editData.vendorCode || ''} onChange={ev => upd('vendorCode', ev.target.value)} style={{ marginBottom: 4 }} />
@@ -572,8 +574,8 @@ export default function Expenses() {
                     {editErrors.amount && <span className="field-error-msg">Enter an amount greater than 0</span>}
                   </label>
                   <label>Currency<select value={editData.currency} onChange={ev => upd('currency', ev.target.value)}>{CURRENCIES.map(c => <option key={c}>{c}</option>)}</select></label>
-                  <label>Category<select value={editData.category} onChange={ev => upd('category', ev.target.value)}>{CATEGORIES.map(c => <option key={c}>{c}</option>)}</select></label>
-                  <label>Paid via<select value={editData.paymentMethod || ''} onChange={ev => upd('paymentMethod', ev.target.value)}><option value="">—</option>{PAYMENT_METHODS.map(m => <option key={m}>{m}</option>)}</select></label>
+                  <label>Category<select value={editData.category} onChange={ev => upd('category', ev.target.value)}>{categories.map(c => <option key={c}>{c}</option>)}</select></label>
+                  <label>Paid via<select value={editData.paymentMethod || ''} onChange={ev => upd('paymentMethod', ev.target.value)}><option value="">—</option>{paymentMethods.map(m => <option key={m}>{m}</option>)}</select></label>
                   <label>PU No.<input value={editData.poNumber || ''} onChange={ev => upd('poNumber', ev.target.value)} /></label>
                   <label>Vendor Code<input value={editData.vendorCode || ''} onChange={ev => upd('vendorCode', ev.target.value)} /></label>
                   <label>Handling Charge<input type="number" inputMode="decimal" step="0.01" value={editData.handlingCharge || ''} onChange={ev => upd('handlingCharge', ev.target.value)} /></label>

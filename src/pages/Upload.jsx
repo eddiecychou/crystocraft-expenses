@@ -2,7 +2,7 @@ import { useState, useRef } from 'react'
 import { collection, addDoc, updateDoc, doc, serverTimestamp } from 'firebase/firestore'
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { db, auth, storage } from '../firebase'
-import { CATEGORIES, CURRENCIES, PAYMENT_METHODS, PAYMENT_STAGES } from '../constants'
+import { CURRENCIES, PAYMENT_STAGES, projectCategories, projectPaymentMethods } from '../constants'
 import { useProject } from '../contexts/ProjectContext'
 import ProjectBanner from '../components/ProjectBanner'
 import ConfirmDialog from '../components/ConfirmDialog'
@@ -10,6 +10,8 @@ import { ReceiptIcon, DocumentIcon, RescanIcon, AttachIcon, CloseIcon, ICON_STRO
 
 export default function Upload() {
   const { activeProject } = useProject()
+  const categories = projectCategories(activeProject)
+  const paymentMethods = projectPaymentMethods(activeProject)
   const [fileItems, setFileItems] = useState([])
   const [loading, setLoading] = useState(false)
   const [processing, setProcessing] = useState(false)
@@ -455,7 +457,7 @@ export default function Upload() {
                       <label>
                         Category
                         <select value={r.category || 'Other'} onChange={e => update(r._id, 'category', e.target.value)}>
-                          {CATEGORIES.map(c => <option key={c}>{c}</option>)}
+                          {categories.map(c => <option key={c}>{c}</option>)}
                         </select>
                       </label>
                       <label className="full-width">
@@ -466,7 +468,7 @@ export default function Upload() {
                         Paid via
                         <select value={r.paymentMethod || ''} onChange={e => update(r._id, 'paymentMethod', e.target.value)}>
                           <option value="">— select —</option>
-                          {PAYMENT_METHODS.map(m => <option key={m}>{m}</option>)}
+                          {paymentMethods.map(m => <option key={m}>{m}</option>)}
                         </select>
                       </label>
                       <label>

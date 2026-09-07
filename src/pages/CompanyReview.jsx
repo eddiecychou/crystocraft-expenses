@@ -7,7 +7,7 @@ import { useProject } from '../contexts/ProjectContext'
 import ProjectBanner from '../components/ProjectBanner'
 import ConfirmDialog from '../components/ConfirmDialog'
 import { CLASSIFICATION_LABELS, BUSINESS_PURPOSE_OPTIONS, merchantRuleDocId, computeVisibleToMembers } from '../lib/expenseClassification'
-import { CATEGORIES } from '../constants'
+import { projectCategories } from '../constants'
 import { CREATE_EXPENSE_BLOCKED_TYPES } from '../lib/paymentMatching'
 import { paymentTransactionsQuery } from '../lib/projectAccess'
 import { parsePdfStatement } from '../lib/pdfStatementParser'
@@ -59,6 +59,7 @@ function isoDate(d) { return d.toISOString().slice(0, 10) }
 
 export default function CompanyReview() {
   const { activeProject } = useProject()
+  const categories = projectCategories(activeProject)
   const [accounts, setAccounts] = useState([])
   const [transactions, setTransactions] = useState([])
   const [rules, setRules] = useState([])
@@ -710,7 +711,7 @@ export default function CompanyReview() {
                         </button>
                         {rule.autoCreateExpense && (
                           <select value={rule.autoCreateCategory || 'Other'} onChange={e => setRuleAutoCreateCategory(rule, e.target.value)}>
-                            {CATEGORIES.map(c => <option key={c}>{c}</option>)}
+                            {categories.map(c => <option key={c}>{c}</option>)}
                           </select>
                         )}
                       </>

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { collection, query, where, onSnapshot } from 'firebase/firestore'
 import { db } from '../firebase'
 import { Link } from 'react-router-dom'
-import { CATEGORIES } from '../constants'
+import { projectCategories } from '../constants'
 import { useProject } from '../contexts/ProjectContext'
 import ProjectBanner from '../components/ProjectBanner'
 import LoadingBar from '../components/LoadingBar'
@@ -78,7 +78,13 @@ export default function Dashboard() {
     totals[c] = (totals[c] || 0) + (e.amount || 0)
   })
 
-  const byCategory = CATEGORIES
+  // Union with whatever categories actually appear in the data, not just
+  // the project's currently-configured list — a category later removed
+  // from Settings (or left over from before per-project Categories
+  // existed) must still show its historical total here, never silently
+  // vanish from the breakdown.
+  const allCategoryNames = [...new Set([...projectCategories(activeProject), ...expenses.map(e => e.category).filter(Boolean)])]
+  const byCategory = allCategoryNames
     .map(cat => {
       const totals = {}
       expenses.filter(e => e.category === cat).forEach(e => {

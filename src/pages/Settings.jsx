@@ -4,9 +4,12 @@ import { db, auth } from '../firebase'
 import { useProject, PROJECT_COLORS, COLOR_KEYS } from '../contexts/ProjectContext'
 import ProjectBanner from '../components/ProjectBanner'
 import ConfirmDialog from '../components/ConfirmDialog'
+import { CATEGORIES, DEFAULT_PAYMENT_METHODS, projectCategories, projectPaymentMethods } from '../constants'
 
 export default function Settings() {
   const { projects, activeProject, selectProject, updateProject, reloadProjects } = useProject()
+  const [newCategoryText, setNewCategoryText] = useState('')
+  const [newPaymentMethodText, setNewPaymentMethodText] = useState('')
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState('')
   const [newColor, setNewColor] = useState('green')
@@ -30,6 +33,11 @@ export default function Settings() {
       createdAt: serverTimestamp(),
       memberUids: [auth.currentUser.uid],
       members: { [auth.currentUser.uid]: { role: 'owner', email: auth.currentUser.email, addedAt: serverTimestamp() } },
+      // A generic starter list, not this project's own company-specific
+      // payment methods — see constants.js. Immediately visible/editable
+      // below rather than an invisible fallback.
+      categories: CATEGORIES,
+      paymentMethods: DEFAULT_PAYMENT_METHODS,
     })
     await reloadProjects()
     setNewName(''); setNewColor('green'); setCreating(false); setSaving(false)
@@ -114,6 +122,28 @@ export default function Settings() {
   }
 
   function startEdit(p) { setEditId(p.id); setEditName(p.name); setEditColor(p.color) }
+
+  // Shared by both list editors below — 'categories' or 'paymentMethods'.
+  // Firestore's array field grows/shrinks by full replacement (simplest
+  // approach for an admin list this size, no need for arrayUnion/Remove's
+  // atomicity here since only one person edits Settings at a time).
+  async function addListItem(field, value) {
+    const v = value.trim()
+    if (!v || !activeProject) return
+    const current = field === 'categories' ? projectCategories(activeProject) : projectPaymentMethods(activeProject)
+    if (current.includes(v)) return
+    const next = [...current, v]
+    await updateDoc(doc(db, 'projects', activeProject.id), { [field]: next })
+    updateProject(activeProject.id, { [field]: next })
+  }
+
+  async function removeListItem(field, value) {
+    if (!activeProject) return
+    const current = field === 'categories' ? projectCategories(activeProject) : projectPaymentMethods(activeProject)
+    const next = current.filter(v => v !== value)
+    await updateDoc(doc(db, 'projects', activeProject.id), { [field]: next })
+    updateProject(activeProject.id, { [field]: next })
+  }
 
   return (
     <div className="page page-reading">
@@ -237,6 +267,56 @@ export default function Settings() {
           <button onClick={() => setCreating(true)} className="btn-ghost" style={{ marginTop: 12 }}>+ New Project</button>
         )}
       </div>
+
+      {activeProject && (
+        <>
+          <div className="settings-section">
+            <h3 className="settings-section-title">Categories</h3>
+            <p className="hint">Used across Upload, Records, and Dashboard for "{activeProject.name}" — each company can customize its own list.</p>
+            <div className="chip-list">
+              {projectCategories(activeProject).map(c => (
+                <span key={c} className="chip">
+                  {c}
+                  <button type="button" onClick={() => removeListItem('categories', c)} aria-label={`Remove ${c}`}>×</button>
+                </span>
+              ))}
+            </div>
+            <div className="filter-row" style={{ marginTop: 8 }}>
+              <input
+                type="text"
+                placeholder="New category…"
+                value={newCategoryText}
+                onChange={e => setNewCategoryText(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') { addListItem('categories', newCategoryText); setNewCategoryText('') } }}
+              />
+              <button className="btn-small" onClick={() => { addListItem('categories', newCategoryText); setNewCategoryText('') }} disabled={!newCategoryText.trim()}>Add</button>
+            </div>
+          </div>
+
+          <div className="settings-section">
+            <h3 className="settings-section-title">Payment Methods</h3>
+            <p className="hint">Options shown in "Paid via" across Upload and Records for "{activeProject.name}".</p>
+            <div className="chip-list">
+              {projectPaymentMethods(activeProject).map(m => (
+                <span key={m} className="chip">
+                  {m}
+                  <button type="button" onClick={() => removeListItem('paymentMethods', m)} aria-label={`Remove ${m}`}>×</button>
+                </span>
+              ))}
+            </div>
+            <div className="filter-row" style={{ marginTop: 8 }}>
+              <input
+                type="text"
+                placeholder="New payment method…"
+                value={newPaymentMethodText}
+                onChange={e => setNewPaymentMethodText(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') { addListItem('paymentMethods', newPaymentMethodText); setNewPaymentMethodText('') } }}
+              />
+              <button className="btn-small" onClick={() => { addListItem('paymentMethods', newPaymentMethodText); setNewPaymentMethodText('') }} disabled={!newPaymentMethodText.trim()}>Add</button>
+            </div>
+          </div>
+        </>
+      )}
 
       {confirmDialog && (
         <ConfirmDialog
