@@ -142,6 +142,26 @@ export function mapXTransferRecords(records, headers) {
       return
     }
 
+    // Customer payment received into the account (e.g. the EUR
+    // statement's "Receive money-from PHU SOVENIR DAWID REITER") —
+    // always a credit. Kept distinct from 'Add money' (money moved in
+    // from United Art itself) since one is income from a customer and
+    // the other is an internal transfer.
+    if (category === 'Receive money') {
+      rows.push({
+        sourceRowIndex: i,
+        rawRowText: JSON.stringify(rec),
+        rawDateText: time,
+        transactionDate: parseStatementDate(time),
+        postDate: null,
+        merchantRaw: (rec[detailsCol] || 'Receive money').trim(),
+        settlementAmount: Math.abs(amount),
+        direction: 'credit',
+        balanceAfter: balance,
+      })
+      return
+    }
+
     // Unrecognized category — import rather than drop (hard rule, see
     // LESSONS_LEARNED.md's "duplicates must surface, never silently skip"
     // — the same principle applies to any financial row).
