@@ -365,6 +365,20 @@ export default function Reconciliation() {
   }
 
   function needsAction(txn) {
+    // A plain 'unmatched' transaction with no auto-suggestion (no
+    // scoreExpenseMatch/scoreInvoiceMatch candidate exists yet — e.g. a
+    // credit-card purchase the user hasn't created an Expense record for
+    // at all, rather than one waiting to be matched against an existing
+    // one) used to be entirely invisible here: it's neither 'suggested'
+    // nor a settlement candidate nor duplicate-flagged, so it fell
+    // through to false. That left every such transaction reachable only
+    // from the 'All' tab, with nothing in the default Needs Action queue
+    // ever prompting "this hasn't been turned into anything yet" — the
+    // reported "there's no place to create an expense from my bank
+    // transactions" bug. Every unresolved transaction needs SOME
+    // decision (match, create expense, ignore, mark refund/transfer,
+    // link settlement), so 'unmatched' itself now qualifies.
+    if (txn.status === 'unmatched') return true
     if (txn.status === 'suggested') return true
     if (settlementCandidateByCardId.has(txn.id)) return true
     if (unresolvedDuplicateFlag(txn)) return true
@@ -802,7 +816,7 @@ export default function Reconciliation() {
           <span className="recon-card-value">{counts.matched}</span>
           <span className="recon-card-label">Matched</span>
         </button>
-        <Link to="/expenses" className="recon-card">
+        <Link to="/expenses?missingReceipt=1" className="recon-card">
           <span className="recon-card-value">{counts.missingReceipt}</span>
           <span className="recon-card-label">Missing Receipt</span>
         </Link>

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { collection, query, where, onSnapshot, doc, updateDoc, deleteDoc, serverTimestamp } from 'firebase/firestore'
 import { db, auth } from '../firebase'
 import { useProject } from '../contexts/ProjectContext'
@@ -66,6 +66,12 @@ export default function Expenses() {
   const [filterCategory, setFilterCategory] = useState('')
   const [filterSearch, setFilterSearch] = useState('')
   const [filterPayment, setFilterPayment] = useState('')
+  // Reconciliation's "Missing Receipt" card used to link here with no
+  // filter applied at all, dumping the user on the full unfiltered list to
+  // hunt by eye — this reads a ?missingReceipt=1 query param (set by that
+  // link) and pre-filters to exactly the rows it's counting.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [filterMissingReceipt, setFilterMissingReceipt] = useState(searchParams.get('missingReceipt') === '1')
   const [exportingXls, setExportingXls] = useState(false)
   const [exportingZip, setExportingZip] = useState(false)
   const [zipProgress, setZipProgress] = useState('')
@@ -370,6 +376,7 @@ export default function Expenses() {
     if (filterCategory && e.category !== filterCategory) return false
     if (filterPayment && e.paymentMethod !== filterPayment) return false
     if (filterSearch && !e.vendor?.toLowerCase().includes(filterSearch.toLowerCase())) return false
+    if (filterMissingReceipt && !(e.reconciliationStatus === 'created_from_statement' && e.receiptStatus === 'missing')) return false
     return true
   })
 
@@ -399,10 +406,20 @@ export default function Expenses() {
           <option value="">All Payment Methods</option>
           {PAYMENT_METHODS.map(m => <option key={m}>{m}</option>)}
         </select>
-        {(filterFrom || filterTo || filterCategory || filterPayment || filterSearch) && (
-          <button className="btn-small btn-ghost" onClick={() => { setFilterFrom(''); setFilterTo(''); setFilterCategory(''); setFilterPayment(''); setFilterSearch('') }}>Clear</button>
+        {(filterFrom || filterTo || filterCategory || filterPayment || filterSearch || filterMissingReceipt) && (
+          <button className="btn-small btn-ghost" onClick={() => {
+            setFilterFrom(''); setFilterTo(''); setFilterCategory(''); setFilterPayment(''); setFilterSearch('')
+            setFilterMissingReceipt(false); setSearchParams({})
+          }}>Clear</button>
         )}
       </div>
+
+      {filterMissingReceipt && (
+        <p className="badge badge-warning" style={{ marginBottom: 12 }}>
+          Showing only expenses created from a statement with a missing receipt
+          <button className="btn-small btn-ghost" style={{ marginLeft: 8 }} onClick={() => { setFilterMissingReceipt(false); setSearchParams({}) }}>Show all</button>
+        </p>
+      )}
 
       {filtered.length > 0 && (
         <div className="export-row">
