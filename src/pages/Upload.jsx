@@ -2,7 +2,7 @@ import { useState, useRef } from 'react'
 import { collection, addDoc, updateDoc, doc, serverTimestamp } from 'firebase/firestore'
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
 import { db, auth, storage } from '../firebase'
-import { CATEGORIES, CURRENCIES, PAYMENT_METHODS } from '../constants'
+import { CATEGORIES, CURRENCIES, PAYMENT_METHODS, PAYMENT_STAGES } from '../constants'
 import { useProject } from '../contexts/ProjectContext'
 import ProjectBanner from '../components/ProjectBanner'
 import ConfirmDialog from '../components/ConfirmDialog'
@@ -135,7 +135,7 @@ export default function Upload() {
 
   function addManual() {
     const today = new Date().toISOString().slice(0, 10)
-    setResults(prev => [...prev, { fileName: 'Manual Entry', date: today, vendor: '', amount: '', currency: 'HKD', category: 'Other', notes: '', paymentMethod: '', _id: ++resultIdRef.current }])
+    setResults(prev => [...prev, { fileName: 'Manual Entry', date: today, vendor: '', amount: '', currency: 'HKD', category: 'Other', notes: '', paymentMethod: '', poNumber: '', vendorCode: '', handlingCharge: '', paymentStage: 'Full Payment', _id: ++resultIdRef.current }])
   }
 
   function update(id, field, value) {
@@ -260,6 +260,15 @@ export default function Upload() {
     for (const r of results) {
       if (r.error) continue
 
+      // A wire transfer's handling charge is money that actually left the
+      // account alongside the item cost — the saved `amount` (used
+      // everywhere: dashboard totals, reconciliation matching against the
+      // bank statement's settlementAmount, exports) must be the total
+      // actually paid, not just the item cost. handlingCharge is also kept
+      // as its own field for the breakdown/audit trail.
+      const handlingCharge = parseFloat(r.handlingCharge) || 0
+      const itemAmount = parseFloat(r.amount) || 0
+
       // Save expense first to get the Firestore document ID
       const docRef = await addDoc(collection(db, 'expenses'), {
         userId: uid,
@@ -267,11 +276,15 @@ export default function Upload() {
         projectId: activeProject?.id || '',
         date: r.date || '',
         vendor: r.vendor || '',
-        amount: parseFloat(r.amount) || 0,
+        amount: itemAmount + handlingCharge,
+        handlingCharge,
         currency: r.currency || 'HKD',
         category: r.category || 'Other',
         notes: r.notes || '',
         paymentMethod: r.paymentMethod || '',
+        poNumber: r.poNumber?.trim() || '',
+        vendorCode: r.vendorCode?.trim() || '',
+        paymentStage: r.paymentStage || 'Full Payment',
         images: [],
         createdAt: serverTimestamp(),
       })
@@ -456,6 +469,29 @@ export default function Upload() {
                           {PAYMENT_METHODS.map(m => <option key={m}>{m}</option>)}
                         </select>
                       </label>
+                      <label>
+                        PU No.
+                        <input value={r.poNumber || ''} onChange={e => update(r._id, 'poNumber', e.target.value)} />
+                      </label>
+                      <label>
+                        Vendor Code
+                        <input value={r.vendorCode || ''} onChange={e => update(r._id, 'vendorCode', e.target.value)} />
+                      </label>
+                      <label>
+                        Handling Charge
+                        <input type="number" inputMode="decimal" step="0.01" value={r.handlingCharge || ''} onChange={e => update(r._id, 'handlingCharge', e.target.value)} />
+                      </label>
+                      <label>
+                        Payment Stage
+                        <select value={r.paymentStage || 'Full Payment'} onChange={e => update(r._id, 'paymentStage', e.target.value)}>
+                          {PAYMENT_STAGES.map(s => <option key={s}>{s}</option>)}
+                        </select>
+                      </label>
+                      {parseFloat(r.handlingCharge) > 0 && (
+                        <p className="hint full-width">
+                          Total incl. handling charge: {r.currency || 'HKD'} {((parseFloat(r.amount) || 0) + parseFloat(r.handlingCharge)).toFixed(2)}
+                        </p>
+                      )}
                     </div>
                     <div className="attach-row">
                       {r.fileItem

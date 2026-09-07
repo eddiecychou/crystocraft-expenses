@@ -161,11 +161,18 @@ the project-list query ever runs against `memberUids`.
   projectId: string,
   date: string,          // YYYY-MM-DD
   vendor: string,
-  amount: number,
+  amount: number,        // total actually paid — item cost + handlingCharge, if any
   currency: string,      // HKD | RMB | USD | EUR | JPY | AUD | GBP | SGD | CAD | KRW | Other
   category: string,      // see CATEGORIES table below
   notes: string,
   paymentMethod: string,
+  // Added from Upload.jsx (receipt scan + manual entry) at Cindy's request,
+  // 2026-09-07 — bookkeeping fields, not extracted by AI (not reliably
+  // printed on a receipt), typed in during review regardless of source.
+  poNumber: string,          // free text, not linked to a purchaseOrders record
+  vendorCode: string,
+  paymentStage: string,      // 'Full Payment' | 'Deposit' | 'Balance'
+  handlingCharge: number,    // a wire transfer's handling fee — already folded into `amount` below (see saveAll() in Upload.jsx), kept separately for the breakdown
   images: [{ url: string, path: string, name: string }],
   reconciliationStatus: string,  // set when created from a matched statement transaction
   receiptStatus: string,         // e.g. 'missing' when created_from_statement with no receipt yet

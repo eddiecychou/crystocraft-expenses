@@ -682,7 +682,7 @@ body {
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
-.result-grid label.full-width { grid-column: 1 / -1; }
+.result-grid label.full-width, .result-grid p.full-width { grid-column: 1 / -1; }
 .result-grid input, .result-grid select {
   width: 100%;
   min-width: 0;
