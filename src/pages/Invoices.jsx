@@ -39,6 +39,12 @@ export default function Invoices() {
   const [confirmDialog, setConfirmDialog] = useState(null)
   const [editingId, setEditingId] = useState(null)
   const [editDraft, setEditDraft] = useState(null)
+  // The list previously gave no way to tell whether a given invoice/PO
+  // already had a matching bank transaction (Reconciliation) or was still
+  // outstanding — had to go hunt through Reconciliation's transactions to
+  // find out. settlementStatus is set by confirmInvoiceMatch/
+  // linkPurchaseOrder in Reconciliation.jsx.
+  const [statusFilter, setStatusFilter] = useState('all') // 'all' | 'outstanding' | 'paid'
   const fileRef = useRef()
   const resultIdRef = useRef(0)
   const fileIdRef = useRef(0)
@@ -311,16 +317,35 @@ export default function Invoices() {
         </div>
       )}
 
-      <h3 style={{ marginTop: 32 }}>{tab.label}</h3>
+      <div className="card-header" style={{ marginTop: 32 }}>
+        <h3 style={{ margin: 0 }}>{tab.label}</h3>
+        <div className="preset-btns">
+          <button className={`btn-small${statusFilter === 'all' ? ' btn-primary' : ' btn-ghost'}`} onClick={() => setStatusFilter('all')}>
+            All ({records.length})
+          </button>
+          <button className={`btn-small${statusFilter === 'outstanding' ? ' btn-primary' : ' btn-ghost'}`} onClick={() => setStatusFilter('outstanding')}>
+            Outstanding ({records.filter(r => r.settlementStatus !== 'confirmed').length})
+          </button>
+          <button className={`btn-small${statusFilter === 'paid' ? ' btn-primary' : ' btn-ghost'}`} onClick={() => setStatusFilter('paid')}>
+            {tab.kind === 'invoice' ? 'Paid' : 'Settled'} ({records.filter(r => r.settlementStatus === 'confirmed').length})
+          </button>
+        </div>
+      </div>
       {!records.length && <p className="hint">No {tab.label.toLowerCase()} yet.</p>}
-      {!!records.length && (
+      {!!records.length && (() => {
+        const filteredRecords = statusFilter === 'outstanding' ? records.filter(r => r.settlementStatus !== 'confirmed')
+          : statusFilter === 'paid' ? records.filter(r => r.settlementStatus === 'confirmed')
+          : records
+        return (
         <div style={{ overflowX: 'auto' }}>
-          <table className="txn-table-compact">
+          {filteredRecords.length === 0 && <p className="hint">No {statusFilter} {tab.label.toLowerCase()}.</p>}
+          {filteredRecords.length > 0 &&
+          <table className="expense-table">
             <thead>
-              <tr><th>Date</th><th>{tab.numberLabel}</th><th>{tab.counterpartyLabel}</th><th>Amount</th><th>Notes</th><th>Source</th><th>Actions</th></tr>
+              <tr><th>Date</th><th>{tab.numberLabel}</th><th>{tab.counterpartyLabel}</th><th>Amount</th><th>Status</th><th>Notes</th><th>Source</th><th>Actions</th></tr>
             </thead>
             <tbody>
-              {records.map(rec => editingId === rec.id ? (
+              {filteredRecords.map(rec => editingId === rec.id ? (
                 <tr key={rec.id}>
                   <td><input type="date" value={editDraft.date} onChange={e => setEditDraft({ ...editDraft, date: e.target.value })} /></td>
                   <td><input value={editDraft.number} onChange={e => setEditDraft({ ...editDraft, number: e.target.value })} /></td>
@@ -330,6 +355,11 @@ export default function Invoices() {
                     <select value={editDraft.currency} onChange={e => setEditDraft({ ...editDraft, currency: e.target.value })}>
                       {CURRENCIES.map(c => <option key={c}>{c}</option>)}
                     </select>
+                  </td>
+                  <td>
+                    <span className={`badge ${rec.settlementStatus === 'confirmed' ? 'badge-success' : 'badge-warning'}`}>
+                      {rec.settlementStatus === 'confirmed' ? (tab.kind === 'invoice' ? 'Paid' : 'Settled') : 'Outstanding'}
+                    </span>
                   </td>
                   <td><input value={editDraft.notes} onChange={e => setEditDraft({ ...editDraft, notes: e.target.value })} /></td>
                   <td>{rec.sourceType}</td>
@@ -344,6 +374,11 @@ export default function Invoices() {
                   <td>{rec.number}</td>
                   <td>{rec.counterpartyName}</td>
                   <td data-amount="true">{rec.currency} {Number(rec.amount || 0).toFixed(2)}</td>
+                  <td>
+                    <span className={`badge ${rec.settlementStatus === 'confirmed' ? 'badge-success' : 'badge-warning'}`} title={rec.matchedPaymentTransactionId ? 'Matched to a bank/card transaction in Reconciliation' : 'No matching transaction yet'}>
+                      {rec.settlementStatus === 'confirmed' ? (tab.kind === 'invoice' ? 'Paid' : 'Settled') : 'Outstanding'}
+                    </span>
+                  </td>
                   <td>{rec.notes}</td>
                   <td>
                     {rec.sourceFileUrl
@@ -358,8 +393,10 @@ export default function Invoices() {
               ))}
             </tbody>
           </table>
+          }
         </div>
-      )}
+        )
+      })()}
     </div>
   )
 }
