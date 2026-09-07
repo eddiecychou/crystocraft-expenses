@@ -45,15 +45,22 @@ const COLUMN_ALIASES = {
   postDate: ['posting date', 'post date', 'value date'],
   description: ['description', 'narrative', 'merchant', 'details', 'particulars', 'transaction details'],
   amount: ['amount', 'transaction amount'],
-  debit: ['debit', 'withdrawal', 'debit amount'],
+  debit: ['debit', 'withdraw', 'withdrawal', 'debit amount'],
   credit: ['credit', 'deposit', 'credit amount'],
   balance: ['balance', 'running balance', 'closing balance'],
 }
 
+// Was an exact-match-only lookup — real bank exports routinely suffix a
+// currency onto the header (HSBC's own online-banking CSV export uses
+// "Withdraw(HKD)"/"Deposit(HKD)"/"Ledger Balance(HKD)", none of which
+// equal any alias exactly), which silently produced zero recognized
+// columns and "no transaction rows recognized" on an otherwise normal
+// statement. Substring match in both directions so an alias needs only to
+// appear somewhere in the header (or vice versa for a short header).
 function findColumn(headers, aliases) {
   const lower = headers.map(h => h.toLowerCase())
   for (const alias of aliases) {
-    const i = lower.indexOf(alias)
+    const i = lower.findIndex(h => h === alias || h.includes(alias))
     if (i !== -1) return headers[i]
   }
   return null
@@ -74,7 +81,24 @@ export function parseStatementDate(raw) {
   // YYYY-MM-DD already
   m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/)
   if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`
-  // "04 Sep 2026" style
+  // "04 Sep 2026" style. Parsed by hand rather than `new Date(s)` +
+  // `.toISOString()`: `new Date("08 Aug 2026")` is midnight in the
+  // BROWSER'S LOCAL timezone, and `.toISOString()` converts that to UTC —
+  // for anyone east of UTC (Hong Kong, UTC+8) that rolls midnight back to
+  // the previous day's evening, silently shifting every such date back by
+  // one. Real HSBC CSV export data (08 Aug 2026 opening balance, imported
+  // 2026-09-07) is what caught this — every date in this format had been
+  // landing one day early.
+  const MONTHS = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 }
+  m = s.match(/^(\d{1,2})\s+([A-Za-z]{3,9})\.?\s+(\d{4})$/)
+  if (m) {
+    const mo = MONTHS[m[2].slice(0, 3).toLowerCase()]
+    if (mo != null) return `${m[3]}-${String(mo + 1).padStart(2, '0')}-${m[1].padStart(2, '0')}`
+  }
+  // Last-resort fallback for any other textual format — kept for
+  // compatibility, but carries the same local/UTC footgun as above if it
+  // ever actually fires; the explicit formats above should catch every
+  // format seen in practice.
   const parsed = new Date(s)
   if (!isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10)
   return null

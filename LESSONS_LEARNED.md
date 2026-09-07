@@ -439,6 +439,33 @@ first when the bug is likely client-side logic.
 
 ---
 
+## CSV column-header matching must be substring, not exact; "DD Mon YYYY" dates must be parsed by hand, never via `new Date().toISOString()`
+
+Both bugs were caught by the same real file: HSBC's own online-banking
+CSV export ("Withdraw(HKD)", "Deposit(HKD)", "Ledger Balance(HKD)",
+"08 Aug 2026") failed to import at all.
+
+1. `findColumn` in `paymentMatching.js` did an exact-match lookup
+   (`lower.indexOf(alias)` on an array). A header with a currency suffix —
+   completely normal for a real bank export — never equals any alias
+   string exactly, so every column silently failed to resolve and the
+   whole file came back "no transaction rows recognized." Fixed to a
+   substring match (`h === alias || h.includes(alias)`).
+2. `parseStatementDate`'s textual-date fallback did
+   `new Date(s).toISOString().slice(0, 10)`. `new Date("08 Aug 2026")` is
+   midnight in whatever timezone the code runs in; `.toISOString()`
+   converts that instant to UTC. For anyone **east of UTC** (Hong Kong,
+   UTC+8 — this app's actual audience), that rolls midnight back into the
+   previous day, silently shifting every date in this format back by one
+   day. Every statement using a "DD Mon YYYY" date column had this bug,
+   not just HSBC's — it just wasn't caught until a file was checked
+   date-by-date against its own balance column. Fixed by parsing the day/
+   month-name/year with a regex and a month lookup table, building the
+   `YYYY-MM-DD` string directly — no `Date` object, no timezone involved.
+   **Any date parsing that goes through `new Date(...).toISOString()`
+   anywhere in this codebase should be treated as suspect** and checked
+   for the same footgun.
+
 ## A manual-only action can sidestep a two-scorer race, cheaper than a tiebreak
 
 Phase 2 of Invoices & POs needed a debit transaction to be matchable to
