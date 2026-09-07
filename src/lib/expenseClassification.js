@@ -57,6 +57,12 @@ export function merchantRuleDocId(projectId, merchantKey) {
 // one-click "Apply Rule" action without ever auto-deciding for the user.
 export function classifyTransaction(txn, { matchedExpenseId = null, rule = null } = {}) {
   if (CLASSIFICATION_EXCLUDED_TYPES.includes(txn.transactionType)) return null
+  // Money coming INTO the account (salary, a refund, a transfer in) is
+  // income, never a personal-vs-company expense candidate — classifying
+  // it cluttered Reimbursable Expenses with rows that never needed a
+  // decision in the first place. Only debit (outgoing) transactions are
+  // ever expense candidates.
+  if (txn.direction === 'credit') return null
 
   const suggestedClassification = rule ? rule.classification : null
 
