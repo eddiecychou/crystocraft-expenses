@@ -182,14 +182,32 @@ export default function CompanyReview() {
   // Reconciliation's Needs Action tab uses.
   function groupNeedsAttention(group) {
     return group.txns.some(t =>
-      t.classification === 'needs_accountant_review' ||
-      t.classification === 'shared' ||
-      (['company_candidate', 'company_confirmed'].includes(t.classification) && t.status !== 'matched') ||
-      t.suggestedClassification
+      // Already sent to the accountant is no longer something EDDIE needs
+      // to act on — it moved to a different bucket (Sent to Accountant
+      // below), not off the list into nowhere. Without this exclusion, a
+      // transaction whose classification never changes (sendGroupToAccountant
+      // only sets accountantStatus, not classification) stayed in Needs
+      // Attention forever even after being resolved — "I click the button
+      // and it doesn't check off."
+      (t.accountantStatus !== 'pending' && (
+        t.classification === 'needs_accountant_review' ||
+        t.classification === 'shared' ||
+        t.suggestedClassification
+      )) ||
+      (['company_candidate', 'company_confirmed'].includes(t.classification) && t.status !== 'matched')
     )
   }
 
-  const groups = groupTab === 'attention' ? allGroups.filter(groupNeedsAttention) : allGroups
+  // A separate bucket for "no longer mine to decide, waiting on the
+  // accountant" — distinct from Needs Attention (Eddie's queue) and All
+  // (everything), so sent items are still findable instead of vanishing.
+  function groupSentToAccountant(group) {
+    return group.txns.some(t => t.accountantStatus === 'pending')
+  }
+
+  const groups = groupTab === 'attention' ? allGroups.filter(groupNeedsAttention)
+    : groupTab === 'sent' ? allGroups.filter(groupSentToAccountant)
+    : allGroups
 
   function accountOf(id) { return accounts.find(a => a.id === id) }
 
@@ -256,8 +274,21 @@ export default function CompanyReview() {
   }
 
   async function sendGroupToAccountant(group) {
-    const candidates = group.txns.filter(t => t.classification === 'company_candidate' || t.classification === 'shared')
-    if (candidates.length === 0) return
+    // Was company_candidate/shared only — excluded needs_accountant_review,
+    // the DEFAULT classification an unclassified transaction gets at
+    // import time (see classifyTransaction in expenseClassification.js),
+    // so the button silently did nothing for the most common case: a
+    // merchant that's still sitting at its default, undecided state (the
+    // "Needs Accountant Review" badge shown right on the group). Also
+    // excludes anything already sent, so re-clicking doesn't re-send.
+    const candidates = group.txns.filter(t =>
+      ['company_candidate', 'shared', 'needs_accountant_review'].includes(t.classification) &&
+      t.accountantStatus !== 'pending'
+    )
+    if (candidates.length === 0) {
+      alert('Every transaction for this merchant has already been sent to the accountant, or is classified Personal — nothing to send.')
+      return
+    }
     const total = candidates.reduce((s, t) => s + (t.settlementAmount || 0), 0)
     setConfirmDialog({
       message: (
@@ -730,6 +761,9 @@ export default function CompanyReview() {
                 <button className={`btn-small${groupTab === 'attention' ? ' btn-primary' : ' btn-ghost'}`} onClick={() => setGroupTab('attention')}>
                   Needs Attention ({allGroups.filter(groupNeedsAttention).length})
                 </button>
+                <button className={`btn-small${groupTab === 'sent' ? ' btn-primary' : ' btn-ghost'}`} onClick={() => setGroupTab('sent')}>
+                  Sent to Accountant ({allGroups.filter(groupSentToAccountant).length})
+                </button>
                 <button className={`btn-small${groupTab === 'all' ? ' btn-primary' : ' btn-ghost'}`} onClick={() => setGroupTab('all')}>
                   All ({allGroups.length})
                 </button>
@@ -737,11 +771,13 @@ export default function CompanyReview() {
             </div>
             {groups.length === 0 && (
               <p className="empty">
-                {groupTab === 'attention'
-                  ? allGroups.length === 0
-                    ? 'No transactions yet — import a statement for a personal account in Payment Sources.'
-                    : 'Nothing needs attention right now — everything is classified and resolved.'
-                  : 'No transactions yet — import a statement for a personal account in Payment Sources.'}
+                {allGroups.length === 0
+                  ? 'No transactions yet — import a statement for a personal account in Payment Sources.'
+                  : groupTab === 'attention'
+                    ? 'Nothing needs attention right now — everything is classified and resolved.'
+                    : groupTab === 'sent'
+                      ? 'Nothing has been sent to the accountant yet.'
+                      : 'No transactions yet — import a statement for a personal account in Payment Sources.'}
               </p>
             )}
 
