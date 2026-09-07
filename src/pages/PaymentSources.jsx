@@ -6,6 +6,7 @@ import ProjectBanner from '../components/ProjectBanner'
 import ConfirmDialog from '../components/ConfirmDialog'
 import { CURRENCIES } from '../constants'
 import { parseCSV, mapCsvRecords, normalizeMerchant, classifyTransactionType, computeFingerprints } from '../lib/paymentMatching'
+import { isXTransferCsv, mapXTransferRecords } from '../lib/xtransferImport'
 import { parsePdfStatement } from '../lib/pdfStatementParser'
 import { uploadStatementFile, deleteStatementFile } from '../statementStorage'
 import { annotateBalanceSequence, classifyFingerprintCollision, validateStatementTotals, diffTransactionSets, DUPLICATE_STATUS_LABELS } from '../lib/duplicateDetection'
@@ -847,7 +848,12 @@ export default function PaymentSources() {
       try {
         const text = await file.text()
         const { headers, records } = parseCSV(text)
-        const mapped = mapCsvRecords(records, headers)
+        // X Transfer's own CSV export splits every real payment across a
+        // 'Service fee' row + a same-timestamp settlement row, and has no
+        // Date/Debit/Credit-style columns mapCsvRecords understands at
+        // all — detected from its distinctive payer/recipient/bank
+        // columns, see xtransferImport.js.
+        const mapped = isXTransferCsv(headers) ? mapXTransferRecords(records, headers) : mapCsvRecords(records, headers)
         if (!mapped.length) {
           messages.push(`${file.name}: no transaction rows recognized — check it has Date, Description, and Amount (or Debit/Credit) columns.`)
           continue

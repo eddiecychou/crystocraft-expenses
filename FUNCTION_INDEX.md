@@ -22,6 +22,13 @@ some of these functions look the way they do, see [LESSONS_LEARNED.md](LESSONS_L
 | `diffTransactionSets(reparsedRows, storedRows)` | 165 | Compares a fresh re-parse of a statement against what's stored; returns counts plus sample `missingRows`/`extraRows` (up to 20 each) for the Verify/Fix-from-PDF flow. |
 | `validateStatementTotals({ openingBalance, closingBalance, rows, tolerance })` | 192 | Checks that opening balance + sum of rows reconciles to closing balance. |
 
+### [xtransferImport.js](src/lib/xtransferImport.js)
+
+| Function | Purpose |
+|---|---|
+| `isXTransferCsv(headers)` | Detects X Transfer's CSV export shape from its distinctive payer/recipient/bank columns. |
+| `mapXTransferRecords(records, headers)` | Maps X Transfer rows into the transaction shape — folds a `'Service fee'` row into its same-timestamp settlement row's amount, maps the recipient's Chinese name via `XTRANSFER_RECIPIENT_LABELS`, keeps `'Market order'` rows as credits. An unconsumed fee row is still imported on its own rather than dropped. |
+
 ### [paymentMatching.js](src/lib/paymentMatching.js)
 
 | Function | Line | Purpose |

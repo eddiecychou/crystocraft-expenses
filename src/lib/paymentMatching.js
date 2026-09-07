@@ -72,8 +72,15 @@ function findColumn(headers, aliases) {
 export function parseStatementDate(raw) {
   if (!raw) return null
   const s = raw.trim()
-  // DD/MM/YYYY or DD-MM-YYYY (assume day-first, the common HK bank format)
-  let m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/)
+  // DD/MM/YYYY or DD-MM-YYYY (assume day-first, the common HK bank format),
+  // with an optional trailing time — some exports (e.g. X Transfer's CSV)
+  // give a full datetime like "5/8/2026 16:58" in a column literally
+  // called "Time"; the caller only wants the date, per the bookkeeper's
+  // own instruction not to record time. The time portion is discarded
+  // here, never handed to a general Date parser (which would guess
+  // MM/DD/YYYY for a slash-separated date, the wrong convention for this
+  // app's data).
+  let m = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?$/)
   if (m) {
     const [, d, mo, y] = m
     return `${y}-${mo.padStart(2, '0')}-${d.padStart(2, '0')}`

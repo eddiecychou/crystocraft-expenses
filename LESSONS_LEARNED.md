@@ -439,6 +439,36 @@ first when the bug is likely client-side logic.
 
 ---
 
+## A curly apostrophe (’) in a header breaks a straight-apostrophe (') string match, silently
+
+X Transfer's CSV export headers use a curly apostrophe — `Recipient’s
+name`, not `Recipient's name`. A column-detection helper written and
+tested against a straight apostrophe found nothing, silently, exactly
+like the exact-match CSV header bug below. Any header-matching helper
+that includes an apostrophe in its needle string should normalize both
+styles away (`.replace(/['’]/g, '')`) before comparing, not just
+lowercase.
+
+## A CSV with no Date/Debit/Credit columns needs a dedicated mapper, not more aliases on the generic one
+
+X Transfer's export splits every real payment across two rows: a
+`'Service fee'` row immediately followed by a same-timestamp
+`'CNY Settlement to Personal Account'` row — there's no generic
+alias-based column mapping that could fold two rows into one. Building
+this as `xtransferImport.js` (its own `isXTransferCsv` shape-detector +
+`mapXTransferRecords`), routed to instead of `mapCsvRecords` at the top
+of `PaymentSources.jsx`'s CSV import, kept the generic bank-CSV path
+untouched rather than growing ad-hoc special cases into it. The general
+rule: when a new statement source needs multi-row combining or any
+transformation beyond column renaming, it's a new mapper + a shape
+detector, not more entries in `COLUMN_ALIASES`. Two things this new
+mapper had to still respect from existing hard rules: **never drop a
+financial row silently** (an unconsumed `'Service fee'` row — one not
+immediately followed by a matching-timestamp settlement — is still
+imported as its own transaction, not discarded) and **an unmapped
+counterparty name is imported as-is**, not guessed at (`蒋素` had no
+given mapping until asked about explicitly).
+
 ## CSV column-header matching must be substring, not exact; "DD Mon YYYY" dates must be parsed by hand, never via `new Date().toISOString()`
 
 Both bugs were caught by the same real file: HSBC's own online-banking
