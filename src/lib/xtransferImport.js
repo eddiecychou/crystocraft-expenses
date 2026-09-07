@@ -106,6 +106,9 @@ export function mapXTransferRecords(records, headers) {
 
     flushOrphanFee()
 
+    // Covers both a 'buy' (RMB account, CNY arriving — credit) and a
+    // 'sell' (HKD account, HKD leaving to be exchanged — debit) amount;
+    // sign alone decides direction, no special-casing needed per currency.
     if (category === 'Market order') {
       rows.push({
         sourceRowIndex: i,
@@ -116,6 +119,24 @@ export function mapXTransferRecords(records, headers) {
         merchantRaw: (rec[detailsCol] || 'Market order').trim(),
         settlementAmount: Math.abs(amount),
         direction: amount < 0 ? 'debit' : 'credit',
+        balanceAfter: balance,
+      })
+      return
+    }
+
+    // Money credited into the X Transfer account from an outside source
+    // (e.g. the HKD statement's "Add money - from UNITED ART METALS
+    // FACTORY LIMITED") — always a credit.
+    if (category === 'Add money') {
+      rows.push({
+        sourceRowIndex: i,
+        rawRowText: JSON.stringify(rec),
+        rawDateText: time,
+        transactionDate: parseStatementDate(time),
+        postDate: null,
+        merchantRaw: (rec[detailsCol] || 'Add money').trim(),
+        settlementAmount: Math.abs(amount),
+        direction: 'credit',
         balanceAfter: balance,
       })
       return

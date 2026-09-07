@@ -85,8 +85,11 @@ export function parseStatementDate(raw) {
     const [, d, mo, y] = m
     return `${y}-${mo.padStart(2, '0')}-${d.padStart(2, '0')}`
   }
-  // YYYY-MM-DD already
-  m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/)
+  // YYYY-MM-DD already, with an optional trailing time (e.g. X Transfer's
+  // HKD statement uses "2026-08-31 11:08:20") — same reasoning as the
+  // DD/MM/YYYY case above: discard the time here, never let it reach the
+  // general Date parser below.
+  m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T]\d{1,2}:\d{2}(?::\d{2})?)?$/)
   if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`
   // "04 Sep 2026" style. Parsed by hand rather than `new Date(s)` +
   // `.toISOString()`: `new Date("08 Aug 2026")` is midnight in the
