@@ -493,6 +493,14 @@ body {
 .category-row:last-child { border-bottom: none; }
 .category-row .badge { font-size: 15px; padding: 3px 10px; }
 
+/* Merchant rule row — stacked (name+badge, then controls) instead of a
+   single wrapping horizontal line, which got cramped once Auto-Create
+   Expense's toggle+category-select joined Auto-Approve+Delete. */
+.merchant-rule-row { padding: 10px 0; border-bottom: 1px solid #f5f5f7; }
+.merchant-rule-row:last-child { border-bottom: none; }
+.merchant-rule-row-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.merchant-rule-row .action-row { margin: 0; }
+
 /* ── Company Review groups ── */
 .company-review-group {
   padding: var(--space-4) 0;

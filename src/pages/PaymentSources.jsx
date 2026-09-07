@@ -1097,7 +1097,7 @@ export default function PaymentSources() {
                       checked={editAccountData.ownershipType === 'personal'}
                       onChange={e => setEditAccountData({ ...editAccountData, ownershipType: e.target.checked ? 'personal' : 'company' })}
                     />
-                    This is a personal account that mixes personal and company spending — transactions will need review in Company Review
+                    This is a personal account that mixes personal and company spending — transactions will need review in Reimbursable Expenses
                   </label>
                   <div className="project-card-actions" style={{ marginTop: 10 }}>
                     <button onClick={saveEditAccount} disabled={saving || !editAccountData.label.trim()} className="btn-small btn-primary">Save</button>
@@ -1155,7 +1155,7 @@ export default function PaymentSources() {
                 checked={newAccount.ownershipType === 'personal'}
                 onChange={e => setNewAccount({ ...newAccount, ownershipType: e.target.checked ? 'personal' : 'company' })}
               />
-              This is a personal account that mixes personal and company spending — transactions will need review in Company Review
+              This is a personal account that mixes personal and company spending — transactions will need review in Reimbursable Expenses
             </label>
             <div className="project-card-actions" style={{ marginTop: 10 }}>
               <button onClick={createAccount} disabled={saving || !newAccount.label.trim()} className="btn-primary">Create</button>

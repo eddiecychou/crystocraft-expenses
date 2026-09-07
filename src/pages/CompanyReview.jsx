@@ -67,6 +67,7 @@ export default function CompanyReview() {
   const [expandedMerchant, setExpandedMerchant] = useState(null)
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
+  const [groupTab, setGroupTab] = useState('attention') // 'attention' | 'all'
   const [confirmDialog, setConfirmDialog] = useState(null)
   const [busyId, setBusyId] = useState(null)
   const [purposeDraft, setPurposeDraft] = useState({}) // { [txnId]: { option, note } }
@@ -162,7 +163,7 @@ export default function CompanyReview() {
     missing_receipt: classified.filter(t => t.classification === 'company_candidate' && t.status !== 'matched').length,
   }
 
-  const groups = Object.values(
+  const allGroups = Object.values(
     classified.reduce((acc, t) => {
       const key = t.merchantNormalized || t.merchantRaw || '(unknown)'
       if (!acc[key]) acc[key] = { key, merchant: t.merchantRaw, txns: [] }
@@ -170,6 +171,24 @@ export default function CompanyReview() {
       return acc
     }, {})
   ).sort((a, b) => b.txns.length - a.txns.length)
+
+  // A merchant that's fully resolved — every transaction already
+  // 'personal', or already a confirmed company expense that's been
+  // matched to an Expense record — has nothing left to decide, and used
+  // to sit in the list forever with the same full set of action buttons
+  // as a merchant still needing a decision. 'Needs Attention' hides those,
+  // the same "don't make me look at what's already done" pattern
+  // Reconciliation's Needs Action tab uses.
+  function groupNeedsAttention(group) {
+    return group.txns.some(t =>
+      t.classification === 'needs_accountant_review' ||
+      t.classification === 'shared' ||
+      (['company_candidate', 'company_confirmed'].includes(t.classification) && t.status !== 'matched') ||
+      t.suggestedClassification
+    )
+  }
+
+  const groups = groupTab === 'attention' ? allGroups.filter(groupNeedsAttention) : allGroups
 
   function accountOf(id) { return accounts.find(a => a.id === id) }
 
@@ -629,7 +648,7 @@ export default function CompanyReview() {
   return (
     <div className="page page-standard">
       <ProjectBanner />
-      <h2>Company Review</h2>
+      <h2>Reimbursable Expenses</h2>
       <p className="hint">
         Transactions on personal accounts marked as mixing personal and company spending. The app only suggests
         classification and gathers evidence — the accountant/bookkeeper makes the final claim decision.
@@ -675,16 +694,16 @@ export default function CompanyReview() {
                 created immediately too, with no manual click at all.
               </p>
               {rules.map(rule => (
-                <div key={rule.id} className="category-row">
-                  <span>
+                <div key={rule.id} className="merchant-rule-row">
+                  <div className="merchant-rule-row-header">
                     <strong>{rule.merchantLabel || rule.merchantKey}</strong>
-                    <span className="hint"> → {CLASSIFICATION_LABELS[rule.classification] || rule.classification}</span>
-                  </span>
-                  <span className="action-row" style={{ margin: 0, flexWrap: 'wrap' }}>
+                    <span className={`badge ${CLASSIFICATION_BADGE_CLASS[rule.classification] || 'badge-other'}`}>{CLASSIFICATION_LABELS[rule.classification] || rule.classification}</span>
+                  </div>
+                  <div className="action-row" style={{ flexWrap: 'wrap' }}>
                     <button className={`btn-small${rule.autoApprove ? ' btn-primary' : ' btn-ghost'}`} onClick={() => toggleRuleAutoApprove(rule)}>
                       {rule.autoApprove ? 'Auto-Approve: On' : 'Auto-Approve: Off'}
                     </button>
-                    {rule.classification === 'company_confirmed' ? (
+                    {rule.classification === 'company_confirmed' && (
                       <>
                         <button className={`btn-small${rule.autoCreateExpense ? ' btn-primary' : ' btn-ghost'}`} onClick={() => toggleRuleAutoCreateExpense(rule)}>
                           {rule.autoCreateExpense ? 'Auto-Create Expense: On' : 'Auto-Create Expense: Off'}
@@ -695,19 +714,35 @@ export default function CompanyReview() {
                           </select>
                         )}
                       </>
-                    ) : (
-                      <span className="hint">Auto-Create Expense only applies to a Company Confirmed rule.</span>
                     )}
                     <button className="btn-small btn-danger" onClick={() => deleteRule(rule)}>Delete</button>
-                  </span>
+                  </div>
                 </div>
               ))}
             </div>
           )}
 
           <div className="card">
-            <h3>Grouped by Merchant</h3>
-            {groups.length === 0 && <p className="empty">No transactions yet — import a statement for a personal account in Payment Sources.</p>}
+            <div className="card-header">
+              <h3>Grouped by Merchant</h3>
+              <div className="preset-btns">
+                <button className={`btn-small${groupTab === 'attention' ? ' btn-primary' : ' btn-ghost'}`} onClick={() => setGroupTab('attention')}>
+                  Needs Attention ({allGroups.filter(groupNeedsAttention).length})
+                </button>
+                <button className={`btn-small${groupTab === 'all' ? ' btn-primary' : ' btn-ghost'}`} onClick={() => setGroupTab('all')}>
+                  All ({allGroups.length})
+                </button>
+              </div>
+            </div>
+            {groups.length === 0 && (
+              <p className="empty">
+                {groupTab === 'attention'
+                  ? allGroups.length === 0
+                    ? 'No transactions yet — import a statement for a personal account in Payment Sources.'
+                    : 'Nothing needs attention right now — everything is classified and resolved.'
+                  : 'No transactions yet — import a statement for a personal account in Payment Sources.'}
+              </p>
+            )}
 
             {groups.map(group => {
               const total = group.txns.reduce((s, t) => s + (t.settlementAmount || 0), 0)
