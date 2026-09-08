@@ -205,14 +205,16 @@ export default function Dashboard() {
               ? <p className="empty">No expenses for this period. <Link to="/upload">Upload a receipt.</Link></p>
               : (
                 <>
-                  {expenses.map(e => (
-                    <div key={e.id} className="expense-row">
-                      <span className="date">{e.date}</span>
-                      <span className="vendor">{e.vendor}</span>
-                      <span className="amount">{e.currency} {e.amount?.toFixed(2)}</span>
-                      <span className={`badge badge-${e.category.toLowerCase().replace(/\s+/g, '-')}`}>{e.category}</span>
-                    </div>
-                  ))}
+                  <div className="dashboard-list-scroll">
+                    {expenses.map(e => (
+                      <div key={e.id} className="expense-row">
+                        <span className="date">{e.date}</span>
+                        <span className="vendor">{e.vendor}</span>
+                        <span className="amount">{e.currency} {e.amount?.toFixed(2)}</span>
+                        <span className={`badge badge-${e.category.toLowerCase().replace(/\s+/g, '-')}`}>{e.category}</span>
+                      </div>
+                    ))}
+                  </div>
                   <div className="expense-total-row">
                     {Object.entries(totals).map(([currency, amount]) => (
                       <span key={currency}>{currency} {amount.toFixed(2)}</span>
@@ -247,14 +249,16 @@ export default function Dashboard() {
               ? <p className="empty">No income for this period. <Link to="/income">Upload income.</Link></p>
               : (
                 <>
-                  {income.map(i => (
-                    <div key={i.id} className="expense-row">
-                      <span className="date">{i.date}</span>
-                      <span className="vendor">{i.counterpartyName}</span>
-                      <span className="amount">{i.currency} {Number(i.amount || 0).toFixed(2)}</span>
-                      {i.category && <span className={`badge badge-${i.category.toLowerCase().replace(/\s+/g, '-')}`}>{i.category}</span>}
-                    </div>
-                  ))}
+                  <div className="dashboard-list-scroll">
+                    {income.map(i => (
+                      <div key={i.id} className="expense-row">
+                        <span className="date">{i.date}</span>
+                        <span className="vendor">{i.counterpartyName}</span>
+                        <span className="amount">{i.currency} {Number(i.amount || 0).toFixed(2)}</span>
+                        {i.category && <span className={`badge badge-${i.category.toLowerCase().replace(/\s+/g, '-')}`}>{i.category}</span>}
+                      </div>
+                    ))}
+                  </div>
                   <div className="expense-total-row">
                     {Object.entries(incomeTotals).map(([currency, amount]) => (
                       <span key={currency}>{currency} {amount.toFixed(2)}</span>

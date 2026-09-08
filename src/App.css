@@ -483,6 +483,13 @@ body {
 .expense-row .vendor { flex: 1; font-weight: 500; }
 .expense-row .amount { font-weight: 600; color: #2d3748; font-variant-numeric: tabular-nums; }
 
+/* Dashboard's Expenses/Income cards list every row for the period inline
+   — fine for a handful, but a wide date range can mean 100+ rows
+   stretching the card (and the whole page) far past the viewport. Caps
+   the row list itself at a fixed height with its own scrollbar; the
+   total row stays outside this container, always visible below it. */
+.dashboard-list-scroll { max-height: 420px; overflow-y: auto; }
+
 /* ── Category breakdown ── */
 .category-row {
   display: flex;
