@@ -235,7 +235,7 @@ export default function Settings() {
                         </div>
                         {inviteError && <p className="error-msg">{inviteError}</p>}
                         <p className="hint">
-                          They must already have an account in Expense Operations Center. Invited
+                          They must already have an account in the Finance / Bookkeeping Center. Invited
                           collaborators can view and edit expenses and statements for this project —
                           your personal-account transactions stay hidden until you classify them.
                         </p>
@@ -327,7 +327,7 @@ export default function Settings() {
       )}
 
       <div className="app-version">
-        Expense Operations Center {__APP_RELEASE__} · build {__APP_VERSION__} · deployed {new Date(__BUILD_TIME__).toLocaleString()}
+        Finance / Bookkeeping Center {__APP_RELEASE__} · build {__APP_VERSION__} · deployed {new Date(__BUILD_TIME__).toLocaleString()}
       </div>
     </div>
   )

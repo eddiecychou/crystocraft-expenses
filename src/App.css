@@ -172,6 +172,7 @@ body {
   padding: 0 20px 24px;
   border-bottom: 1px solid var(--t-mid);
 }
+.logo-sub { font-size: 11px; font-weight: 500; color: #a0aec0; letter-spacing: 0.02em; }
 
 .sidebar a {
   color: #a0aec0;

@@ -344,6 +344,7 @@ export default function CompanyReview() {
       userId: auth.currentUser.uid,
       userEmail: auth.currentUser.email,
       projectId: activeProject.id,
+      recordType: 'expense',
       date: txn.transactionDate || txn.postDate || '',
       vendor: txn.merchantNormalized ? txn.merchantNormalized.replace(/\b\w/g, c => c.toUpperCase()) : txn.merchantRaw,
       amount: txn.settlementAmount,

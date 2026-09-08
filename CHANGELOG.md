@@ -8,6 +8,19 @@ changes when it's bumped deliberately in `package.json`.
 
 ## Unreleased (still V1.0)
 
+**Finance / Bookkeeping Center repositioning — MVP-1 (rename + data foundation).**
+Per the spec (`Claude 执行规格：将 Expense Center 修订为 Finance／Bookkeeping Center.md`),
+began repositioning the app from a narrow Expense Center into a Finance /
+Bookkeeping Center where Income and Expense are same-level objects. MVP-1
+only: display name → "Finance / Bookkeeping Workspace" (sidebar, browser
+title, Settings), nav labels Dashboard→Overview and Records→Expenses, and a
+`recordType: 'expense'` field now stamped on every expense write (with a
+read-time fallback for existing docs — no migration, no data change). New
+`src/lib/financeRecords.js` defines the shared `FinanceRecord` shape the
+income object (MVP-2) will plug into. No new pages, no income features, no
+route changes yet.
+
+
 Added the full Personal-to-Company Expense workflow (`Expense App:
 Personal-to-Company Expense MVP Specification.md`), all three phases:
 

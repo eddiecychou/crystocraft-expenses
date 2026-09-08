@@ -29,10 +29,10 @@ export default function Layout() {
       {/* Desktop sidebar — every destination visible at once; desktop has
           the room, so this is left as-is. */}
       <nav className="sidebar desktop-only" style={{ borderTop: `4px solid ${identity.dot}` }}>
-        <div className="logo">Expense<br />Ops Center</div>
-        <NavLink to="/" end>Dashboard</NavLink>
+        <div className="logo">Finance<br /><span className="logo-sub">Bookkeeping Workspace</span></div>
+        <NavLink to="/" end>Overview</NavLink>
         <NavLink to="/upload">Upload</NavLink>
-        <NavLink to="/expenses">Records</NavLink>
+        <NavLink to="/expenses">Expenses</NavLink>
         <NavLink to="/payment-sources">Payments</NavLink>
         <NavLink to="/invoices">Invoices & POs</NavLink>
         <NavLink to="/reconciliation">Reconcile</NavLink>
@@ -78,7 +78,7 @@ export default function Layout() {
         <>
           <div className="mobile-sheet-backdrop" onClick={() => setMoreOpen(false)} />
           <div className="mobile-sheet" role="menu">
-            <NavLink to="/expenses" className="mobile-sheet-item" onClick={() => setMoreOpen(false)}>Records</NavLink>
+            <NavLink to="/expenses" className="mobile-sheet-item" onClick={() => setMoreOpen(false)}>Expenses</NavLink>
             <NavLink to="/payment-sources" className="mobile-sheet-item" onClick={() => setMoreOpen(false)}>Payments</NavLink>
             <NavLink to="/invoices" className="mobile-sheet-item" onClick={() => setMoreOpen(false)}>Invoices & POs</NavLink>
             <NavLink to="/company-review" className="mobile-sheet-item" onClick={() => setMoreOpen(false)}>Reimbursable Expenses</NavLink>

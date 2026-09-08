@@ -507,6 +507,7 @@ export default function PaymentSources() {
             userId: auth.currentUser.uid,
             userEmail: auth.currentUser.email,
             projectId: activeProject.id,
+            recordType: 'expense',
             date: t.transactionDate || t.postDate || '',
             vendor: merchantNormalized ? merchantNormalized.replace(/\b\w/g, c => c.toUpperCase()) : t.merchantRaw,
             amount: t.settlementAmount,

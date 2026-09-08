@@ -276,6 +276,7 @@ export default function Upload() {
         userId: uid,
         userEmail: email,
         projectId: activeProject?.id || '',
+        recordType: 'expense',
         date: r.date || '',
         vendor: r.vendor || '',
         amount: itemAmount + handlingCharge,

@@ -1,6 +1,10 @@
-# Expense Operations Center — Technical Documentation
+# Finance / Bookkeeping Center — Technical Documentation
 
-_Current release: **V1.0** (see [CHANGELOG.md](CHANGELOG.md)). Formerly named "Expense Organiser" — some historical docs, spec files, and Firebase project names still use the old name; the running app, its title bar, and this document use the new one._
+_Current release: **V1.0** (see [CHANGELOG.md](CHANGELOG.md)). Being repositioned from a narrow "Expense Center" into a **Finance / Bookkeeping Center** that treats Income and Expense as same-level objects and adds Account Codes, bank reconciliation, and (Crystocraft-only, later) Operation Center API sync — see the spec `Claude 执行规格：将 Expense Center 修订为 Finance／Bookkeeping Center.md` and the MVP sequence below. Earlier names ("Expense Organiser", "Expense Operations Center") persist in some historical docs, `.claude/skills/expense-ops-center/`, and Firebase project names (`crystocraft-expenses`); the running app now displays "Finance / Bookkeeping Workspace". Internal route/module preference for new work: `finance`._
+
+**Repositioning MVP sequence** (incremental, approval-gated): MVP-1 rename + `recordType` data foundation (done); MVP-2 Income as a first-class object + Income Upload; MVP-3 Account Codes; MVP-4 unified reconciliation + a dedicated Bank Transactions page; MVP-5 Operation Center API (Crystocraft-only optional connector); MVP-6 month-end reports.
+
+**Finance record model:** Expense and Income are same-level `FinanceRecord` objects (`recordType: 'expense' | 'income'`), unified at the CODE layer (`src/lib/financeRecords.js`) but stored in **two physical collections** — `expenses` (unchanged) and `income` (MVP-2) — so existing rules/Storage-paths/matched-transaction references stay valid and no risky physical merge is needed. Existing expense docs predate `recordType`; a missing value is read as `'expense'` (fallback, no migration). New expense writes stamp `recordType: 'expense'` explicitly.
 
 ## Overview
 
@@ -167,6 +171,7 @@ the project-list query ever runs against `memberUids`.
   userId: string,
   userEmail: string,
   projectId: string,
+  recordType: 'expense',  // Finance repositioning — same-level with income (own collection, MVP-2). Absent on pre-repositioning docs, read as 'expense'. See src/lib/financeRecords.js
   date: string,          // YYYY-MM-DD
   vendor: string,
   amount: number,        // total actually paid — item cost + handlingCharge, if any

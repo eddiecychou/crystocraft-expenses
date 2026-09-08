@@ -5,6 +5,13 @@ description: Workflow and hard-won lessons for building/maintaining Expense Oper
 
 # Expense Operations Center — Development Playbook
 
+> **Product repositioning in progress:** the app is being renamed/restructured
+> from a narrow "Expense Center" into a **Finance / Bookkeeping Center**
+> (Income + Expense as same-level objects, Account Codes, bank reconciliation,
+> Operation Center API). See TECHNICAL.md's header for the MVP sequence. This
+> skill dir keeps its `expense-ops-center` name for now; the running product
+> displays "Finance / Bookkeeping Workspace". New routes/modules prefer `finance`.
+
 This is a React 18 + Firebase (Firestore/Storage/Auth) + Netlify Edge
 Functions bookkeeping app. Full architecture: [TECHNICAL.md](../../../TECHNICAL.md).
 Function-by-function map: [FUNCTION_INDEX.md](../../../FUNCTION_INDEX.md).
