@@ -1,12 +1,12 @@
 import { useState, useEffect, useRef } from 'react'
-import { collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore'
+import { collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, writeBatch } from 'firebase/firestore'
 import { db, auth } from '../firebase'
 import { CURRENCIES } from '../constants'
 import { useProject } from '../contexts/ProjectContext'
 import ProjectBanner from '../components/ProjectBanner'
 import ConfirmDialog from '../components/ConfirmDialog'
 import { parseCSV } from '../lib/paymentMatching'
-import { mapDocumentCsvRecords, uploadDocumentFile } from '../lib/documentImport'
+import { mapDocumentCsvRecords, uploadDocumentFile, operationCenterDocId, mapOperationCenterPoRow, mapOperationCenterInvoiceRow } from '../lib/documentImport'
 import { DocumentIcon, AttachIcon, ICON_STROKE_WIDTH } from '../icons'
 
 // Phase 1: import, review, store, and list customer invoices (income) and
@@ -24,7 +24,7 @@ const TABS = [
 ]
 
 export default function Invoices() {
-  const { activeProject } = useProject()
+  const { activeProject, updateProject } = useProject()
   const [activeKind, setActiveKind] = useState('invoice')
   const tab = TABS.find(t => t.kind === activeKind)
 
@@ -45,6 +45,7 @@ export default function Invoices() {
   // find out. settlementStatus is set by confirmInvoiceMatch/
   // linkPurchaseOrder in Reconciliation.jsx.
   const [statusFilter, setStatusFilter] = useState('all') // 'all' | 'outstanding' | 'paid'
+  const [syncing, setSyncing] = useState(false)
   const fileRef = useRef()
   const resultIdRef = useRef(0)
   const fileIdRef = useRef(0)
@@ -218,6 +219,90 @@ export default function Invoices() {
     })
   }
 
+  // Finance repositioning MVP-5 — pulls Purchase Orders and Sales Invoices
+  // live from Operation Center instead of a manual CSV import. Only shown
+  // when the active project has the Crystocraft-only toggle on (Settings).
+  // Idempotent by construction: each row is upserted (setDoc merge) at a
+  // doc id derived from OC's own PU#/SI# (operationCenterDocId), so
+  // re-running this never creates a duplicate — a pre-existing CSV-
+  // imported record has no such id and is left untouched.
+  async function syncFromOperationCenter() {
+    if (!activeProject || syncing) return
+    setSyncing(true)
+    const since = activeProject.operationCenterSync?.lastSyncedAt || null
+    const nowIso = new Date().toISOString()
+    try {
+      const idToken = await auth.currentUser.getIdToken()
+      const res = await fetch('/api/sync-operation-center', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken, projectId: activeProject.id, since }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || `Sync failed (${res.status})`)
+
+      const poRows = data.poRows || []
+      const invoiceRows = data.invoiceRows || []
+      const writes = [
+        ...poRows.filter(r => r.pu_number).map(r => ({
+          collectionName: 'purchaseOrders',
+          docId: operationCenterDocId('po', r.pu_number),
+          data: mapOperationCenterPoRow(r),
+        })),
+        ...invoiceRows.filter(r => r.si_no).map(r => ({
+          collectionName: 'salesInvoices',
+          docId: operationCenterDocId('si', r.si_no),
+          data: mapOperationCenterInvoiceRow(r),
+        })),
+      ]
+
+      // Chunked writeBatch — Firestore caps a single batch at 500 writes,
+      // and a full sync (rare, only on first enable) could exceed that.
+      for (let i = 0; i < writes.length; i += 500) {
+        const batch = writeBatch(db)
+        for (const w of writes.slice(i, i + 500)) {
+          batch.set(doc(db, w.collectionName, w.docId), {
+            projectId: activeProject.id,
+            ...w.data,
+            sourceType: 'operation_center',
+            lastSyncedAt: nowIso,
+          }, { merge: true })
+        }
+        await batch.commit()
+      }
+
+      await updateDoc(doc(db, 'projects', activeProject.id), {
+        operationCenterSync: {
+          lastSyncedAt: nowIso, lastStatus: 'success',
+          lastCounts: { poFetched: poRows.length, invoicesFetched: invoiceRows.length },
+          lastError: null,
+        },
+      })
+      updateProject(activeProject.id, {
+        operationCenterSync: {
+          lastSyncedAt: nowIso, lastStatus: 'success',
+          lastCounts: { poFetched: poRows.length, invoicesFetched: invoiceRows.length },
+          lastError: null,
+        },
+      })
+      setMessage(`Synced ${poRows.length} purchase order(s) and ${invoiceRows.length} invoice(s) from Operation Center.`)
+    } catch (err) {
+      // Failure never touches existing data — only the status fields are
+      // written, and only after the try above already stopped before any
+      // partial writes on a request-level failure (a mid-batch failure
+      // would leave whatever had already committed, same as any other
+      // partial-write scenario in this app).
+      await updateDoc(doc(db, 'projects', activeProject.id), {
+        'operationCenterSync.lastStatus': 'error',
+        'operationCenterSync.lastError': err.message || 'Sync failed',
+      }).catch(() => {})
+      updateProject(activeProject.id, {
+        operationCenterSync: { ...activeProject.operationCenterSync, lastStatus: 'error', lastError: err.message || 'Sync failed' },
+      })
+    }
+    setSyncing(false)
+  }
+
   return (
     <div className="page">
       <ProjectBanner />
@@ -230,6 +315,21 @@ export default function Invoices() {
           </button>
         ))}
       </div>
+
+      {activeProject?.operationCenterSyncEnabled && (
+        <div className="filter-row" style={{ marginBottom: 16, alignItems: 'center' }}>
+          <button className="btn-ghost btn-small" onClick={syncFromOperationCenter} disabled={syncing}>
+            {syncing ? 'Syncing…' : 'Sync from Operation Center'}
+          </button>
+          <span className="hint">
+            {activeProject.operationCenterSync?.lastStatus === 'error'
+              ? `Last sync failed: ${activeProject.operationCenterSync.lastError}`
+              : activeProject.operationCenterSync?.lastSyncedAt
+              ? `Last synced ${new Date(activeProject.operationCenterSync.lastSyncedAt).toLocaleString()}`
+              : 'Never synced'}
+          </span>
+        </div>
+      )}
 
       {results.length === 0 && (
         <>

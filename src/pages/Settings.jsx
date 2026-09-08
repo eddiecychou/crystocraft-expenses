@@ -164,6 +164,16 @@ export default function Settings() {
     updateProject(activeProject.id, { [field]: next })
   }
 
+  // Finance repositioning MVP-5 — the Crystocraft-only gate for live
+  // Operation Center sync (Invoices.jsx). Off by default for every
+  // project, including new ones; no URL/secret fields here, those live
+  // only in this app's own Netlify env vars.
+  async function toggleOperationCenterSync(enabled) {
+    if (!activeProject) return
+    await updateDoc(doc(db, 'projects', activeProject.id), { operationCenterSyncEnabled: enabled })
+    updateProject(activeProject.id, { operationCenterSyncEnabled: enabled })
+  }
+
   return (
     <div className="page page-reading">
       <ProjectBanner />
@@ -333,6 +343,23 @@ export default function Settings() {
               />
               <button className="btn-small" onClick={() => { addListItem('paymentMethods', newPaymentMethodText); setNewPaymentMethodText('') }} disabled={!newPaymentMethodText.trim()}>Add</button>
             </div>
+          </div>
+
+          <div className="settings-section">
+            <h3 className="settings-section-title">Operation Center Sync (Crystocraft only)</h3>
+            <p className="hint">
+              Pulls Purchase Orders and Sales Invoices live from Crystocraft's Operation Center
+              instead of a manual CSV import (Invoices &amp; POs page). Only meaningful for
+              Crystocraft's own project — leave off for every other company.
+            </p>
+            <label className="checkbox-row">
+              <input
+                type="checkbox"
+                checked={!!activeProject.operationCenterSyncEnabled}
+                onChange={e => toggleOperationCenterSync(e.target.checked)}
+              />
+              Enable Operation Center Sync for "{activeProject.name}"
+            </label>
           </div>
         </>
       )}

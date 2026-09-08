@@ -2,7 +2,7 @@
 
 _Current release: **V1.0** (see [CHANGELOG.md](CHANGELOG.md)). Being repositioned from a narrow "Expense Center" into a **Finance / Bookkeeping Center** that treats Income and Expense as same-level objects and adds Account Codes, bank reconciliation, and (Crystocraft-only, later) Operation Center API sync — see the spec `Claude 执行规格：将 Expense Center 修订为 Finance／Bookkeeping Center.md` and the MVP sequence below. Earlier names ("Expense Organiser", "Expense Operations Center") persist in some historical docs, `.claude/skills/expense-ops-center/`, and Firebase project names (`crystocraft-expenses`); the running app now displays "Finance / Bookkeeping Workspace". Internal route/module preference for new work: `finance`._
 
-**Repositioning MVP sequence** (incremental, approval-gated): MVP-1 rename + `recordType` data foundation (done); MVP-2 Income as a first-class object + Income Upload (done); MVP-3 Account Codes (done); MVP-4 unified reconciliation + a dedicated Bank Transactions page (done); MVP-5 Operation Center API (Crystocraft-only optional connector); MVP-6 month-end reports.
+**Repositioning MVP sequence** (incremental, approval-gated): MVP-1 rename + `recordType` data foundation (done); MVP-2 Income as a first-class object + Income Upload (done); MVP-3 Account Codes (done); MVP-4 unified reconciliation + a dedicated Bank Transactions page (done); MVP-5 Operation Center API, Crystocraft-only optional connector (done — live PO/Invoice sync only, see "Operation Center Sync" below); MVP-6 month-end reports.
 
 **Finance record model:** Expense and Income are same-level `FinanceRecord` objects (`recordType: 'expense' | 'income'`), unified at the CODE layer (`src/lib/financeRecords.js`) but stored in **two physical collections** — `expenses` (unchanged) and `income` (MVP-2) — so existing rules/Storage-paths/matched-transaction references stay valid and no risky physical merge is needed. Existing expense docs predate `recordType`; a missing value is read as `'expense'` (fallback, no migration). New expense writes stamp `recordType: 'expense'` explicitly.
 
@@ -365,7 +365,7 @@ the project-list query ever runs against `memberUids`.
   name: string,            // "Office Supplies"
   type: 'income' | 'expense' | 'asset' | 'liability' | 'equity' | 'other',
   active: boolean,         // default true — hidden from new-record pickers when false, never deleted
-  source: 'company' | 'default',   // 'operation_center' unused until MVP-5
+  source: 'company' | 'default',   // 'operation_center' still unused — MVP-5 syncs Invoices/POs only, not Account Codes
   description: string,
   createdAt, updatedAt: Timestamp
 }
@@ -611,6 +611,22 @@ A vendor/payer's confirmed code can be remembered via a "Remember this code for�
 `reconciliationStatusLabel(txn, matched)` (`src/lib/paymentMatching.js`) is a pure **display** mapping onto 6 of the spec's 9-word status vocabulary (`Suggested` / `Confirmed` / `Needs Review` / `Missing Document` / `Unmatched` / `Excluded`) — no stored field changes. The other 3 (`Imported` / `Partially Matched` / `Reconciled`) aren't real distinctions in this app yet (no month-end "close" concept exists) and wait for MVP-6.
 
 Reconciliation.jsx also gained a third `markAs` button, "Mark as Loan/Capital", setting `transactionType: 'loan_capital'` — same manual-only, `status: 'ignored'` treatment as Refund/Transfer, covering the spec's "Loan / Capital / Director Current Account" bucket. Added to `CREATE_EXPENSE_BLOCKED_TYPES`.
+
+### Operation Center Sync (MVP-5, Crystocraft-only)
+
+Replaces the manual CSV import of Invoices & POs with a live pull from Operation Center (`costing-tool`, Firebase project `crystocraft-costing`) — a separate repo/app. Scoped narrowly after investigating what actually exists there:
+
+- **No Expense/Income read-in or write-back** — Operation Center has no Expense/Income data model at all yet, so those two spec directions (§9) have nothing to connect to. Deferred until OC itself grows that concept.
+- **Only the app-authored source syncs live**, not OC's frozen "JES ERP archive" mirror (predates the app, doesn't change, and is presumably already covered by earlier one-off CSV imports) — avoids re-implementing that merge's dedup logic a second time in a second codebase where it could drift from the real one.
+- **Crystocraft-only, project-gated**: `projects/{id}.operationCenterSyncEnabled` (boolean, off by default, set via a Settings.jsx checkbox — no URL/secret fields anywhere in the UI or Firestore) — Operation Center only ever represents Crystocraft's own business, meaningless for any other company sharing this app.
+
+**Auth model**: costing-tool's existing endpoints (`uc.js`, `erp.js`) only accept a *costing-tool* user's own Firebase ID token — this app's users are on a different Firebase project and have no such token. Rather than invent a new auth mechanism (a shared secret still couldn't read Firestore without its own separate credential), this app's edge function signs in as a **dedicated costing-tool service account** (`role: 'staff'`, `modules` including `supply` and `uc` — set up once, by hand, in costing-tool's Firebase Console) and calls costing-tool's endpoints exactly as any other authorized user would.
+
+**`netlify/edge-functions/sync-operation-center.js`** (this app): verifies the calling Finance user's own token, checks their project's `operationCenterSyncEnabled` gate via Firestore REST (their own token — normal rules apply, no elevated access), then signs in as the costing-tool service account and calls two costing-tool endpoints — `/api/finance-po-sync` (new there, read-only `purchase_orders` summary) and `/api/uc` (`op: 'list_invoices'`, already existed for `SalesInvoices.jsx`'s own "app" rows — gained an optional `since` filter for this). Returns rows to the client; **no Firestore writes happen server-side**, keeping this app's "writes happen in the page component" convention.
+
+**`Invoices.jsx`**'s `syncFromOperationCenter()` does the actual upsert: each row's own OC number (PU#/SI#) becomes a deterministic Firestore doc id (`operationCenterDocId()` in `documentImport.js`) written via a chunked `writeBatch` `.set(..., {merge:true})` — re-running sync always updates the same doc, never creates a duplicate (spec acceptance criterion #9); a pre-existing CSV-imported record has no such id and is left untouched (no retroactive dedup against historical CSV imports). `mapOperationCenterPoRow()`/`mapOperationCenterInvoiceRow()` (`documentImport.js`) translate OC's field names onto the same `purchaseOrders`/`salesInvoices` shape the CSV importer already produces, so Reconciliation.jsx needs zero changes to treat a synced row like a CSV-imported one. Sync status (`lastSyncedAt`/`lastStatus`/`lastCounts`/`lastError`) lives on the project doc's `operationCenterSync` field — no new collection. On failure, only that status is written; existing data is never touched (criterion #10).
+
+**costing-tool side**: new `netlify/edge-functions/finance-po-sync.js` (module `supply`, mirrors `uc.js`/`erp.js`'s auth pattern; totals computed via a hand-ported copy of `src/purchaseOrders.js`'s `poTotals()`, verified against the original). `uc.js`'s existing `list_invoices` op gained the optional `since` param. See that repo's `API-REFERENCE.md`.
 
 ### Payment Source Import & Duplicate Detection
 

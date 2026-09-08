@@ -69,6 +69,9 @@ some of these functions look the way they do, see [LESSONS_LEARNED.md](LESSONS_L
 |---|---|---|
 | `findColumn(headers, aliases)` | 23 | Internal — same alias-resolution pattern as `paymentMatching.js`'s helper of the same name. |
 | `mapDocumentCsvRecords(records, headers, kind)` | 31 | Maps raw CSV rows into the `salesInvoices`/`purchaseOrders` shape (`kind`: `'invoice'`\|`'po'`) — header-level only (number, counterparty, date, amount, currency, notes), no line items. |
+| `operationCenterDocId(kind, ocId)` | — | Finance repositioning MVP-5 — deterministic Firestore doc id for an Operation Center-synced record, keyed on OC's own PU#/SI#, so a re-sync always upserts the same doc (never a duplicate). |
+| `mapOperationCenterPoRow(row)` | — | MVP-5 — maps a `finance-po-sync` row (costing-tool) onto the same `purchaseOrders` shape `mapDocumentCsvRecords` produces. |
+| `mapOperationCenterInvoiceRow(row)` | — | MVP-5 — maps a `list_invoices` row (costing-tool's `uc.js`) onto the same `salesInvoices` shape. Prefers `accounting_total` over `total` when present, matching `uc.js`'s own `upsert_invoice` convention. |
 | `uploadDocumentFile(file, projectId, kind, docId)` | 59 | Uploads the original source file to Storage under `invoices/{projectId}/{docId}/` or `purchaseOrders/{projectId}/{docId}/`, same audit-trail rationale as `statementStorage.js`'s `uploadStatementFile`. |
 
 ### [pdfStatementParser.js](src/lib/pdfStatementParser.js)
@@ -306,6 +309,7 @@ No standalone named functions beyond small in-render helpers (`setPreset`, `acco
 | `processFiles(items)` | 92 | For CSV: parses via `parseCSV`/`mapDocumentCsvRecords` directly (one result row per CSV row). For PDF/image: posts to `/api/process-invoice` with the active tab's `docKind`. |
 | `saveAll()` | 150 | Writes each reviewed result to `salesInvoices` or `purchaseOrders` (per active tab), then uploads the original source file via `uploadDocumentFile` and attaches its URL. |
 | `startEdit(rec)` / `saveEdit(rec)` | 187 | Inline edit of an already-saved record in the list below. |
+| `syncFromOperationCenter()` | — | Finance repositioning MVP-5 — only shown when the active project's `operationCenterSyncEnabled` toggle (Settings.jsx) is on. Calls `/api/sync-operation-center`, then upserts each row into `purchaseOrders`/`salesInvoices` via a chunked `writeBatch` keyed by `operationCenterDocId()` (idempotent — a re-run never duplicates), and writes sync status onto the project doc's `operationCenterSync` field. |
 
 ### [Reconciliation.jsx](src/pages/Reconciliation.jsx) — transaction matching workspace
 
@@ -367,6 +371,7 @@ No standalone named functions beyond small in-render helpers (`setPreset`, `acco
 | `startShare(p)` | — | Opens the Share panel for a project (owner-only control). |
 | `inviteCollaborator(p)` | — | Looks up the invited email in the `users` collection and adds the matching uid to the project's `memberUids`/`members` as an editor; surfaces "no account found" inline rather than failing silently. |
 | `removeCollaborator(p, uid)` | — | Removes a collaborator's access (with confirmation). |
+| `toggleOperationCenterSync(enabled)` | — | Finance repositioning MVP-5 — the Crystocraft-only gate (`operationCenterSyncEnabled`) for live Invoices/POs sync (Invoices.jsx). Off by default for every project. |
 | `ColorPicker({ value, onChange })` | 144 | Swatch grid for picking one of the 24 project color identities. |
 
 ### [Export.jsx](src/pages/Export.jsx) — **not routed in `App.jsx`, currently orphaned**
@@ -384,6 +389,7 @@ No standalone named functions beyond small in-render helpers (`setPreset`, `acco
 | [process-receipt.js](netlify/edge-functions/process-receipt.js) | Deno edge function. Receives a receipt image/PDF, optionally runs Cloud Vision OCR first (`callVisionOCR`, when `GOOGLE_VISION_API_KEY` is set), then calls Gemini (`gemini-2.5-flash` → `gemini-2.5-pro` fallback) to extract structured JSON fields. |
 | [process-invoice.js](netlify/edge-functions/process-invoice.js) | Deno edge function, same OCR+Gemini pipeline as `process-receipt.js`. Takes a `docKind` (`'invoice'`\|`'po'`\|`'income'`) and extracts `{ number, counterpartyName, date, amount, currency, notes }` — used for customer invoices, supplier POs, and (MVP-2) non-OC income documents, whose arbitrary per-counterparty layouts rule out a positional parser like `pdfStatementParser.js`. |
 | [download-receipt.js](netlify/edge-functions/download-receipt.js) | Deno edge function. CORS proxy — accepts `{ url }`, fetches a Firebase Storage file server-side, returns the raw bytes with permissive CORS headers. Used generically for both receipt images and statement files despite the name. |
+| [sync-operation-center.js](netlify/edge-functions/sync-operation-center.js) | Deno edge function (Finance repositioning MVP-5). Verifies the caller's own Firebase ID token, checks their project's `operationCenterSyncEnabled` gate, then signs in as a dedicated service account on costing-tool (a different Firebase project) and calls its `/api/finance-po-sync` and `/api/uc` (`op:'list_invoices'`) endpoints, returning the rows. No Firestore writes here — see TECHNICAL.md's "Operation Center Sync" section. |
 
 ## `netlify/functions/`
 

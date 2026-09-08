@@ -8,6 +8,27 @@ changes when it's bumped deliberately in `package.json`.
 
 ## Unreleased (still V1.0)
 
+**Finance / Bookkeeping Center repositioning — MVP-5 (Operation Center API, Crystocraft-only).**
+Replaces the manual CSV import of Invoices & POs with a live pull from
+Operation Center (`costing-tool`), scoped after actually checking what
+exists there: no Expense/Income data model at all (so that spec
+direction stays deferred), and both entities are themselves a merge with
+a frozen legacy JES ERP archive that predates the app — the live sync
+covers only the app-authored source, not that archive, to avoid
+re-implementing its dedup logic in a second codebase. Gated per-project
+by a new Crystocraft-only toggle in Settings (`operationCenterSyncEnabled`,
+off by default everywhere). A new "Sync from Operation Center" button on
+Invoices.jsx calls a new edge function (`sync-operation-center.js`) that
+signs in as a dedicated costing-tool service account and pulls Purchase
+Orders (`finance-po-sync.js`, new in costing-tool) and Sales Invoices
+(`uc.js`'s existing `list_invoices` op, gained an optional `since`
+filter) — upserted into the same `purchaseOrders`/`salesInvoices` shape
+the CSV importer already produces, keyed by a deterministic doc id
+derived from Operation Center's own PU#/SI# so a re-sync never creates a
+duplicate. No data deleted on failure; sync status shown inline. See
+TECHNICAL.md's "Operation Center Sync" section.
+
+
 **Finance / Bookkeeping Center repositioning — MVP-4 (Bank Transactions + unified reconciliation status).**
 A new `BankTransactions.jsx` page (`/bank-transactions`) — the single
 browsing view of every imported statement row, independent of any specific

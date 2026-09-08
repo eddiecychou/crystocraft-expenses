@@ -83,6 +83,47 @@ export function mapDocumentCsvRecords(records, headers, kind) {
   }).filter(r => r.amount != null)
 }
 
+// Deterministic Firestore doc id for an Operation Center-synced record,
+// keyed on OC's own PU#/SI# — re-syncing the same OC record always writes
+// the same doc (via setDoc merge), so a re-run can never create a
+// duplicate (Finance repositioning MVP-5, spec acceptance criterion #9).
+// Same sanitization pattern as accountCodeRuleDocId in accountCodes.js.
+export function operationCenterDocId(kind, ocId) {
+  return `oc_${kind === 'po' ? 'po' : 'si'}_${String(ocId || '').replace(/[^a-zA-Z0-9_-]/g, '_')}`
+}
+
+// Maps one row from costing-tool's finance-po-sync endpoint into the
+// purchaseOrders row shape (same fields mapDocumentCsvRecords produces),
+// so Invoices.jsx/Reconciliation.jsx need no changes to treat a synced PO
+// like a CSV-imported one.
+export function mapOperationCenterPoRow(row) {
+  return {
+    number: row.pu_number || '',
+    counterpartyName: row.supplier_name || '',
+    counterpartyCode: row.supplier_erp_code || '',
+    date: row.issued_date || '',
+    amount: Number(row.grandTotal) || 0,
+    currency: row.currency || '',
+    notes: row.status ? `Operation Center status: ${row.status}` : '',
+  }
+}
+
+// Maps one row from costing-tool's uc.js list_invoices op into the
+// salesInvoices row shape. accounting_total (the bookkeeping-adjusted
+// total) is preferred over the raw total when present, same distinction
+// uc.js's own upsert_invoice op treats as authoritative.
+export function mapOperationCenterInvoiceRow(row) {
+  return {
+    number: row.si_no || '',
+    counterpartyName: row.customer || '',
+    counterpartyCode: '',
+    date: row.invoice_date || row.invoiced_at || '',
+    amount: Number(row.accounting_total ?? row.total) || 0,
+    currency: row.currency || '',
+    notes: row.remarks || '',
+  }
+}
+
 // Upload the original source file (CSV or PDF/image) exactly as received,
 // for audit trail — same rationale as uploadStatementFile in
 // statementStorage.js. Returns { url, path } to store on the record.
