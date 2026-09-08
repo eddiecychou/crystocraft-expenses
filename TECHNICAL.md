@@ -812,7 +812,7 @@ Applied via semantic utility classes (`.type-display`, `.type-page-title`, etc.)
 
 ### Container system
 
-Four opt-in max-width modifiers, combined with the base `.page` class (900px default): `.page-narrow` (720px, single-record/OCR-review flows — Upload, Capture), `.page-reading` (880px, detail/settings pages — Settings), `.page-standard` (1120px, list-shaped pages — Dashboard, Expenses, PaymentSources), `.page-wide` (1280px, the Reconciliation desktop workspace). **Must stay defined after `.page` in the cascade** for the override to win (equal specificity, later wins).
+Four opt-in max-width modifiers, combined with the base `.page` class (900px default): `.page-narrow` (720px, single-record/OCR-review flows — Upload, Capture), `.page-reading` (880px, detail/settings pages — Settings), `.page-standard` (1120px, list-shaped pages — Dashboard, Expenses, PaymentSources, Invoices & POs, Income), `.page-wide` (1280px, the Reconciliation/Bank Transactions desktop workspaces). **Must stay defined after `.page` in the cascade** for the override to win (equal specificity, later wins).
 
 ### 12-column dashboard grid
 
@@ -831,6 +831,10 @@ All emoji replaced with `lucide-react` components via the centralized `src/icons
 `.desktop-only`/`.mobile-only` toggle classes at `max-width: 640px`; card-based lists (`.expense-mob-card`, `.capture-cards`) as an alternative to compressed tables at phone widths; 44–48px touch targets; `input, select, textarea { font-size: 16px }` on mobile to prevent iOS Safari auto-zoom.
 
 **`table-layout: fixed` pitfall** (hit twice in this codebase — PDF review table, then transaction detail table): an unspecified column's width can silently collapse to near-zero while a neighbor absorbs the space. Every column needs an explicit percentage width summing to 100%; only genuinely variable-length columns (Description) get `white-space: normal; overflow-wrap: break-word` — everything else uses `white-space: nowrap; overflow: hidden; text-overflow: ellipsis`.
+
+**The desktop-table + `.mobile-only` card fallback is opt-in per page, not automatic** — `.expense-table` itself has no responsive behavior of its own (no media query, no default overflow wrapping); every page using it must wrap it in `.table-wrap`/`overflow-x:auto` AND add its own `.mobile-only` card block, or phones get a horizontally-scrolling table. Expenses.jsx/CompanyReview.jsx/PaymentSources.jsx's expanded-import view do this correctly; Invoices.jsx/Income.jsx/BankTransactions.jsx didn't, until a UI audit caught it — all three trim to their essential columns (secondary fields fold into a `.hint` line under the related primary field, same as the pre-existing Account Code-under-Notes pattern) and now have the card fallback too. Worth checking for on any new table this pattern gets copied to.
+
+**Three uncoordinated breakpoint tiers exist and are a known, deliberately undone inconsistency**: 640px (the `.mobile-only`/`.desktop-only` toggle and all card-fallback pages), 767px (type-token sizing only), 1099px (`.dashboard-grid` only). A viewport between 640–1099px gets desktop table layouts everywhere (only the 640px tier controls that), while `.dashboard-grid` has already stacked to one column at that same width and `.recon-layout` hasn't stacked at all (still fixed-ish `minmax(260px,340px)` two-pane until 640px). Unifying these into one consistent tier system would be the right long-term fix but is a wide-blast-radius CSS change; left as a documented gap rather than attempted piecemeal.
 
 ---
 

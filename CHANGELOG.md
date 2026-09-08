@@ -8,6 +8,30 @@ changes when it's bumped deliberately in `package.json`.
 
 ## Unreleased (still V1.0)
 
+**Fixed table overflow on Invoices & POs, Income, and Bank Transactions.**
+An app-wide audit (prompted by "I don't want to scroll left and right"
+on Invoices & POs) found the established desktop-table +
+`.mobile-only` card-fallback pattern already used correctly on
+Expenses/CompanyReview/PaymentSources had never been applied to three
+pages with equally-wide tables: Invoices.jsx (9 columns, in a plain
+900px container), Income.jsx (same), and worst, BankTransactions.jsx
+(14 columns, even the widest 1280px container wasn't enough). All
+three now trim to their essential columns (secondary fields — Code,
+Source, Value Date, Balance, Account Code, Supporting Document — fold
+into hint lines under the related primary field, same pattern already
+used for Account Code under Notes; nothing lost, just no longer its
+own always-visible column) and get the missing mobile card fallback.
+Invoices.jsx/Income.jsx also promoted from `.page` (900px) to
+`.page-standard` (1120px), an odd mismatch for their table widths.
+Also removed three hardcoded `minWidth` inline styles on
+PaymentSources.jsx's Imports/transaction tables that forced overflow
+regardless of viewport, and loosened Reconciliation's fixed 340px list
+pane (`minmax(260px, 340px)`) so it squeezes the detail pane less hard
+at in-between window widths. A real remaining inconsistency — three
+uncoordinated breakpoint tiers (640/767/1099px) — was deliberately
+left for a separate round; see TECHNICAL.md.
+
+
 **Account Codes on Invoices & POs, and a full-picture Overview.**
 `salesInvoices`/`purchaseOrders` had no Account Code field at all —
 Expenses/Income got one in MVP-3, Invoices.jsx never did. Now wired in

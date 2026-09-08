@@ -430,7 +430,7 @@ export default function Invoices() {
   })()
 
   return (
-    <div className="page">
+    <div className="page page-standard">
       <ProjectBanner />
       <h2>Invoices & Purchase Orders</h2>
 
@@ -608,22 +608,25 @@ export default function Invoices() {
           : statusFilter === 'paid' ? records.filter(r => r.settlementStatus === 'confirmed')
           : records
         return (
-        <div style={{ overflowX: 'auto' }}>
-          {filteredRecords.length === 0 && <p className="hint">No {statusFilter} {tab.label.toLowerCase()}.</p>}
-          {filteredRecords.length > 0 &&
+        <>
+        {filteredRecords.length === 0 && <p className="hint">No {statusFilter} {tab.label.toLowerCase()}.</p>}
+        {filteredRecords.length > 0 && (
+        <div className="table-wrap desktop-only">
           <table className="expense-table">
             <thead>
-              <tr><th>Date</th><th>{tab.numberLabel}</th><th>{tab.counterpartyLabel}</th><th>Code</th><th>Amount</th><th>Status</th><th>Notes</th><th>Source</th><th>Actions</th></tr>
+              <tr><th>Date</th><th>{tab.numberLabel} / {tab.counterpartyLabel}</th><th>Amount</th><th>Status</th><th>Notes</th><th>Actions</th></tr>
             </thead>
             <tbody>
               {filteredRecords.map(rec => editingId === rec.id ? (
                 <tr key={rec.id}>
                   <td><input type="date" value={editDraft.date} onChange={e => setEditDraft({ ...editDraft, date: e.target.value })} /></td>
-                  <td><input value={editDraft.number} onChange={e => setEditDraft({ ...editDraft, number: e.target.value })} /></td>
-                  <td><input value={editDraft.counterpartyName} onChange={e => setEditDraft({ ...editDraft, counterpartyName: e.target.value })} /></td>
-                  <td><input value={editDraft.counterpartyCode} onChange={e => setEditDraft({ ...editDraft, counterpartyCode: e.target.value })} style={{ width: 70 }} /></td>
                   <td>
-                    <input type="number" step="0.01" value={editDraft.amount} onChange={e => setEditDraft({ ...editDraft, amount: e.target.value })} style={{ width: 90 }} />
+                    <input value={editDraft.number} onChange={e => setEditDraft({ ...editDraft, number: e.target.value })} style={{ marginBottom: 4 }} />
+                    <input value={editDraft.counterpartyName} onChange={e => setEditDraft({ ...editDraft, counterpartyName: e.target.value })} placeholder={tab.counterpartyLabel} style={{ marginBottom: 4 }} />
+                    <input value={editDraft.counterpartyCode} onChange={e => setEditDraft({ ...editDraft, counterpartyCode: e.target.value })} placeholder={`${tab.counterpartyLabel} Code`} />
+                  </td>
+                  <td>
+                    <input type="number" step="0.01" value={editDraft.amount} onChange={e => setEditDraft({ ...editDraft, amount: e.target.value })} style={{ marginBottom: 4 }} />
                     <select value={editDraft.currency} onChange={e => setEditDraft({ ...editDraft, currency: e.target.value })}>
                       {CURRENCIES.map(c => <option key={c}>{c}</option>)}
                     </select>
@@ -650,7 +653,6 @@ export default function Invoices() {
                       </label>
                     )}
                   </td>
-                  <td>{rec.sourceType}</td>
                   <td>
                     <button className="btn-small btn-primary" onClick={() => saveEdit(rec)}>Save</button>
                     <button className="btn-small btn-ghost" onClick={() => setEditingId(null)}>Cancel</button>
@@ -659,9 +661,10 @@ export default function Invoices() {
               ) : (
                 <tr key={rec.id}>
                   <td>{rec.date}</td>
-                  <td>{rec.number}</td>
-                  <td>{rec.counterpartyName}</td>
-                  <td>{rec.counterpartyCode}</td>
+                  <td>
+                    <strong>{rec.number}</strong>
+                    <div className="hint">{rec.counterpartyName}{rec.counterpartyCode && ` · ${rec.counterpartyCode}`}</div>
+                  </td>
                   <td data-amount="true">{rec.currency} {Number(rec.amount || 0).toFixed(2)}</td>
                   <td>
                     <span className={`badge ${rec.settlementStatus === 'confirmed' ? 'badge-success' : 'badge-warning'}`} title={rec.matchedPaymentTransactionId ? 'Matched to a bank/card transaction in Reconciliation' : 'No matching transaction yet'}>
@@ -671,11 +674,9 @@ export default function Invoices() {
                   <td>
                     <div className="notes-cell" title={rec.notes}>{rec.notes}</div>
                     {rec.accountCode && <div className="hint">{rec.accountCode} · {rec.accountName}</div>}
-                  </td>
-                  <td>
                     {rec.sourceFileUrl
-                      ? <a href={rec.sourceFileUrl} target="_blank" rel="noreferrer"><AttachIcon size={14} strokeWidth={ICON_STROKE_WIDTH} aria-hidden="true" /> {SOURCE_LABELS[rec.sourceType] || rec.sourceType}</a>
-                      : SOURCE_LABELS[rec.sourceType] || rec.sourceType}
+                      ? <div className="hint"><a href={rec.sourceFileUrl} target="_blank" rel="noreferrer"><AttachIcon size={14} strokeWidth={ICON_STROKE_WIDTH} aria-hidden="true" /> {SOURCE_LABELS[rec.sourceType] || rec.sourceType}</a></div>
+                      : <div className="hint">{SOURCE_LABELS[rec.sourceType] || rec.sourceType}</div>}
                   </td>
                   <td>
                     <button className="btn-small btn-ghost" onClick={() => startEdit(rec)}>Edit</button>
@@ -685,8 +686,70 @@ export default function Invoices() {
               ))}
             </tbody>
           </table>
-          }
         </div>
+        )}
+
+        {filteredRecords.length > 0 && (
+        <div className="mobile-only">
+          {filteredRecords.map(rec => editingId === rec.id ? (
+            <div key={rec.id} className="expense-mob-card">
+              <div className="result-grid">
+                <label>Date<input type="date" value={editDraft.date} onChange={e => setEditDraft({ ...editDraft, date: e.target.value })} /></label>
+                <label>{tab.numberLabel}<input value={editDraft.number} onChange={e => setEditDraft({ ...editDraft, number: e.target.value })} /></label>
+                <label>{tab.counterpartyLabel}<input value={editDraft.counterpartyName} onChange={e => setEditDraft({ ...editDraft, counterpartyName: e.target.value })} /></label>
+                <label>{tab.counterpartyLabel} Code<input value={editDraft.counterpartyCode} onChange={e => setEditDraft({ ...editDraft, counterpartyCode: e.target.value })} /></label>
+                <label>Amount<input type="number" step="0.01" value={editDraft.amount} onChange={e => setEditDraft({ ...editDraft, amount: e.target.value })} /></label>
+                <label>Currency<select value={editDraft.currency} onChange={e => setEditDraft({ ...editDraft, currency: e.target.value })}>{CURRENCIES.map(c => <option key={c}>{c}</option>)}</select></label>
+                <label className="full-width">Notes<input value={editDraft.notes} onChange={e => setEditDraft({ ...editDraft, notes: e.target.value })} /></label>
+                <label className="full-width">
+                  Account Code <span className="hint">(optional)</span>
+                  <AccountCodePicker
+                    accountCodes={accountCodes}
+                    recordType={accountCodeRecordType}
+                    recentCodes={recentAccountCodes}
+                    value={editDraft.accountCodeId ? { accountCodeId: editDraft.accountCodeId, accountCode: editDraft.accountCode, accountName: editDraft.accountName } : null}
+                    onChange={v => setEditDraft({ ...editDraft, accountCodeId: v?.accountCodeId || null, accountCode: v?.accountCode || null, accountName: v?.accountName || null })}
+                  />
+                  {editDraft.accountCodeId && editDraft.counterpartyName?.trim() && (
+                    <label className="hint" style={{ display: 'flex', alignItems: 'center', gap: 4, fontWeight: 400 }}>
+                      <input type="checkbox" checked={rememberAccountCode} onChange={e => setRememberAccountCode(e.target.checked)} />
+                      Remember for "{editDraft.counterpartyName}"
+                    </label>
+                  )}
+                </label>
+              </div>
+              <div className="mob-card-actions">
+                <button onClick={() => saveEdit(rec)} className="btn-primary">Save</button>
+                <button onClick={() => setEditingId(null)} className="btn-ghost">Cancel</button>
+              </div>
+            </div>
+          ) : (
+            <div key={rec.id} className="expense-mob-card">
+              <div className="mob-card-header">
+                <span className="mob-card-vendor">{rec.number}</span>
+                <span className="mob-card-amount">{rec.currency} {Number(rec.amount || 0).toFixed(2)}</span>
+              </div>
+              <div className="mob-card-sub">
+                <span className="mob-card-date">{rec.date}</span>
+                <span className={`badge ${rec.settlementStatus === 'confirmed' ? 'badge-success' : 'badge-warning'}`}>
+                  {rec.settlementStatus === 'confirmed' ? (tab.kind === 'invoice' ? 'Paid' : 'Settled') : 'Outstanding'}
+                </span>
+              </div>
+              <div className="hint">{rec.counterpartyName}{rec.counterpartyCode && ` · ${rec.counterpartyCode}`}</div>
+              {rec.notes && <div className="mob-card-notes">{rec.notes}</div>}
+              {rec.accountCode && <div className="hint">{rec.accountCode} · {rec.accountName}</div>}
+              {rec.sourceFileUrl
+                ? <div className="hint"><a href={rec.sourceFileUrl} target="_blank" rel="noreferrer"><AttachIcon size={14} strokeWidth={ICON_STROKE_WIDTH} aria-hidden="true" /> {SOURCE_LABELS[rec.sourceType] || rec.sourceType}</a></div>
+                : <div className="hint">{SOURCE_LABELS[rec.sourceType] || rec.sourceType}</div>}
+              <div className="mob-card-actions">
+                <button className="btn-small btn-ghost" onClick={() => startEdit(rec)}>Edit</button>
+                <button className="btn-small btn-danger" onClick={() => deleteRecord(rec)}>Delete</button>
+              </div>
+            </div>
+          ))}
+        </div>
+        )}
+        </>
         )
       })()}
 

@@ -184,51 +184,52 @@ export default function BankTransactions() {
           {transactions.length === 0 ? 'No statement transactions imported yet.' : 'Nothing matches the current filters.'}
         </p>
       ) : (
-        <div style={{ overflowX: 'auto' }}>
+        <>
+        <div className="table-wrap desktop-only">
           <table className="expense-table">
             <thead>
               <tr>
-                <th>Transaction Date</th>
-                <th>Value Date</th>
+                <th>Date</th>
                 <th>Direction</th>
                 <th>Amount</th>
-                <th>Balance</th>
                 <th>Description</th>
-                <th>Counterparty</th>
                 <th>Classification</th>
-                <th>Account Code</th>
                 <th>Status</th>
                 <th>Matched Record</th>
-                <th>Supporting Document</th>
-                <th>Source File</th>
                 <th></th>
               </tr>
             </thead>
             <tbody>
               {filteredRows.map(({ txn, matched, status }) => {
-                const account = accountOf(txn.paymentAccountId)
                 const imp = importOf(txn.importId)
                 const record = matched?.record
-                const accountCodeText = record?.accountCode ? `${record.accountCode} · ${record.accountName || ''}` : '—'
                 const supportingDoc = matched?.recordType === 'expense' ? record.images?.[0]?.url : null
                 return (
                   <tr key={txn.id}>
-                    <td>{txn.transactionDate || txn.rawDateText || '—'}</td>
-                    <td>{txn.postDate || '—'}</td>
+                    <td>
+                      {txn.transactionDate || txn.rawDateText || '—'}
+                      {txn.postDate && txn.postDate !== txn.transactionDate && <div className="hint">Value: {txn.postDate}</div>}
+                    </td>
                     <td>{txn.direction || '—'}</td>
-                    <td>{txn.settlementCurrency} {txn.settlementAmount != null ? Number(txn.settlementAmount).toFixed(2) : '—'}</td>
-                    <td>{txn.balanceAfter != null ? Number(txn.balanceAfter).toFixed(2) : '—'}</td>
-                    <td>{txn.merchantRaw || '—'}</td>
-                    <td>{titleCase(txn.merchantNormalized) || '—'}</td>
+                    <td>
+                      {txn.settlementCurrency} {txn.settlementAmount != null ? Number(txn.settlementAmount).toFixed(2) : '—'}
+                      {txn.balanceAfter != null && <div className="hint">Bal: {Number(txn.balanceAfter).toFixed(2)}</div>}
+                    </td>
+                    <td>
+                      <div className="notes-cell" title={txn.merchantRaw}>{txn.merchantRaw || '—'}</div>
+                      <div className="hint">{titleCase(txn.merchantNormalized) || '—'}</div>
+                    </td>
                     <td>
                       {txn.transactionType || '—'}
                       {txn.classification && <div className="hint">{CLASSIFICATION_LABELS[txn.classification] || txn.classification}</div>}
+                      {record?.accountCode && <div className="hint">{record.accountCode} · {record.accountName || ''}</div>}
                     </td>
-                    <td>{accountCodeText}</td>
                     <td><span className="badge">{status}</span></td>
-                    <td>{recordSummary(matched) || '—'}</td>
-                    <td>{supportingDoc ? <a href={supportingDoc} target="_blank" rel="noreferrer">View</a> : '—'}</td>
-                    <td>{imp?.sourceFileUrl ? <a href={imp.sourceFileUrl} target="_blank" rel="noreferrer">Original</a> : '—'}</td>
+                    <td>
+                      {recordSummary(matched) || '—'}
+                      {supportingDoc && <div className="hint"><a href={supportingDoc} target="_blank" rel="noreferrer">Supporting Document</a></div>}
+                      {imp?.sourceFileUrl && <div className="hint"><a href={imp.sourceFileUrl} target="_blank" rel="noreferrer">Source File</a></div>}
+                    </td>
                     <td><Link to={`/reconciliation?txn=${txn.id}`} className="btn-small btn-ghost">Open in Reconciliation →</Link></td>
                   </tr>
                 )
@@ -236,6 +237,36 @@ export default function BankTransactions() {
             </tbody>
           </table>
         </div>
+
+        <div className="mobile-only">
+          {filteredRows.map(({ txn, matched, status }) => {
+            const imp = importOf(txn.importId)
+            const record = matched?.record
+            const supportingDoc = matched?.recordType === 'expense' ? record.images?.[0]?.url : null
+            return (
+              <div key={txn.id} className="expense-mob-card">
+                <div className="mob-card-header">
+                  <span className="mob-card-vendor">{txn.merchantRaw || '—'}</span>
+                  <span className="mob-card-amount">{txn.settlementCurrency} {txn.settlementAmount != null ? Number(txn.settlementAmount).toFixed(2) : '—'}</span>
+                </div>
+                <div className="mob-card-sub">
+                  <span className="mob-card-date">{txn.transactionDate || txn.rawDateText || '—'} · {txn.direction || '—'}</span>
+                  <span className="badge">{status}</span>
+                </div>
+                <div className="hint">{titleCase(txn.merchantNormalized) || '—'}</div>
+                {txn.classification && <div className="hint">{CLASSIFICATION_LABELS[txn.classification] || txn.classification}</div>}
+                {record?.accountCode && <div className="hint">{record.accountCode} · {record.accountName || ''}</div>}
+                <div className="mob-card-notes">{recordSummary(matched) || 'Not matched to a record yet'}</div>
+                {supportingDoc && <div className="hint"><a href={supportingDoc} target="_blank" rel="noreferrer">Supporting Document</a></div>}
+                {imp?.sourceFileUrl && <div className="hint"><a href={imp.sourceFileUrl} target="_blank" rel="noreferrer">Source File</a></div>}
+                <div className="mob-card-actions">
+                  <Link to={`/reconciliation?txn=${txn.id}`} className="btn-small btn-ghost">Open in Reconciliation →</Link>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+        </>
       )}
     </div>
   )

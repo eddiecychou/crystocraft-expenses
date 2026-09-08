@@ -12,6 +12,8 @@ import { suggestAccountCode } from '../lib/accountCodes'
 import { normalizeMerchant } from '../lib/paymentMatching'
 import { DocumentIcon, AttachIcon, ICON_STROKE_WIDTH } from '../icons'
 
+const SOURCE_LABELS = { finance_upload: 'Upload', manual: 'Manual' }
+
 // Finance repositioning MVP-2: Income as a first-class FinanceRecord
 // (src/lib/financeRecords.js), same level as Expense — never a negative
 // expense category. Covers only what the Operation Center does NOT
@@ -204,7 +206,7 @@ export default function Income() {
     : records
 
   return (
-    <div className="page">
+    <div className="page page-standard">
       <ProjectBanner />
       <h2>Income</h2>
       <p className="hint">
@@ -336,26 +338,29 @@ export default function Income() {
       </div>
       {!records.length && <p className="hint">No income records yet.</p>}
       {!!records.length && (
-        <div style={{ overflowX: 'auto' }}>
-          {filteredRecords.length === 0 && <p className="hint">No {statusFilter} income records.</p>}
-          {filteredRecords.length > 0 &&
+        <>
+        {filteredRecords.length === 0 && <p className="hint">No {statusFilter} income records.</p>}
+        {filteredRecords.length > 0 && (
+        <div className="table-wrap desktop-only">
           <table className="expense-table">
             <thead>
-              <tr><th>Date</th><th>Reference</th><th>Payer</th><th>Category</th><th>Amount</th><th>Status</th><th>Notes</th><th>Source</th><th>Actions</th></tr>
+              <tr><th>Date</th><th>Reference / Payer</th><th>Category</th><th>Amount</th><th>Status</th><th>Notes</th><th>Actions</th></tr>
             </thead>
             <tbody>
               {filteredRecords.map(rec => editingId === rec.id ? (
                 <tr key={rec.id}>
                   <td><input type="date" value={editDraft.date} onChange={e => setEditDraft({ ...editDraft, date: e.target.value })} /></td>
-                  <td><input value={editDraft.number} onChange={e => setEditDraft({ ...editDraft, number: e.target.value })} /></td>
-                  <td><input value={editDraft.counterpartyName} onChange={e => setEditDraft({ ...editDraft, counterpartyName: e.target.value })} /></td>
+                  <td>
+                    <input value={editDraft.number} onChange={e => setEditDraft({ ...editDraft, number: e.target.value })} placeholder="Reference" style={{ marginBottom: 4 }} />
+                    <input value={editDraft.counterpartyName} onChange={e => setEditDraft({ ...editDraft, counterpartyName: e.target.value })} placeholder="Payer" />
+                  </td>
                   <td>
                     <select value={editDraft.category} onChange={e => setEditDraft({ ...editDraft, category: e.target.value })}>
                       {projectIncomeCategories(activeProject).map(c => <option key={c}>{c}</option>)}
                     </select>
                   </td>
                   <td>
-                    <input type="number" step="0.01" value={editDraft.amount} onChange={e => setEditDraft({ ...editDraft, amount: e.target.value })} style={{ width: 90 }} />
+                    <input type="number" step="0.01" value={editDraft.amount} onChange={e => setEditDraft({ ...editDraft, amount: e.target.value })} style={{ marginBottom: 4 }} />
                     <select value={editDraft.currency} onChange={e => setEditDraft({ ...editDraft, currency: e.target.value })}>
                       {CURRENCIES.map(c => <option key={c}>{c}</option>)}
                     </select>
@@ -366,7 +371,6 @@ export default function Income() {
                     </span>
                   </td>
                   <td><input value={editDraft.notes} onChange={e => setEditDraft({ ...editDraft, notes: e.target.value })} /></td>
-                  <td>{rec.sourceType}</td>
                   <td>
                     <button className="btn-small btn-primary" onClick={() => saveEdit(rec)}>Save</button>
                     <button className="btn-small btn-ghost" onClick={() => setEditingId(null)}>Cancel</button>
@@ -375,8 +379,10 @@ export default function Income() {
               ) : (
                 <tr key={rec.id}>
                   <td>{rec.date}</td>
-                  <td>{rec.number}</td>
-                  <td>{rec.counterpartyName}</td>
+                  <td>
+                    <strong>{rec.number}</strong>
+                    <div className="hint">{rec.counterpartyName}</div>
+                  </td>
                   <td>{rec.category}</td>
                   <td data-amount="true">{rec.currency} {Number(rec.amount || 0).toFixed(2)}</td>
                   <td>
@@ -384,11 +390,12 @@ export default function Income() {
                       {rec.settlementStatus === 'confirmed' ? 'Received' : 'Outstanding'}
                     </span>
                   </td>
-                  <td>{rec.notes}</td>
                   <td>
+                    <div className="notes-cell" title={rec.notes}>{rec.notes}</div>
+                    {rec.accountCode && <div className="hint">{rec.accountCode} · {rec.accountName}</div>}
                     {rec.sourceFileUrl
-                      ? <a href={rec.sourceFileUrl} target="_blank" rel="noreferrer"><AttachIcon size={14} strokeWidth={ICON_STROKE_WIDTH} aria-hidden="true" /> {rec.sourceType}</a>
-                      : rec.sourceType}
+                      ? <div className="hint"><a href={rec.sourceFileUrl} target="_blank" rel="noreferrer"><AttachIcon size={14} strokeWidth={ICON_STROKE_WIDTH} aria-hidden="true" /> {SOURCE_LABELS[rec.sourceType] || rec.sourceType}</a></div>
+                      : <div className="hint">{SOURCE_LABELS[rec.sourceType] || rec.sourceType}</div>}
                   </td>
                   <td>
                     <button className="btn-small btn-ghost" onClick={() => startEdit(rec)}>Edit</button>
@@ -398,8 +405,54 @@ export default function Income() {
               ))}
             </tbody>
           </table>
-          }
         </div>
+        )}
+
+        {filteredRecords.length > 0 && (
+        <div className="mobile-only">
+          {filteredRecords.map(rec => editingId === rec.id ? (
+            <div key={rec.id} className="expense-mob-card">
+              <div className="result-grid">
+                <label>Date<input type="date" value={editDraft.date} onChange={e => setEditDraft({ ...editDraft, date: e.target.value })} /></label>
+                <label>Reference<input value={editDraft.number} onChange={e => setEditDraft({ ...editDraft, number: e.target.value })} /></label>
+                <label>Payer<input value={editDraft.counterpartyName} onChange={e => setEditDraft({ ...editDraft, counterpartyName: e.target.value })} /></label>
+                <label>Category<select value={editDraft.category} onChange={e => setEditDraft({ ...editDraft, category: e.target.value })}>{projectIncomeCategories(activeProject).map(c => <option key={c}>{c}</option>)}</select></label>
+                <label>Amount<input type="number" step="0.01" value={editDraft.amount} onChange={e => setEditDraft({ ...editDraft, amount: e.target.value })} /></label>
+                <label>Currency<select value={editDraft.currency} onChange={e => setEditDraft({ ...editDraft, currency: e.target.value })}>{CURRENCIES.map(c => <option key={c}>{c}</option>)}</select></label>
+                <label className="full-width">Notes<input value={editDraft.notes} onChange={e => setEditDraft({ ...editDraft, notes: e.target.value })} /></label>
+              </div>
+              <div className="mob-card-actions">
+                <button onClick={() => saveEdit(rec)} className="btn-primary">Save</button>
+                <button onClick={() => setEditingId(null)} className="btn-ghost">Cancel</button>
+              </div>
+            </div>
+          ) : (
+            <div key={rec.id} className="expense-mob-card">
+              <div className="mob-card-header">
+                <span className="mob-card-vendor">{rec.number}</span>
+                <span className="mob-card-amount">{rec.currency} {Number(rec.amount || 0).toFixed(2)}</span>
+              </div>
+              <div className="mob-card-sub">
+                <span className="mob-card-date">{rec.date}</span>
+                <span className={`badge ${rec.settlementStatus === 'confirmed' ? 'badge-success' : 'badge-warning'}`}>
+                  {rec.settlementStatus === 'confirmed' ? 'Received' : 'Outstanding'}
+                </span>
+              </div>
+              <div className="hint">{rec.counterpartyName} · {rec.category}</div>
+              {rec.notes && <div className="mob-card-notes">{rec.notes}</div>}
+              {rec.accountCode && <div className="hint">{rec.accountCode} · {rec.accountName}</div>}
+              {rec.sourceFileUrl
+                ? <div className="hint"><a href={rec.sourceFileUrl} target="_blank" rel="noreferrer"><AttachIcon size={14} strokeWidth={ICON_STROKE_WIDTH} aria-hidden="true" /> {SOURCE_LABELS[rec.sourceType] || rec.sourceType}</a></div>
+                : <div className="hint">{SOURCE_LABELS[rec.sourceType] || rec.sourceType}</div>}
+              <div className="mob-card-actions">
+                <button className="btn-small btn-ghost" onClick={() => startEdit(rec)}>Edit</button>
+                <button className="btn-small btn-danger" onClick={() => deleteRecord(rec)}>Delete</button>
+              </div>
+            </div>
+          ))}
+        </div>
+        )}
+        </>
       )}
     </div>
   )

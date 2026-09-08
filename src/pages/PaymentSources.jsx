@@ -1285,7 +1285,7 @@ export default function PaymentSources() {
                           <div className="hint" style={{ maxWidth: 160 }}>{imp.errorMessage}</div>
                         )}
                       </td>
-                      <td style={{ minWidth: 220 }}>
+                      <td>
                         {/* Fixed min-height regardless of content, so a check landing
                             mid-list (Verify All runs them one at a time) doesn't grow
                             this row and shove every row below it up/down while
@@ -1343,7 +1343,7 @@ export default function PaymentSources() {
                           )}
                         </div>
                       </td>
-                      <td style={{ minWidth: 150 }}>
+                      <td>
                         <button className="btn-small" onClick={() => setViewingImportId(viewingImportId === imp.id ? null : imp.id)}>
                           {viewingImportId === imp.id ? 'Hide' : 'View/Edit'}
                         </button>
@@ -1415,7 +1415,7 @@ export default function PaymentSources() {
                                           {txn.transactionType}{txn.status === 'matched' && ' · matched'}{txn.settlementGroupId && ' · linked'}
                                           {txn.balanceAfter != null && <div className="hint">Bal {txn.balanceAfter.toFixed(2)}</div>}
                                         </td>
-                                        <td style={{ minWidth: 200 }}>{renderDuplicateStatus(txn, imp)}</td>
+                                        <td>{renderDuplicateStatus(txn, imp)}</td>
                                         <td>
                                           <button className="btn-small" onClick={() => startEditTxn(txn)}>Edit</button>
                                           <button className="btn-small btn-danger" onClick={() => deleteTxn(txn)}>Delete</button>
