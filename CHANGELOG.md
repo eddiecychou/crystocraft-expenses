@@ -8,6 +8,22 @@ changes when it's bumped deliberately in `package.json`.
 
 ## Unreleased (still V1.0)
 
+**Security: Operation Center Sync now gated by a server-side connector registry.**
+The Crystocraft-only gate for MVP-5's Operation Center Sync was a
+client-writable Firestore boolean (`operationCenterSyncEnabled`) — a UI
+convenience, not a real security boundary, since another company's
+project (this app is shared across companies) could flip it on and pull
+Crystocraft's own PO/Invoice data, as costing-tool's endpoints have no
+per-company concept at all. Hardened to a server-side connector
+registry — one Netlify env var (`OPERATION_CENTER_CONNECTORS`, a JSON
+array keyed by `projectId`, replacing the four separate
+`OPERATION_CENTER_*` vars) that `sync-operation-center.js` checks
+**before** anything else; the Firestore toggle is now only a secondary
+check, never sufficient alone. Shaped to generalize — a future
+connector for another company's own system is a registry entry, not a
+rewrite of the gating logic.
+
+
 **Account Codes CSV import, per-project Income Categories, small fixes.**
 `AccountCodes.jsx` can now import a chart of accounts in bulk from a CSV
 (Code/Name required, Type optional) instead of adding codes one at a

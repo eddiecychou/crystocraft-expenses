@@ -1,25 +1,33 @@
 // Finance repositioning MVP-5 — pulls Purchase Orders and Sales Invoices
 // live from Operation Center (costing-tool) instead of a manual CSV
-// export/import. Crystocraft-only: gated by the caller's own project doc
-// (`operationCenterSyncEnabled`), off by default for every project.
+// export/import.
 //
 // This function does no Firestore WRITES anywhere — it verifies the
 // caller, checks the gate, fetches rows from costing-tool, and returns
 // them; the client performs the actual upsert into purchaseOrders/
 // salesInvoices, same as every other write in this app.
 //
-// Auth to costing-tool: signs in as a dedicated service account there
-// (role:'staff', modules including 'supply' and 'uc') using
-// OPERATION_CENTER_SERVICE_EMAIL/PASSWORD — the same trust model
-// costing-tool's own endpoints (uc.js, finance-po-sync.js) already use for
-// every other caller, not a new one.
+// Auth model (hardened after the first version's toggle-only gate turned
+// out to be a UI convenience, not a real boundary — a client-writable
+// Firestore boolean can't stop a project owner from granting themselves
+// access to another company's connector). The real gate is now a
+// server-side CONNECTOR REGISTRY (below) keyed by projectId: only a
+// projectId with a matching registry entry can sync at all, regardless
+// of what its own operationCenterSyncEnabled field says (that field is
+// now only a secondary check + the thing that shows/hides the button —
+// it can never grant access on its own). Deliberately shaped to
+// generalize to future connectors for other companies' own systems:
+// adding one is a registry entry (env var edit), not new gating code —
+// though the actual fetch/mapping logic for a genuinely different
+// external system is still real, connector-specific code (see the
+// `type` switch below).
 //
 // Env (Netlify -> Site config -> Environment variables, this site):
 //   VITE_FIREBASE_API_KEY, VITE_FIREBASE_PROJECT_ID   (already set)
-//   OPERATION_CENTER_BASE_URL                          e.g. https://costing-tool.example.netlify.app
-//   OPERATION_CENTER_SERVICE_EMAIL
-//   OPERATION_CENTER_SERVICE_PASSWORD
-//   OPERATION_CENTER_FIREBASE_API_KEY                  costing-tool's own Identity Toolkit key
+//   OPERATION_CENTER_CONNECTORS   JSON array, one entry per authorized
+//     project: [{ projectId, type: 'operation_center', baseUrl,
+//     serviceEmail, servicePassword, firebaseApiKey }]. Mark as a secret
+//     value in Netlify (it carries a real login password).
 export default async (request) => {
   if (request.method === 'OPTIONS') {
     return new Response(null, {
@@ -34,11 +42,13 @@ export default async (request) => {
 
   const FIREBASE_API_KEY = Deno.env.get('VITE_FIREBASE_API_KEY')
   const PROJECT_ID = Deno.env.get('VITE_FIREBASE_PROJECT_ID')
-  const OC_BASE_URL = Deno.env.get('OPERATION_CENTER_BASE_URL')
-  const OC_SERVICE_EMAIL = Deno.env.get('OPERATION_CENTER_SERVICE_EMAIL')
-  const OC_SERVICE_PASSWORD = Deno.env.get('OPERATION_CENTER_SERVICE_PASSWORD')
-  const OC_FIREBASE_API_KEY = Deno.env.get('OPERATION_CENTER_FIREBASE_API_KEY')
-  if (!FIREBASE_API_KEY || !PROJECT_ID || !OC_BASE_URL || !OC_SERVICE_EMAIL || !OC_SERVICE_PASSWORD || !OC_FIREBASE_API_KEY) {
+  let connectors
+  try {
+    connectors = JSON.parse(Deno.env.get('OPERATION_CENTER_CONNECTORS') || '[]')
+  } catch {
+    return json({ error: 'Server not configured (OPERATION_CENTER_CONNECTORS is not valid JSON)' }, 500)
+  }
+  if (!FIREBASE_API_KEY || !PROJECT_ID || !Array.isArray(connectors)) {
     return json({ error: 'Server not configured' }, 500)
   }
 
@@ -47,6 +57,19 @@ export default async (request) => {
     ({ idToken, projectId, since } = await request.json())
   } catch { return json({ error: 'Bad JSON' }, 400) }
   if (!idToken || !projectId) return json({ error: 'Missing idToken or projectId' }, 400)
+
+  // The real gate: this projectId must have its own registry entry.
+  // Checked BEFORE touching Firestore or verifying the caller's token —
+  // an unauthorized project gets the same flat refusal no matter what
+  // else is true about the request.
+  const connector = connectors.find(c => c.projectId === projectId)
+  if (!connector) return json({ error: 'Operation Center sync is not configured for this project' }, 403)
+  if (connector.type !== 'operation_center') {
+    return json({ error: `Connector type "${connector.type}" is not implemented` }, 501)
+  }
+  if (!connector.baseUrl || !connector.serviceEmail || !connector.servicePassword || !connector.firebaseApiKey) {
+    return json({ error: 'Server not configured (incomplete connector entry)' }, 500)
+  }
 
   // Verify the caller is a signed-in Finance app user (same pattern as
   // export-excel.js's own Identity Toolkit lookup).
@@ -58,9 +81,10 @@ export default async (request) => {
   const verData = await verRes.json()
   if (!verRes.ok || !verData.users?.[0]) return json({ error: 'Unauthorized' }, 401)
 
-  // The Crystocraft-only gate: read the caller's own project doc with
-  // their own token (respects this app's normal Firestore rules — no
-  // elevated access here) and require the toggle to be on.
+  // Secondary check: the project's own toggle must also be on. Never
+  // sufficient by itself (the registry lookup above already is the real
+  // gate) — this just keeps Settings.jsx's checkbox meaningful as a way
+  // to pause sync for an authorized project without editing env vars.
   const projRes = await fetch(
     `https://firestore.googleapis.com/v1/projects/${PROJECT_ID}/databases/(default)/documents/projects/${projectId}`,
     { headers: { Authorization: `Bearer ${idToken}` } }
@@ -71,19 +95,19 @@ export default async (request) => {
     return json({ error: 'Operation Center sync is not enabled for this project' }, 403)
   }
 
-  // Sign in as costing-tool's dedicated service account to get a token its
-  // endpoints will accept.
-  const ocSignIn = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${OC_FIREBASE_API_KEY}`, {
+  // Sign in as this connector's dedicated service account to get a token
+  // its endpoints will accept.
+  const ocSignIn = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${connector.firebaseApiKey}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email: OC_SERVICE_EMAIL, password: OC_SERVICE_PASSWORD, returnSecureToken: true }),
+    body: JSON.stringify({ email: connector.serviceEmail, password: connector.servicePassword, returnSecureToken: true }),
   })
   const ocAuth = await ocSignIn.json()
   if (!ocSignIn.ok || !ocAuth.idToken) return json({ error: 'Could not authenticate with Operation Center', detail: ocAuth.error?.message }, 502)
   const ocToken = ocAuth.idToken
 
   async function callOc(path, body) {
-    const r = await fetch(`${OC_BASE_URL}${path}`, {
+    const r = await fetch(`${connector.baseUrl}${path}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${ocToken}` },
       body: JSON.stringify(body),
