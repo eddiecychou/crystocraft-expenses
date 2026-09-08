@@ -8,6 +8,22 @@ changes when it's bumped deliberately in `package.json`.
 
 ## Unreleased (still V1.0)
 
+**Finance / Bookkeeping Center repositioning — MVP-2 (Income + Income Upload).**
+Income is now a same-level `FinanceRecord` to Expense, never a negative
+expense category — new `Income.jsx` page + `income` collection, covering
+rent income, bank interest, refunds, and other income the Operation Center
+never generates a Sales Invoice for (a customer sale WITH an OC invoice
+stays in `salesInvoices`). PDF/image upload only, reusing the OCR+Gemini
+pipeline (`process-invoice.js`, now `docKind: 'invoice'|'po'|'income'`) —
+every field reviewed before saving, same as Invoices & POs. In
+Reconciliation, a credit transaction can be manually linked to an income
+record ("Link to Income") — deliberately not auto-suggested, since
+`salesInvoices` already auto-matches the credit pool and a second automatic
+scorer would recreate the two-scorer race documented for PO-linking.
+`paymentTransactions` gains `matchedIncomeId`; `unmatchTxn` reverts it
+alongside expense/invoice/PO. New nav entry "Income" next to Expenses.
+
+
 **Finance / Bookkeeping Center repositioning — MVP-1 (rename + data foundation).**
 Per the spec (`Claude 执行规格：将 Expense Center 修订为 Finance／Bookkeeping Center.md`),
 began repositioning the app from a narrow Expense Center into a Finance /

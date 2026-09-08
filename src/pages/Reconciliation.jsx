@@ -58,6 +58,7 @@ export default function Reconciliation() {
   const [expenses, setExpenses] = useState([])
   const [invoices, setInvoices] = useState([])
   const [purchaseOrders, setPurchaseOrders] = useState([])
+  const [income, setIncome] = useState([])
   const [accounts, setAccounts] = useState([])
   const [topTab, setTopTab] = useState('Needs Action')
   const [exceptionFilter, setExceptionFilter] = useState('all')
@@ -73,6 +74,8 @@ export default function Reconciliation() {
   const [invoiceSearchText, setInvoiceSearchText] = useState('')
   const [pickingPo, setPickingPo] = useState(false)
   const [poSearchText, setPoSearchText] = useState('')
+  const [pickingIncome, setPickingIncome] = useState(false)
+  const [incomeSearchText, setIncomeSearchText] = useState('')
   const [pickingSettlement, setPickingSettlement] = useState(false)
   const [chosenCounterpart, setChosenCounterpart] = useState('')
 
@@ -99,15 +102,19 @@ export default function Reconciliation() {
       query(collection(db, 'purchaseOrders'), where('projectId', '==', activeProject.id)),
       snap => setPurchaseOrders(snap.docs.map(d => ({ id: d.id, ...d.data() })))
     )
-    return () => { unsubT(); unsubE(); unsubA(); unsubI(); unsubP() }
+    const unsubInc = onSnapshot(
+      query(collection(db, 'income'), where('projectId', '==', activeProject.id)),
+      snap => setIncome(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+    )
+    return () => { unsubT(); unsubE(); unsubA(); unsubI(); unsubP(); unsubInc() }
   }, [activeProject?.id])
 
   // Reset the detail selection whenever the visible list changes shape, so
   // a stale selection from a different tab/filter can't linger unseen.
-  useEffect(() => { setSelectedId(null); setChosenExpenseId(''); setExpenseSearchText(''); setChosenInvoiceId(''); setInvoiceSearchText(''); setPickingSettlement(false); setPickingPo(false) }, [topTab, exceptionFilter, sourceTypeFilter, searchText])
+  useEffect(() => { setSelectedId(null); setChosenExpenseId(''); setExpenseSearchText(''); setChosenInvoiceId(''); setInvoiceSearchText(''); setPickingSettlement(false); setPickingPo(false); setPickingIncome(false) }, [topTab, exceptionFilter, sourceTypeFilter, searchText])
   // Switching to a different transaction should never carry over a manual
   // search/selection from whichever one was open before.
-  useEffect(() => { setChosenExpenseId(''); setExpenseSearchText(''); setChosenInvoiceId(''); setInvoiceSearchText(''); setPickingPo(false); setPoSearchText('') }, [selectedId])
+  useEffect(() => { setChosenExpenseId(''); setExpenseSearchText(''); setChosenInvoiceId(''); setInvoiceSearchText(''); setPickingPo(false); setPoSearchText(''); setPickingIncome(false); setIncomeSearchText('') }, [selectedId])
 
   const accountOf = id => accounts.find(a => a.id === id)
   const accountLabel = id => accountOf(id)?.label || '—'
@@ -451,6 +458,7 @@ export default function Reconciliation() {
   const selectedExpense = selected?.matchedExpenseIds?.[0] ? expenses.find(e => e.id === selected.matchedExpenseIds[0]) : null
   const selectedInvoice = selected?.matchedInvoiceIds?.[0] ? invoices.find(inv => inv.id === selected.matchedInvoiceIds[0]) : null
   const selectedPo = selected?.matchedPoId ? purchaseOrders.find(po => po.id === selected.matchedPoId) : null
+  const selectedIncome = selected?.matchedIncomeId ? income.find(inc => inc.id === selected.matchedIncomeId) : null
   const selectedCategory = selected ? categoryFor(selected) : null
 
   // Resolving one item in the Needs Action queue used to leave the detail
@@ -615,6 +623,57 @@ export default function Reconciliation() {
     })
   }
 
+  // Manual-only Income linking (Finance repositioning MVP-2) — mirrors
+  // linkPurchaseOrder exactly but for CREDIT transactions and the income
+  // collection. Deliberately manual, not part of runMatching(): credit
+  // transactions already auto-match against salesInvoices, and a second
+  // automatic scorer on the same pool would recreate the exact two-scorer
+  // race LESSONS_LEARNED.md documents for why PO-linking is manual — a
+  // credit transaction gets EITHER an auto-suggested invoice match OR a
+  // manually-linked income record, never a race between two auto-scorers.
+  async function linkIncome(txn, incomeId) {
+    const inc = income.find(i => i.id === incomeId)
+    if (!inc) return
+    if (inc.matchedPaymentTransactionId && inc.matchedPaymentTransactionId !== txn.id) {
+      alert('That income record is already matched to a different transaction. Unmatch it first, or choose a different one.')
+      return
+    }
+    setBusyId(txn.id)
+    await updateDoc(doc(db, 'paymentTransactions', txn.id), {
+      status: 'matched',
+      matchedIncomeId: incomeId,
+      updatedAt: serverTimestamp(),
+    })
+    await updateDoc(doc(db, 'income', incomeId), {
+      matchedPaymentTransactionId: txn.id,
+      matchedPaymentAccountId: txn.paymentAccountId,
+      settlementStatus: 'confirmed',
+    })
+    await logAction(txn, null, 'income_linked', { status: txn.status }, { status: 'matched', incomeId })
+    setBusyId(null)
+    setPickingIncome(false)
+    setIncomeSearchText('')
+    selectNextNeedingAction(txn.id)
+  }
+
+  // Mirrors unlinkPurchaseOrder, for an income record linked from within
+  // the search picker below.
+  async function unlinkIncome(inc) {
+    if (!confirm(`Unmatch "${inc.counterpartyName}" (${inc.date}) from its current transaction so you can match it here instead?`)) return
+    if (inc.matchedPaymentTransactionId) {
+      await updateDoc(doc(db, 'paymentTransactions', inc.matchedPaymentTransactionId), {
+        status: 'unmatched',
+        matchedIncomeId: null,
+        updatedAt: serverTimestamp(),
+      }).catch(() => {})
+    }
+    await updateDoc(doc(db, 'income', inc.id), {
+      matchedPaymentTransactionId: null,
+      matchedPaymentAccountId: null,
+      settlementStatus: 'unsettled',
+    })
+  }
+
   async function ignoreTxn(txn) {
     setBusyId(txn.id)
     await updateDoc(doc(db, 'paymentTransactions', txn.id), { status: 'ignored', updatedAt: serverTimestamp() })
@@ -659,6 +718,13 @@ export default function Reconciliation() {
         settlementStatus: 'unsettled',
       })
     }
+    if (txn.matchedIncomeId) {
+      await updateDoc(doc(db, 'income', txn.matchedIncomeId), {
+        matchedPaymentTransactionId: null,
+        matchedPaymentAccountId: null,
+        settlementStatus: 'unsettled',
+      })
+    }
     if (txn.settlementGroupId) {
       const partner = transactions.find(t => t.id !== txn.id && t.settlementGroupId === txn.settlementGroupId)
       if (partner) await updateDoc(doc(db, 'paymentTransactions', partner.id), { settlementGroupId: null, matchStatus: null, linkedTransactionIds: [], status: 'unmatched', updatedAt: serverTimestamp() })
@@ -668,6 +734,7 @@ export default function Reconciliation() {
       matchedExpenseIds: [],
       matchedInvoiceIds: [],
       matchedPoId: null,
+      matchedIncomeId: null,
       settlementGroupId: null,
       matchStatus: null,
       linkedTransactionIds: [],
@@ -991,6 +1058,8 @@ export default function Reconciliation() {
                       <p>Income invoice: {selectedInvoice.date} · {selectedInvoice.counterpartyName} · {selectedInvoice.number} · {selectedInvoice.currency} {Number(selectedInvoice.amount || 0).toFixed(2)}</p>
                     ) : selectedPo ? (
                       <p>Purchase order: {selectedPo.date} · {selectedPo.counterpartyName} · {selectedPo.number} · {selectedPo.currency} {Number(selectedPo.amount || 0).toFixed(2)}</p>
+                    ) : selectedIncome ? (
+                      <p>Income: {selectedIncome.date} · {selectedIncome.counterpartyName} · {selectedIncome.category} · {selectedIncome.currency} {Number(selectedIncome.amount || 0).toFixed(2)}</p>
                     ) : selected.settlementGroupId ? (
                       <p className="hint">Linked as a credit-card settlement — not a business expense.</p>
                     ) : (
@@ -1055,6 +1124,9 @@ export default function Reconciliation() {
                       )}
                       {selected.direction !== 'credit' && (
                         <button className="btn-ghost" disabled={busyId === selected.id} onClick={() => setPickingPo(true)}>Link to Purchase Order</button>
+                      )}
+                      {selected.direction === 'credit' && (
+                        <button className="btn-ghost" disabled={busyId === selected.id} onClick={() => setPickingIncome(true)}>Link to Income</button>
                       )}
                       {selectedCategory !== 'possible_refund' && (
                         <button className="btn-ghost" disabled={busyId === selected.id} onClick={() => markAs(selected, 'refund')}>Mark as Refund</button>
@@ -1226,6 +1298,48 @@ export default function Reconciliation() {
                             })}
                           </div>
                           <button className="btn-small btn-ghost" style={{ marginTop: 8 }} onClick={() => { setPickingPo(false); setPoSearchText('') }}>Cancel</button>
+                        </div>
+                      )
+                    })()}
+
+                    {/* Manual Income linking (credit only) — deliberately
+                        not auto-suggested, same reasoning as PO linking
+                        above: salesInvoices already auto-matches this
+                        credit transaction pool. */}
+                    {selected.direction === 'credit' && pickingIncome && (() => {
+                      const q = incomeSearchText.trim().toLowerCase()
+                      const results = income
+                        .filter(inc => !q || [inc.counterpartyName, inc.number, inc.date, inc.currency, Number(inc.amount || 0).toFixed(2)].join(' ').toLowerCase().includes(q))
+                        .sort((a, b) => {
+                          const da = Math.abs(Date.parse(a.date) - Date.parse(selected.transactionDate))
+                          const db = Math.abs(Date.parse(b.date) - Date.parse(selected.transactionDate))
+                          return (Number.isNaN(da) ? Infinity : da) - (Number.isNaN(db) ? Infinity : db)
+                        })
+                      return (
+                        <div className="expense-search" style={{ marginTop: 10 }}>
+                          <input
+                            type="text"
+                            placeholder="Type a payer name, reference, amount, or date to find the matching income record…"
+                            value={incomeSearchText}
+                            onChange={e => setIncomeSearchText(e.target.value)}
+                          />
+                          <div className="expense-search-results">
+                            {results.length === 0 && <p className="hint">No matching income records.</p>}
+                            {results.map(inc => {
+                              const linkedElsewhere = inc.matchedPaymentTransactionId && inc.matchedPaymentTransactionId !== selected.id
+                              return linkedElsewhere ? (
+                                <div key={inc.id} className="expense-search-result expense-search-result-linked">
+                                  <span>{inc.date} · {inc.counterpartyName} · {inc.category} · {inc.currency} {Number(inc.amount || 0).toFixed(2)} <span className="hint">— matched elsewhere</span></span>
+                                  <button type="button" className="btn-small btn-ghost" onClick={() => unlinkIncome(inc)}>Unmatch</button>
+                                </div>
+                              ) : (
+                                <button key={inc.id} type="button" className="expense-search-result" onClick={() => linkIncome(selected, inc.id)}>
+                                  {inc.date} · {inc.counterpartyName} · {inc.category} · {inc.currency} {Number(inc.amount || 0).toFixed(2)}
+                                </button>
+                              )
+                            })}
+                          </div>
+                          <button className="btn-small btn-ghost" style={{ marginTop: 8 }} onClick={() => { setPickingIncome(false); setIncomeSearchText('') }}>Cancel</button>
                         </div>
                       )
                     })()}

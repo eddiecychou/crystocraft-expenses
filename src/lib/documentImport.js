@@ -87,7 +87,7 @@ export function mapDocumentCsvRecords(records, headers, kind) {
 // for audit trail — same rationale as uploadStatementFile in
 // statementStorage.js. Returns { url, path } to store on the record.
 export async function uploadDocumentFile(file, projectId, kind, docId) {
-  const collectionPath = kind === 'po' ? 'purchaseOrders' : 'invoices'
+  const collectionPath = kind === 'po' ? 'purchaseOrders' : kind === 'income' ? 'income' : 'invoices'
   const ext = file.name.split('.').pop() || 'bin'
   const path = `${collectionPath}/${projectId}/${docId}/source.${ext}`
   const storageRef = ref(storage, path)

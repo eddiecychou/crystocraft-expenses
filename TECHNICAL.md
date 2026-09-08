@@ -2,7 +2,7 @@
 
 _Current release: **V1.0** (see [CHANGELOG.md](CHANGELOG.md)). Being repositioned from a narrow "Expense Center" into a **Finance / Bookkeeping Center** that treats Income and Expense as same-level objects and adds Account Codes, bank reconciliation, and (Crystocraft-only, later) Operation Center API sync — see the spec `Claude 执行规格：将 Expense Center 修订为 Finance／Bookkeeping Center.md` and the MVP sequence below. Earlier names ("Expense Organiser", "Expense Operations Center") persist in some historical docs, `.claude/skills/expense-ops-center/`, and Firebase project names (`crystocraft-expenses`); the running app now displays "Finance / Bookkeeping Workspace". Internal route/module preference for new work: `finance`._
 
-**Repositioning MVP sequence** (incremental, approval-gated): MVP-1 rename + `recordType` data foundation (done); MVP-2 Income as a first-class object + Income Upload; MVP-3 Account Codes; MVP-4 unified reconciliation + a dedicated Bank Transactions page; MVP-5 Operation Center API (Crystocraft-only optional connector); MVP-6 month-end reports.
+**Repositioning MVP sequence** (incremental, approval-gated): MVP-1 rename + `recordType` data foundation (done); MVP-2 Income as a first-class object + Income Upload (done); MVP-3 Account Codes; MVP-4 unified reconciliation + a dedicated Bank Transactions page; MVP-5 Operation Center API (Crystocraft-only optional connector); MVP-6 month-end reports.
 
 **Finance record model:** Expense and Income are same-level `FinanceRecord` objects (`recordType: 'expense' | 'income'`), unified at the CODE layer (`src/lib/financeRecords.js`) but stored in **two physical collections** — `expenses` (unchanged) and `income` (MVP-2) — so existing rules/Storage-paths/matched-transaction references stay valid and no risky physical merge is needed. Existing expense docs predate `recordType`; a missing value is read as `'expense'` (fallback, no migration). New expense writes stamp `recordType: 'expense'` explicitly.
 
@@ -254,6 +254,7 @@ the project-list query ever runs against `memberUids`.
   matchedExpenseIds: string[],
   matchedInvoiceIds: string[],    // salesInvoices — populated automatically for credit transactions, mirrors matchedExpenseIds
   matchedPoId: string | null,     // purchaseOrders — set only by the manual "Link to Purchase Order" action (debit only)
+  matchedIncomeId: string | null, // income — set only by the manual "Link to Income" action (credit only)
   // Only present when the row's account has ownershipType 'personal' — see
   // "Personal-to-Company Classification" below. Absent entirely on rows
   // imported under a company account (no schema change for existing data).
@@ -299,7 +300,7 @@ the project-list query ever runs against `memberUids`.
 }
 ```
 
-**`salesInvoices`** and **`purchaseOrders`** — customer invoices (income) and supplier POs, see "Invoices & Purchase Orders" below. Identical shape; `salesInvoices.counterpartyName` is the customer, `purchaseOrders.counterpartyName` is the supplier
+**`salesInvoices`** and **`purchaseOrders`** — customer invoices that ARE already tracked as a Sales Invoice in the Operation Center, and supplier POs, see "Invoices & Purchase Orders" below. Identical shape; `salesInvoices.counterpartyName` is the customer, `purchaseOrders.counterpartyName` is the supplier. **Not the same thing as `income`** (below) — a customer sale with an OC invoice belongs here; rent, bank interest, refunds, and any other income the OC never generates an invoice for belongs in `income` instead. See TECHNICAL.md's Finance repositioning note at the top.
 ```
 {
   projectId: string,
@@ -320,6 +321,30 @@ the project-list query ever runs against `memberUids`.
   matchedPaymentTransactionId: string | null,
   matchedPaymentAccountId: string | null,
   settlementStatus: 'unsettled' | 'confirmed' | undefined
+}
+```
+
+**`income`** (Finance repositioning MVP-2) — Income as a same-level `FinanceRecord` to Expense (`src/lib/financeRecords.js`), never a negative expense. Covers rent income, bank interest, refunds, and other income the Operation Center never generates a Sales Invoice for — see "Income" below
+```
+{
+  projectId: string,
+  recordType: 'income',
+  number: string,             // reference/receipt number, if any
+  counterpartyName: string,   // the payer
+  date: string,               // YYYY-MM-DD
+  amount: number,
+  currency: string,
+  category: string,           // INCOME_CATEGORIES (src/constants.js) — Rental Income | Bank Interest | Refund | Other Income
+  notes: string,
+  sourceType: 'finance_upload' | 'manual',
+  sourceFileUrl: string | undefined,   // audit trail, only set for finance_upload
+  sourceFilePath: string | undefined,
+  createdAt: Timestamp,
+  createdBy: string,
+  createdByEmail: string,
+  matchedPaymentTransactionId: string | null,   // set only by Reconciliation.jsx's linkIncome (manual — see below)
+  matchedPaymentAccountId: string | null,
+  settlementStatus: 'unsettled' | 'confirmed'
 }
 ```
 
@@ -523,8 +548,13 @@ Deliberately **header-level only** (number, counterparty, date, currency, amount
 
 - **Income**: a bank/card **credit** transaction (excluding `'payment'`-type credits, which are card-balance payments handled by settlement linking) is auto-suggested against `salesInvoices` by `runMatching()`, via `scoreInvoiceMatch` in `paymentMatching.js` — an exact mirror of `scoreExpenseMatch`, scoring amount/currency/date/counterparty-name similarity and disqualifying pairings over `MAX_MATCH_DAYS` apart. Confirmed the same way as an expense match (`confirmInvoiceMatch`), including a type-to-search picker over unmatched invoices.
 - **Supplier POs**: a **debit** transaction can be manually linked to a `purchaseOrders` record via a "Link to Purchase Order" picker (`linkPurchaseOrder`) — deliberately **not** auto-suggested. This is what keeps it mutually exclusive with expense-matching on the same transaction: both apply only to debits, and introducing a second automatic scorer would need a tiebreak the app doesn't otherwise have. Once either path resolves a transaction, its `status` becomes `'matched'`, which already removes it from `runMatching()`'s candidate pool — exclusivity falls out of existing logic for free.
-- `paymentTransactions.matchedInvoiceIds` (array, mirrors `matchedExpenseIds`) and `matchedPoId` (single id) record the link on the transaction side; `salesInvoices`/`purchaseOrders` each gain `matchedPaymentTransactionId`/`matchedPaymentAccountId`/`settlementStatus`, identical to `expenses`. `unmatchTxn` reverts whichever of the three (expense/invoice/PO) a transaction is linked to.
-- Stays **transaction-side only** — an unpaid invoice/PO doesn't appear in the Needs Action queue on its own, only once a bank row is suggested against or linked to it. See its own list in Invoices.jsx for what's still outstanding.
+- **Income (MVP-2, non-OC income)**: a **credit** transaction can also be manually linked to an `income` record via a "Link to Income" picker (`linkIncome`) — deliberately **not** auto-suggested, for the same reason POs aren't: `salesInvoices` already auto-matches this credit pool, and a second automatic scorer would need a tiebreak the app doesn't have. A credit transaction ends up with EITHER an auto-suggested invoice match OR a manually-linked income record, never both racing.
+- `paymentTransactions.matchedInvoiceIds` (array, mirrors `matchedExpenseIds`), `matchedPoId`, and `matchedIncomeId` (single ids) record the link on the transaction side; `salesInvoices`/`purchaseOrders`/`income` each gain `matchedPaymentTransactionId`/`matchedPaymentAccountId`/`settlementStatus`, identical to `expenses`. `unmatchTxn` reverts whichever of the four (expense/invoice/PO/income) a transaction is linked to.
+- Stays **transaction-side only** — an unpaid invoice/PO/income record doesn't appear in the Needs Action queue on its own, only once a bank row is suggested against or linked to it. See each record type's own list (Invoices.jsx / Income.jsx) for what's still outstanding.
+
+### Income
+
+`Income.jsx` (Finance repositioning MVP-2) — see the `income` schema above. PDF/image only (no CSV — these are scanned/photographed notices, not spreadsheet exports), same OCR+Gemini pipeline as Invoices.jsx (`process-invoice.js`, now `docKind: 'invoice' | 'po' | 'income'`). Deliberately its own page and its own collection, never merged with Invoices & POs (which is specifically for Operation-Center-covered customer sales) or with `expenses` — Income is a same-level `FinanceRecord` to Expense, never a negative expense category. `INCOME_CATEGORIES` (`src/constants.js`) is a plain list for now (Rental Income / Bank Interest / Refund / Other Income), replaced by real Account Codes for both Income and Expense in MVP-3.
 
 ### Payment Source Import & Duplicate Detection
 

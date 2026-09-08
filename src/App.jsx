@@ -6,6 +6,7 @@ import Dashboard from './pages/Dashboard'
 import Upload from './pages/Upload'
 import Capture from './pages/Capture'
 import Expenses from './pages/Expenses'
+import Income from './pages/Income'
 import PaymentSources from './pages/PaymentSources'
 import Invoices from './pages/Invoices'
 import Reconciliation from './pages/Reconciliation'
@@ -39,6 +40,7 @@ export default function App() {
           <Route path="upload" element={<Upload />} />
           <Route path="capture" element={<Capture />} />
           <Route path="expenses" element={<Expenses />} />
+          <Route path="income" element={<Income />} />
           <Route path="payment-sources" element={<PaymentSources />} />
           <Route path="invoices" element={<Invoices />} />
           <Route path="reconciliation" element={<Reconciliation />} />

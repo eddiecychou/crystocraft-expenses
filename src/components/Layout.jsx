@@ -33,6 +33,7 @@ export default function Layout() {
         <NavLink to="/" end>Overview</NavLink>
         <NavLink to="/upload">Upload</NavLink>
         <NavLink to="/expenses">Expenses</NavLink>
+        <NavLink to="/income">Income</NavLink>
         <NavLink to="/payment-sources">Payments</NavLink>
         <NavLink to="/invoices">Invoices & POs</NavLink>
         <NavLink to="/reconciliation">Reconcile</NavLink>
@@ -79,6 +80,7 @@ export default function Layout() {
           <div className="mobile-sheet-backdrop" onClick={() => setMoreOpen(false)} />
           <div className="mobile-sheet" role="menu">
             <NavLink to="/expenses" className="mobile-sheet-item" onClick={() => setMoreOpen(false)}>Expenses</NavLink>
+            <NavLink to="/income" className="mobile-sheet-item" onClick={() => setMoreOpen(false)}>Income</NavLink>
             <NavLink to="/payment-sources" className="mobile-sheet-item" onClick={() => setMoreOpen(false)}>Payments</NavLink>
             <NavLink to="/invoices" className="mobile-sheet-item" onClick={() => setMoreOpen(false)}>Invoices & POs</NavLink>
             <NavLink to="/company-review" className="mobile-sheet-item" onClick={() => setMoreOpen(false)}>Reimbursable Expenses</NavLink>

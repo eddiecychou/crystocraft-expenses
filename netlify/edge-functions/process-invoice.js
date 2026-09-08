@@ -1,5 +1,7 @@
-// Structured-field extraction for customer invoices and supplier purchase
-// orders. Same two-step OCR (Vision, falling back to Gemini transcription)
+// Structured-field extraction for customer invoices, supplier purchase
+// orders, and (MVP-2 of the Finance repositioning) non-Operation-Center
+// income documents (rent receipts, bank interest notices, refund notices).
+// Same two-step OCR (Vision, falling back to Gemini transcription)
 // + Gemini JSON-extraction pipeline as process-receipt.js — reused rather
 // than a positional/rule-based parser because these documents come from
 // many different customers/suppliers, each with their own arbitrary
@@ -24,7 +26,7 @@ export default async function handler(req) {
   try {
     const { fileData, mimeType, docKind } = await req.json()
     if (!fileData || !mimeType) return json({ error: 'Missing file data' }, 400)
-    const kind = docKind === 'po' ? 'po' : 'invoice' // default to invoice on an unrecognized value
+    const kind = ['po', 'income'].includes(docKind) ? docKind : 'invoice' // default to invoice on an unrecognized value
 
     let transcript = null
     if (mimeType !== 'application/pdf') {
@@ -75,20 +77,26 @@ function emptyResult(kind) {
 }
 
 function extractionPrompt(kind) {
-  const isPo = kind === 'po'
-  return `You are an expert ${isPo ? 'purchase order' : 'invoice'} parser. Extract details from this ${isPo ? 'purchase order' : 'invoice'} and return ONLY a valid JSON object with no markdown, code fences, or extra text.
+  const docLabel = kind === 'po' ? 'purchase order' : kind === 'income' ? 'income document (rent receipt, bank interest notice, refund notice, or similar)' : 'invoice'
+  const numberLabel = kind === 'po' ? 'PO/purchase order number' : kind === 'income' ? 'reference/receipt number, if any' : 'invoice number'
+  const counterpartyLabel = kind === 'po' ? 'supplier/vendor name' : kind === 'income' ? 'payer name (who paid this) or income source' : 'customer/client name'
+  const amountLabel = kind === 'po' ? ' of the order' : kind === 'income' ? ' received' : ' due'
+  const notesLabel = kind === 'po' ? 'order' : kind === 'income' ? 'income' : 'invoice'
+  const totalLineLabel = kind === 'po' ? 'Order Total' : kind === 'income' ? 'Amount Received' : 'Amount Due'
+
+  return `You are an expert ${docLabel} parser. Extract details from this ${docLabel} and return ONLY a valid JSON object with no markdown, code fences, or extra text.
 
 {
-  "number": "${isPo ? 'PO/purchase order number' : 'invoice number'}, or null",
-  "counterpartyName": "${isPo ? 'supplier/vendor name' : 'customer/client name'}, or null",
+  "number": "${numberLabel}, or null",
+  "counterpartyName": "${counterpartyLabel}, or null",
   "date": "YYYY-MM-DD or null",
-  "amount": <final total amount${isPo ? ' of the order' : ' due'}, as a number or null>,
+  "amount": <final total amount${amountLabel}, as a number or null>,
   "currency": "HKD or RMB or USD or EUR or JPY or AUD or GBP or SGD or CAD or KRW or Other or null",
-  "notes": "brief description of what the ${isPo ? 'order' : 'invoice'} is for, or null"
+  "notes": "brief description of what the ${notesLabel} is for, or null"
 }
 
 Currency rules: HK$ or HKD = HKD | ¥ or RMB or CNY or 人民币 = RMB | $ or USD = USD | € = EUR | JP¥ or JPY = JPY | A$ = AUD | £ = GBP | S$ = SGD | C$ = CAD | ₩ = KRW. Default to HKD if unclear.
-Amount rules: use the line labelled "Total", "Grand Total", "${isPo ? 'Order Total' : 'Amount Due'}", or "Total Paid". Ignore subtotals and tax lines shown separately.`
+Amount rules: use the line labelled "Total", "Grand Total", "${totalLineLabel}", or "Total Paid". Ignore subtotals and tax lines shown separately.`
 }
 
 async function fetchWithTimeout(url, options, ms) {

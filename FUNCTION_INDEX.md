@@ -260,6 +260,15 @@ No functions — a pure dispatcher component (three link cards routing to Upload
 | `reprocessFromStoredPdf(imp)` | 801 | "Fix from Stored PDF" — re-downloads and re-parses an import's original file for correction. |
 | `skipPdfPreview()` | 836 | Skips the current PDF in a multi-file queue without importing it. |
 
+### [Income.jsx](src/pages/Income.jsx) — Income as a first-class FinanceRecord (Finance repositioning MVP-2), PDF/image only, no CSV
+
+| Function | Line | Purpose |
+|---|---|---|
+| `readFiles(rawFiles)` | 51 | Reads dropped/selected files, base64-encoded for the extraction API — no CSV branch (income sources are scanned notices, not spreadsheets). |
+| `processFiles(items)` | 79 | Posts each file to `/api/process-invoice` with `docKind:'income'`. |
+| `saveAll()` | 120 | Writes each reviewed result to `income` with `recordType:'income'`, `matchedPaymentTransactionId: null`, `settlementStatus:'unsettled'`; uploads the source file via `uploadDocumentFile(..., 'income', ...)`. |
+| `startEdit(rec)` / `saveEdit(rec)` | 162 | Inline edit of an already-saved income record in the list below. |
+
 ### [Invoices.jsx](src/pages/Invoices.jsx) — customer invoice & supplier PO import (Phase 1: import/list only, no reconciliation)
 
 | Function | Line | Purpose |
@@ -286,6 +295,8 @@ No functions — a pure dispatcher component (three link cards routing to Upload
 | `confirmInvoiceMatch(txn, invoiceIdOverride)` | 531 | Income-side mirror of `confirmMatch` — confirms a credit transaction to a `salesInvoices` record. |
 | `linkPurchaseOrder(txn, poId)` | 561 | Manually links a debit transaction to a `purchaseOrders` record. Deliberately not part of `runMatching()` — keeps PO-linking mutually exclusive with expense-matching without a two-scorer tiebreak (see LESSONS_LEARNED.md). |
 | `unlinkPurchaseOrder(po)` | 588 | Mirrors `unlinkExpense`/`unlinkInvoice` for a PO. |
+| `linkIncome(txn, incomeId)` | — | (MVP-2) Manually links a credit transaction to an `income` record, exact mirror of `linkPurchaseOrder`. Deliberately not part of `runMatching()` for the same reason PO-linking isn't — `salesInvoices` already auto-matches this credit pool. |
+| `unlinkIncome(inc)` | — | Mirrors `unlinkPurchaseOrder` for an income record. |
 | `ignoreTxn(txn)` | 271 | Marks a transaction as ignored (not a business expense); logs the action; advances to the next Needs Action item. |
 | `undoIgnore(txn)` | 278 | Reverts an ignore; logs the action. |
 | `unmatchTxn(txn)` | 623 | Removes a confirmed match (expense, invoice, or PO) and any settlement link; logs the action. |
@@ -341,7 +352,7 @@ No functions — a pure dispatcher component (three link cards routing to Upload
 | File | Purpose |
 |---|---|
 | [process-receipt.js](netlify/edge-functions/process-receipt.js) | Deno edge function. Receives a receipt image/PDF, optionally runs Cloud Vision OCR first (`callVisionOCR`, when `GOOGLE_VISION_API_KEY` is set), then calls Gemini (`gemini-2.5-flash` → `gemini-2.5-pro` fallback) to extract structured JSON fields. |
-| [process-invoice.js](netlify/edge-functions/process-invoice.js) | Deno edge function, same OCR+Gemini pipeline as `process-receipt.js`. Takes a `docKind` (`'invoice'`\|`'po'`) and extracts `{ number, counterpartyName, date, amount, currency, notes }` — used for customer invoices and supplier POs, whose arbitrary per-counterparty layouts rule out a positional parser like `pdfStatementParser.js`. |
+| [process-invoice.js](netlify/edge-functions/process-invoice.js) | Deno edge function, same OCR+Gemini pipeline as `process-receipt.js`. Takes a `docKind` (`'invoice'`\|`'po'`\|`'income'`) and extracts `{ number, counterpartyName, date, amount, currency, notes }` — used for customer invoices, supplier POs, and (MVP-2) non-OC income documents, whose arbitrary per-counterparty layouts rule out a positional parser like `pdfStatementParser.js`. |
 | [download-receipt.js](netlify/edge-functions/download-receipt.js) | Deno edge function. CORS proxy — accepts `{ url }`, fetches a Firebase Storage file server-side, returns the raw bytes with permissive CORS headers. Used generically for both receipt images and statement files despite the name. |
 
 ## `netlify/functions/`

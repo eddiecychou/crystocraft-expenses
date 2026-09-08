@@ -16,6 +16,11 @@ export const PAYMENT_METHODS = ['Credit Card HK', 'Bank Account HK', 'Alipay', '
 // entries were added to PAYMENT_METHODS above.
 export const DEFAULT_PAYMENT_METHODS = ['Credit Card HK', 'Bank Account HK', 'Alipay', 'WeChat Pay', 'Bank Account CN', 'Cash']
 export const PAYMENT_STAGES = ['Full Payment', 'Deposit', 'Balance']
+// Income (Finance repositioning MVP-2) — non-Operation-Center income only;
+// customer sales already covered by an OC invoice live in salesInvoices,
+// not here. Plain list for now, same as CATEGORIES before Account Codes
+// (MVP-3) replace both.
+export const INCOME_CATEGORIES = ['Rental Income', 'Bank Interest', 'Refund', 'Other Income']
 
 export function projectCategories(project) {
   return project?.categories?.length ? project.categories : CATEGORIES
