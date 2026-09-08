@@ -569,3 +569,58 @@ direct-Gemini. Still needed: a Vision API key (separate GCP project from the AI
 Studio `GEMINI_API_KEY`, billing-enabled) as a Netlify env var. Deferred: deterministic
 amount/date/currency parsers, per-field source+confidence data model, `needs_review`
 states, Document AI, fixture tests.
+
+## A client-writable Firestore boolean is a UI convenience, never a security boundary
+
+MVP-5's Operation Center Sync (a live connector pulling Purchase Orders/
+Sales Invoices from a *different* app, `costing-tool`, into this one) was
+first gated purely by `projects/{id}.operationCenterSyncEnabled` — a
+plain Firestore boolean, settable from Settings.jsx by any project owner.
+This app is shared across multiple companies' projects, and the
+connector's real credentials (a dedicated service account on costing-tool)
+live only in this app's own server-side env vars — they don't know or
+care which project asked. Nothing stopped another company's project owner
+from flipping that same toggle and pulling Crystocraft's own business
+data through it, since the toggle was the *entire* access check.
+
+Fixed with a server-side **connector registry**: one env var
+(`OPERATION_CENTER_CONNECTORS`, a JSON array keyed by `projectId`) that
+`sync-operation-center.js` checks *before* verifying the caller or
+touching Firestore at all — a `projectId` with no matching entry gets an
+immediate refusal regardless of what its own Firestore fields say. The
+Firestore boolean stays as a secondary, UI-only check (shows/hides the
+button, lets an authorized project pause itself without an env-var edit)
+but can never grant access on its own anymore.
+
+**Rule of thumb:** any feature that gates access to another system's real
+credentials needs its actual enforcement to live server-side, keyed by
+something the client can't write — a Firestore field the UI reads to
+decide what to show is fine; a Firestore field as the *entire* security
+check for reaching a privileged external system is not, especially once
+an app is multi-tenant.
+
+## Investigate what an external system actually has before scoping an integration to it
+
+The product spec for MVP-5 asked for a full Operation Center API
+integration: read Expense/Income summaries in, write confirmed Finance
+records back out. Building to that literal wording would have meant
+inventing a receiving data model on the *other* app (costing-tool) that
+didn't exist, plus reimplementing costing-tool's own two-source (app +
+frozen legacy "JES ERP archive") merge logic a second time in this
+codebase — both real, both avoidable.
+
+Actually opening costing-tool's code first (rather than assuming from the
+spec) found: no Expense/Income concept exists there at all, and both
+Purchase Orders and Sales Invoices are themselves a live merge of an
+app-authored Firestore/Supabase source with a static historical mirror.
+Scope narrowed to what was real and buildable — live sync of the
+app-authored source only, Expense/Income read/write-back deferred until
+costing-tool itself grows that model, the frozen archive handled as a
+separate one-time import rather than folded into the recurring sync.
+
+**Rule of thumb:** when a spec describes integrating with a system this
+session doesn't own, read that system's actual code before scoping the
+work — a spec written before anyone checked can describe integration
+points that don't exist yet, and building toward them anyway produces
+either dead code or an accidental feature request for someone else's
+codebase.

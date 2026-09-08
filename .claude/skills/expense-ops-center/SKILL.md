@@ -5,12 +5,14 @@ description: Workflow and hard-won lessons for building/maintaining Expense Oper
 
 # Expense Operations Center — Development Playbook
 
-> **Product repositioning in progress:** the app is being renamed/restructured
-> from a narrow "Expense Center" into a **Finance / Bookkeeping Center**
-> (Income + Expense as same-level objects, Account Codes, bank reconciliation,
-> Operation Center API). See TECHNICAL.md's header for the MVP sequence. This
-> skill dir keeps its `expense-ops-center` name for now; the running product
-> displays "Finance / Bookkeeping Workspace". New routes/modules prefer `finance`.
+> **Product repositioning — MVP-1 through MVP-5 done, MVP-6 pending.** The app
+> was renamed/restructured from a narrow "Expense Center" into a **Finance /
+> Bookkeeping Center** (Income + Expense as same-level objects, per-project
+> Account Codes, unified Bank Transactions view, a live Crystocraft-only
+> Operation Center API connector). See TECHNICAL.md's header for the MVP
+> sequence and CHANGELOG.md's V1.1 entry for what shipped. This skill dir
+> keeps its `expense-ops-center` name for now; the running product displays
+> "Finance / Bookkeeping Workspace". New routes/modules prefer `finance`.
 
 This is a React 18 + Firebase (Firestore/Storage/Auth) + Netlify Edge
 Functions bookkeeping app. Full architecture: [TECHNICAL.md](../../../TECHNICAL.md).
@@ -168,6 +170,41 @@ anything it covers.
   (date distance, in this app's case) rather than merely under-scoring
   them — a strong generic signal can otherwise paper over the total
   absence of every specific one.
+- **A client-writable Firestore boolean is a UI convenience, never a
+  security boundary.** The Operation Center Sync toggle
+  (`operationCenterSyncEnabled`) originally gated a cross-repo connector
+  by itself — any project owner could flip it and pull another
+  company's business data, since the connector's real credentials live
+  server-side and don't know which company is asking. Fixed with a
+  server-side connector registry (`OPERATION_CENTER_CONNECTORS`, keyed
+  by `projectId`) checked *before* the toggle; the toggle is now only a
+  secondary "pause without an env-var edit" check. Any feature gating
+  access to another system's real credentials needs its actual
+  enforcement server-side, keyed by something the client can't write.
+- **Investigate what an external system actually has before scoping an
+  integration to it.** MVP-5's Operation Center API round nearly built
+  a full Expense/Income read/write sync per the spec's literal wording
+  — checking costing-tool directly first found it has no Expense/Income
+  data model at all, narrowing real scope to Invoices/POs only. Don't
+  build to a spec's aspirational shape; build to what the other side of
+  the integration actually exposes today.
+- **Supabase/PostgREST serializes a `date`/`timestamp` column as
+  `"2026-01-12T00:00:00"`, not a bare `"2026-01-12"`.** Every other date
+  field in this app is a plain `YYYY-MM-DD` string; passing an external
+  API's date field straight through without normalizing broke display
+  and (more subtly) range-filter comparisons, since a longer string
+  sharing a date prefix sorts greater lexicographically. Slice to the
+  first 10 characters (a string slice, not `new Date(...)`, which reopens
+  the timezone footgun below) wherever an external system's date value
+  enters this app.
+- **The desktop-table + `.mobile-only` card fallback is opt-in per
+  page, not automatic.** `.expense-table` itself has no responsive
+  behavior — a new table copying this pattern needs its own explicit
+  `.table-wrap`/`overflow-x:auto` wrapper AND its own `.mobile-only`
+  card block, or it silently inherits neither and overflows on both a
+  wide desktop table (too many columns) and every phone (no fallback at
+  all). Three pages shipped without it before an audit caught them; when
+  adding a new data table, check for both.
 
 ## Where things live (quick pointers, not a substitute for FUNCTION_INDEX.md)
 

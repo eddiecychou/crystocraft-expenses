@@ -6,7 +6,23 @@ in `vite.config.js`. The build hash next to it (`__APP_VERSION__`) is the git sh
 SHA of the deployed commit and changes on every deploy; the release number below only
 changes when it's bumped deliberately in `package.json`.
 
-## Unreleased (still V1.0)
+## Unreleased (still V1.1)
+
+_Nothing yet._
+
+## V1.1 — 2026-09-09
+
+Repositioned the app from a narrow **Expense Center** into a **Finance /
+Bookkeeping Center** (per the spec `Claude 执行规格：将 Expense Center 修订为
+Finance／Bookkeeping Center.md`) — Income and Expense as same-level
+objects, a real per-project Account Code system, a unified Bank
+Transactions view, and a live (Crystocraft-only) Operation Center
+connector replacing manual CSV shuttling for Invoices & POs. Also
+carries the Personal-to-Company Expense workflow (Company Review,
+merchant rules, Company Package export) and a round of UI-overflow
+fixes across the app. See [TECHNICAL.md](TECHNICAL.md) for full
+architecture and [FUNCTION_INDEX.md](FUNCTION_INDEX.md) for the
+function-level map — both kept current alongside this release.
 
 **Fixed table overflow on Invoices & POs, Income, and Bank Transactions.**
 An app-wide audit (prompted by "I don't want to scroll left and right"
