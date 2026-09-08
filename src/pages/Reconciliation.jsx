@@ -1,5 +1,5 @@
-import { useState, useEffect, useMemo } from 'react'
-import { Link } from 'react-router-dom'
+import { useState, useEffect, useMemo, useRef } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import { collection, query, where, onSnapshot, doc, updateDoc, addDoc, serverTimestamp } from 'firebase/firestore'
 import { db, auth } from '../firebase'
 import { useProject } from '../contexts/ProjectContext'
@@ -54,6 +54,7 @@ function ReceiptThumb({ images }) {
 
 export default function Reconciliation() {
   const { activeProject } = useProject()
+  const [searchParams] = useSearchParams()
   const [transactions, setTransactions] = useState([])
   const [expenses, setExpenses] = useState([])
   const [invoices, setInvoices] = useState([])
@@ -111,7 +112,33 @@ export default function Reconciliation() {
 
   // Reset the detail selection whenever the visible list changes shape, so
   // a stale selection from a different tab/filter can't linger unseen.
-  useEffect(() => { setSelectedId(null); setChosenExpenseId(''); setExpenseSearchText(''); setChosenInvoiceId(''); setInvoiceSearchText(''); setPickingSettlement(false); setPickingPo(false); setPickingIncome(false) }, [topTab, exceptionFilter, sourceTypeFilter, searchText])
+  // Skipped exactly once when the tab change came from the ?txn= deep-link
+  // effect below (see deepLinkTxnRef) — otherwise that effect's own
+  // setTopTab('All')+setSelectedId(id) would immediately be wiped out by
+  // this same effect reacting to the topTab change in the same commit.
+  const deepLinkTxnRef = useRef(null)
+  useEffect(() => {
+    if (deepLinkTxnRef.current) { deepLinkTxnRef.current = null; return }
+    setSelectedId(null); setChosenExpenseId(''); setExpenseSearchText(''); setChosenInvoiceId(''); setInvoiceSearchText(''); setPickingSettlement(false); setPickingPo(false); setPickingIncome(false)
+  }, [topTab, exceptionFilter, sourceTypeFilter, searchText])
+
+  // Deep-link support for Bank Transactions' "Open in Reconciliation ->"
+  // link (?txn=<id>): once the transaction is loaded, switch to the All tab
+  // (it may not be in the default Needs Action queue, e.g. an already-
+  // Confirmed row) and pre-select it. Only applied once per matching id —
+  // `selectedId !== txnId` guards against re-forcing the tab/selection on
+  // every later transactions snapshot update.
+  useEffect(() => {
+    const txnId = searchParams.get('txn')
+    if (!txnId) return
+    if (selectedId === txnId) return
+    if (transactions.some(t => t.id === txnId)) {
+      deepLinkTxnRef.current = txnId
+      setTopTab('All')
+      setSelectedId(txnId)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [transactions, searchParams])
   // Switching to a different transaction should never carry over a manual
   // search/selection from whichever one was open before.
   useEffect(() => { setChosenExpenseId(''); setExpenseSearchText(''); setChosenInvoiceId(''); setInvoiceSearchText(''); setPickingPo(false); setPoSearchText(''); setPickingIncome(false); setIncomeSearchText('') }, [selectedId])
@@ -1134,6 +1161,7 @@ export default function Reconciliation() {
                       {selectedCategory !== 'possible_transfer' && (
                         <button className="btn-ghost" disabled={busyId === selected.id} onClick={() => markAs(selected, 'transfer')}>Mark as Transfer</button>
                       )}
+                      <button className="btn-ghost" disabled={busyId === selected.id} onClick={() => markAs(selected, 'loan_capital')}>Mark as Loan/Capital</button>
                       <button className="btn-ghost" disabled={busyId === selected.id} onClick={() => setPickingSettlement(true)}>Link Settlement</button>
                       <button className="btn-ghost" disabled={busyId === selected.id} onClick={() => ignoreTxn(selected)}>Ignore</button>
                     </div>

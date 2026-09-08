@@ -54,6 +54,14 @@ some of these functions look the way they do, see [LESSONS_LEARNED.md](LESSONS_L
 | `scoreInvoiceMatch(txn, invoice)` | 249 | Income-side mirror of `scoreExpenseMatch` — scores a **credit** transaction (excluding `'payment'`-type) against a `salesInvoices` record on amount/currency/date/counterparty-name, same `MAX_MATCH_DAYS` disqualifier. |
 | `scoreSettlementMatch(cardTxn, bankTxn)` | 285 | Scores whether a bank debit is the settlement of a given credit-card charge. |
 | `classifyReviewCategory(txn, { hasDuplicate })` | 315 | Buckets a transaction into a review category for the Reconciliation queue — `'possible_income'` for a credit with an invoice suggestion, checked before the generic `'possible_refund'` fallback. |
+| `reconciliationStatusLabel(txn, matched)` | 370 | Finance repositioning MVP-4 — pure display mapping onto 6 of the spec's 9-word status vocabulary (`Suggested`/`Confirmed`/`Needs Review`/`Missing Document`/`Unmatched`/`Excluded`); `matched` is a `resolveMatchedRecord()` result. No stored field changes. |
+
+### [financeRecords.js](src/lib/financeRecords.js) — shared `FinanceRecord` shape
+
+| Function | Purpose |
+|---|---|
+| `readFinanceRecord(id, data, recordType)` | Reads a Firestore expense/income doc into a `FinanceRecord`, defaulting `recordType` to `'expense'` for pre-MVP-1 docs. |
+| `resolveMatchedRecord(txn, { expenses, invoices, purchaseOrders, income })` | Finance repositioning MVP-4 — resolves the one record (if any) a `paymentTransactions` row is matched to, checking `matchedExpenseIds[0]`/`matchedInvoiceIds[0]`/`matchedPoId`/`matchedIncomeId` in order. Used by `BankTransactions.jsx`. |
 
 ### [documentImport.js](src/lib/documentImport.js)
 
@@ -196,6 +204,10 @@ Renders the `.dashboard-grid` (By Category `span-4` / Expenses `span-8`) and the
 ### [Capture.jsx](src/pages/Capture.jsx)
 No functions — a pure dispatcher component (three link cards routing to Upload / Payment Sources). See its header comment for why it exists (mobile bottom-nav slot capacity).
 
+### [BankTransactions.jsx](src/pages/BankTransactions.jsx) — statement-row browsing view (Finance repositioning MVP-4)
+
+No standalone named functions beyond small in-render helpers (`setPreset`, `accountOf`, `importOf`) — a **read-only** table over every `paymentTransactions` row for the project (every spec-listed column, filterable by date/account/direction/status/source), built from `resolveMatchedRecord()` + `reconciliationStatusLabel()` (`src/lib/`). Its only action is a per-row link to `/reconciliation?txn=<id>`; all match/confirm/ignore/link actions stay in `Reconciliation.jsx`.
+
 ### [Upload.jsx](src/pages/Upload.jsx)
 
 | Function | Line | Purpose |
@@ -300,6 +312,7 @@ No functions — a pure dispatcher component (three link cards routing to Upload
 | Function | Line | Purpose |
 |---|---|---|
 | `logAction(txn, expenseId, actionType, beforeState, afterState)` | 77 | Writes one entry to the append-only `reconciliationActions` log. |
+| *(effect)* `?txn=` deep-link | — | (MVP-4) On mount/transactions-load, reads `?txn=<id>` from the URL (set by `BankTransactions.jsx`'s "Open in Reconciliation →" link), switches to the All tab, and pre-selects that transaction — guarded via `deepLinkTxnRef` so it doesn't fight the normal tab-change selection-reset effect. |
 | `runMatching()` | 134 | Scores all unmatched transactions against candidate expenses (debit) or `salesInvoices` (credit, via `scoreInvoiceMatch`) using `paymentMatching.js` scorers; populates the review queue. For a recurring merchant+amount group with an equal count of transactions and records, pairs them positionally in chronological order instead of independent per-transaction scoring — see LESSONS_LEARNED.md. Never auto-suggests `purchaseOrders` — see `linkPurchaseOrder`. |
 | `categoryFor(txn)` | 149 | Buckets a transaction for queue grouping/display. |
 | `unresolvedDuplicateFlag(txn)` | 154 | Whether a transaction has a duplicate flag still awaiting resolution. |
@@ -317,7 +330,7 @@ No functions — a pure dispatcher component (three link cards routing to Upload
 | `ignoreTxn(txn)` | 271 | Marks a transaction as ignored (not a business expense); logs the action; advances to the next Needs Action item. |
 | `undoIgnore(txn)` | 278 | Reverts an ignore; logs the action. |
 | `unmatchTxn(txn)` | 623 | Removes a confirmed match (expense, invoice, or PO) and any settlement link; logs the action. |
-| `markAs(txn, transactionType)` | 318 | Manually sets a transaction's type classification; advances to the next Needs Action item. |
+| `markAs(txn, transactionType)` | 318 | Manually sets a transaction's type classification (Refund/Transfer/Loan-Capital — the latter added MVP-4 for the spec's Loan/Capital/Director Current Account bucket); advances to the next Needs Action item. |
 | `createExpenseFromTxn(txn, { force })` | 329 | Creates a new expense record directly from an unmatched transaction; advances to the next Needs Action item. |
 | `linkSettlement(card, bankTxn)` | 367 | Links a credit-card charge to its settling bank debit; logs the action; advances to the next Needs Action item. |
 | `resolveDuplicate(txn, newStatus)` | 390 | Same duplicate-resolution logic as in PaymentSources, surfaced in the Reconciliation detail panel; advances to the next Needs Action item. |

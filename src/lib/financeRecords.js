@@ -33,3 +33,34 @@ export const RECORD_TYPES = { EXPENSE: 'expense', INCOME: 'income' }
 export function readFinanceRecord(id, data, recordType) {
   return { id, ...data, recordType: data.recordType || recordType || RECORD_TYPES.EXPENSE }
 }
+
+// Resolves the single record a paymentTransactions row is matched to,
+// across all four match targets (expense, income, sales invoice, purchase
+// order) — the same four fields Reconciliation.jsx's own
+// selectedExpense/selectedInvoice/selectedPo/selectedIncome already resolve
+// inline. Checked in this order because a transaction only ever carries one
+// of these at a time (status:'matched' removes it from every other match
+// pool). Returns null if none resolve (matched to a settlement group, or
+// the linked record was deleted since matching).
+export function resolveMatchedRecord(txn, { expenses = [], invoices = [], purchaseOrders = [], income = [] } = {}) {
+  if (!txn) return null
+  const expenseId = txn.matchedExpenseIds?.[0]
+  if (expenseId) {
+    const record = expenses.find(e => e.id === expenseId)
+    if (record) return { recordType: 'expense', record }
+  }
+  const invoiceId = txn.matchedInvoiceIds?.[0]
+  if (invoiceId) {
+    const record = invoices.find(inv => inv.id === invoiceId)
+    if (record) return { recordType: 'invoice', record }
+  }
+  if (txn.matchedPoId) {
+    const record = purchaseOrders.find(po => po.id === txn.matchedPoId)
+    if (record) return { recordType: 'po', record }
+  }
+  if (txn.matchedIncomeId) {
+    const record = income.find(inc => inc.id === txn.matchedIncomeId)
+    if (record) return { recordType: 'income', record }
+  }
+  return null
+}

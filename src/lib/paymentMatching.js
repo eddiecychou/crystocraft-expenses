@@ -340,7 +340,9 @@ export function scoreSettlementMatch(cardTxn, bankTxn) {
 
 // Transaction types that are never a business expense — Create Expense must
 // be blocked for these unless the user explicitly overrides (spec §5/§6).
-export const CREATE_EXPENSE_BLOCKED_TYPES = ['payment', 'transfer']
+// 'loan_capital' added for MVP-4's "Mark as Loan/Capital/Director Current
+// Account" — same manual-only, never-an-expense treatment as refund/transfer.
+export const CREATE_EXPENSE_BLOCKED_TYPES = ['payment', 'transfer', 'loan_capital']
 
 // Buckets a Needs Review row into one of the categories from spec §6, so the
 // UI can show a specific reason instead of treating every low-score
@@ -359,4 +361,29 @@ export function classifyReviewCategory(txn, { hasDuplicate = false } = {}) {
   if (hasDuplicate) return 'possible_duplicate'
   if (txn.confidenceScore != null) return 'possible_expense'
   return 'unclear'
+}
+
+// ---- Unified reconciliation status label (Finance repositioning MVP-4) --
+
+// A pure DISPLAY mapping onto (a subset of) the spec's 9-word status
+// vocabulary — not a data-model change. Only 6 of the 9 map honestly onto
+// what this app actually tracks today (no month-end "close" concept exists
+// yet, so "Reconciled" vs "Confirmed" and "Partially Matched" aren't real
+// distinctions here); the other 3 ('Imported', 'Partially Matched',
+// 'Reconciled') wait for MVP-6's month-end closing work. `matched` is the
+// resolveMatchedRecord() result for this transaction (or null).
+export function reconciliationStatusLabel(txn, matched) {
+  if (!txn) return 'Unmatched'
+  if (txn.status === 'ignored') return 'Excluded'
+  if (txn.status === 'suggested') return 'Suggested'
+  if (txn.status === 'matched') {
+    const record = matched?.record
+    if (matched?.recordType === 'expense' && record?.reconciliationStatus === 'created_from_statement' && record?.receiptStatus === 'missing') {
+      return 'Missing Document'
+    }
+    return 'Confirmed'
+  }
+  const unresolvedDuplicate = txn.duplicateStatus && ['possible_duplicate', 'needs_review'].includes(txn.duplicateStatus) && !txn.duplicateReviewedAt
+  if (txn.classification === 'needs_accountant_review' || unresolvedDuplicate) return 'Needs Review'
+  return 'Unmatched'
 }

@@ -8,6 +8,27 @@ changes when it's bumped deliberately in `package.json`.
 
 ## Unreleased (still V1.0)
 
+**Finance / Bookkeeping Center repositioning — MVP-4 (Bank Transactions + unified reconciliation status).**
+A new `BankTransactions.jsx` page (`/bank-transactions`) — the single
+browsing view of every imported statement row, independent of any specific
+matching workflow (per the spec, Cindy's most important single entry
+point). Read-only: every column the spec lists (dates, direction, amount,
+running balance, description, counterparty, classification, Account Code,
+reconciliation status, matched record, supporting document, source file),
+filterable by date range/preset, account, direction, status, source. No
+new actions — a row links out to Reconciliation ("Open in Reconciliation
+→") for anything needing a decision, rather than re-implementing
+Confirm/Ignore/Link a second time. New `resolveMatchedRecord()` helper
+(`financeRecords.js`) resolves a transaction's matched expense/invoice/
+PO/income record; new `reconciliationStatusLabel()` helper
+(`paymentMatching.js`) maps onto 6 of the spec's 9-word status vocabulary
+as a pure display mapping — no stored field changed (the remaining 3,
+Imported/Partially Matched/Reconciled, wait for MVP-6's month-end
+closing). Reconciliation also gains a third manual classification button,
+"Mark as Loan/Capital", for the spec's Loan/Capital/Director Current
+Account bucket — same treatment as the existing Refund/Transfer buttons.
+
+
 **Finance / Bookkeeping Center repositioning — MVP-3 (Account Codes).**
 A real per-project chart of accounts — new `AccountCodes.jsx` page
 (`/account-codes`), `accountCodes` collection (Active/Deactivate only, no

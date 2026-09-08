@@ -32,6 +32,7 @@ export default function Layout() {
         <div className="logo">Finance<br /><span className="logo-sub">Bookkeeping Workspace</span></div>
         <NavLink to="/" end>Overview</NavLink>
         <NavLink to="/upload">Upload</NavLink>
+        <NavLink to="/bank-transactions">Bank Transactions</NavLink>
         <NavLink to="/expenses">Expenses</NavLink>
         <NavLink to="/income">Income</NavLink>
         <NavLink to="/payment-sources">Payments</NavLink>
@@ -80,6 +81,7 @@ export default function Layout() {
         <>
           <div className="mobile-sheet-backdrop" onClick={() => setMoreOpen(false)} />
           <div className="mobile-sheet" role="menu">
+            <NavLink to="/bank-transactions" className="mobile-sheet-item" onClick={() => setMoreOpen(false)}>Bank Transactions</NavLink>
             <NavLink to="/expenses" className="mobile-sheet-item" onClick={() => setMoreOpen(false)}>Expenses</NavLink>
             <NavLink to="/income" className="mobile-sheet-item" onClick={() => setMoreOpen(false)}>Income</NavLink>
             <NavLink to="/payment-sources" className="mobile-sheet-item" onClick={() => setMoreOpen(false)}>Payments</NavLink>
