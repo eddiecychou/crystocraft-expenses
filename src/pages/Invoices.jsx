@@ -7,6 +7,8 @@ import ProjectBanner from '../components/ProjectBanner'
 import ConfirmDialog from '../components/ConfirmDialog'
 import { parseCSV } from '../lib/paymentMatching'
 import { mapDocumentCsvRecords, uploadDocumentFile, operationCenterDocId, mapOperationCenterPoRow, mapOperationCenterInvoiceRow, jesLegacyDocId, mapJesLegacyPoRow, mapJesLegacyInvoiceRow } from '../lib/documentImport'
+import AccountCodePicker from '../components/AccountCodePicker'
+import { useAccountCodes, saveAccountCodeRule } from '../hooks/useAccountCodes'
 import { DocumentIcon, AttachIcon, ICON_STROKE_WIDTH } from '../icons'
 
 // Phase 1: import, review, store, and list customer invoices (income) and
@@ -29,7 +31,13 @@ export default function Invoices() {
   const { activeProject, updateProject } = useProject()
   const [activeKind, setActiveKind] = useState('invoice')
   const tab = TABS.find(t => t.kind === activeKind)
+  // salesInvoices (income side) -> expense/asset/liability/other pickers
+  // are wrong for it; purchaseOrders (expense side) mirrors Expenses.jsx.
+  // Matches ELIGIBLE_TYPES_FOR_RECORD in src/lib/accountCodes.js.
+  const accountCodeRecordType = activeKind === 'invoice' ? 'income' : 'expense'
 
+  const { accountCodes } = useAccountCodes(activeProject?.id)
+  const [rememberAccountCode, setRememberAccountCode] = useState(false)
   const [records, setRecords] = useState([])
   const [fileItems, setFileItems] = useState([])
   const [results, setResults] = useState([])
@@ -49,6 +57,8 @@ export default function Invoices() {
   const [statusFilter, setStatusFilter] = useState('all') // 'all' | 'outstanding' | 'paid'
   const [syncing, setSyncing] = useState(false)
   const [importingLegacy, setImportingLegacy] = useState(false)
+  const [legacyFrom, setLegacyFrom] = useState('')
+  const [legacyTo, setLegacyTo] = useState('')
   const fileRef = useRef()
   const resultIdRef = useRef(0)
   const fileIdRef = useRef(0)
@@ -176,10 +186,17 @@ export default function Invoices() {
         currency: r.currency || 'HKD',
         notes: r.notes || '',
         sourceType: r.sourceType || 'manual',
+        accountCodeId: r.accountCodeId || null,
+        accountCode: r.accountCode || null,
+        accountName: r.accountName || null,
         createdAt: serverTimestamp(),
         createdBy: uid,
         createdByEmail: email,
       })
+
+      if (r.rememberAccountCode && r.accountCodeId && r.counterpartyName?.trim()) {
+        saveAccountCodeRule(activeProject.id, r.counterpartyName.trim(), accountCodeRecordType, { accountCodeId: r.accountCodeId, accountCode: r.accountCode, accountName: r.accountName }).catch(() => {})
+      }
 
       if (r.fileItem && !r.fileItem.error) {
         try {
@@ -198,7 +215,12 @@ export default function Invoices() {
 
   function startEdit(rec) {
     setEditingId(rec.id)
-    setEditDraft({ number: rec.number || '', counterpartyName: rec.counterpartyName || '', counterpartyCode: rec.counterpartyCode || '', date: rec.date || '', amount: rec.amount ?? '', currency: rec.currency || 'HKD', notes: rec.notes || '' })
+    setEditDraft({
+      number: rec.number || '', counterpartyName: rec.counterpartyName || '', counterpartyCode: rec.counterpartyCode || '',
+      date: rec.date || '', amount: rec.amount ?? '', currency: rec.currency || 'HKD', notes: rec.notes || '',
+      accountCodeId: rec.accountCodeId || null, accountCode: rec.accountCode || null, accountName: rec.accountName || null,
+    })
+    setRememberAccountCode(false)
   }
 
   async function saveEdit(rec) {
@@ -210,7 +232,13 @@ export default function Invoices() {
       amount: parseFloat(editDraft.amount) || 0,
       currency: editDraft.currency,
       notes: editDraft.notes.trim(),
+      accountCodeId: editDraft.accountCodeId || null,
+      accountCode: editDraft.accountCode || null,
+      accountName: editDraft.accountName || null,
     })
+    if (rememberAccountCode && editDraft.accountCodeId && editDraft.counterpartyName?.trim()) {
+      saveAccountCodeRule(activeProject.id, editDraft.counterpartyName.trim(), accountCodeRecordType, { accountCodeId: editDraft.accountCodeId, accountCode: editDraft.accountCode, accountName: editDraft.accountName }).catch(() => {})
+    }
     setEditingId(null)
   }
 
@@ -317,8 +345,11 @@ export default function Invoices() {
   // re-running is safe, just slower than it needs to be.
   async function importLegacyJesHistory() {
     if (!activeProject || importingLegacy) return
+    const periodNote = legacyFrom || legacyTo
+      ? ` for ${legacyFrom || 'the beginning'} through ${legacyTo || 'today'}`
+      : ' for the entire archive — no date range set, this pulls everything'
     setConfirmDialog({
-      message: 'Import all historical Purchase Orders and Sales Invoices from Operation Center’s legacy JES archive? This is a larger one-time pull, separate from the regular Sync — safe to re-run, but may take a while.',
+      message: `Import historical Purchase Orders and Sales Invoices from Operation Center's legacy JES archive${periodNote}? This is a larger one-time pull, separate from the regular Sync — safe to re-run.`,
       confirmLabel: 'Import',
       onConfirm: () => { setConfirmDialog(null); runLegacyImport() },
     })
@@ -332,7 +363,7 @@ export default function Invoices() {
       const res = await fetch('/api/sync-operation-center', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ idToken, projectId: activeProject.id, action: 'import_legacy' }),
+        body: JSON.stringify({ idToken, projectId: activeProject.id, action: 'import_legacy', legacyFrom: legacyFrom || undefined, legacyTo: legacyTo || undefined }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || `Import failed (${res.status})`)
@@ -366,19 +397,37 @@ export default function Invoices() {
       }
 
       const counts = { poFetched: poRows.length, invoicesFetched: invoiceRows.length }
-      await updateDoc(doc(db, 'projects', activeProject.id), {
-        'operationCenterSync.lastLegacyImportAt': nowIso,
-        'operationCenterSync.lastLegacyImportCounts': counts,
-      })
-      updateProject(activeProject.id, {
-        operationCenterSync: { ...activeProject.operationCenterSync, lastLegacyImportAt: nowIso, lastLegacyImportCounts: counts },
-      })
+      const update = {
+        lastLegacyImportAt: nowIso, lastLegacyImportStatus: 'success', lastLegacyImportCounts: counts,
+        lastLegacyImportError: null, lastLegacyImportPeriod: { from: legacyFrom || null, to: legacyTo || null },
+      }
+      await updateDoc(doc(db, 'projects', activeProject.id), { operationCenterSync: { ...activeProject.operationCenterSync, ...update } })
+      updateProject(activeProject.id, { operationCenterSync: { ...activeProject.operationCenterSync, ...update } })
       setMessage(`Imported ${poRows.length} legacy purchase order(s) and ${invoiceRows.length} legacy invoice(s) from the JES archive.`)
     } catch (err) {
+      const update = { lastLegacyImportAt: nowIso, lastLegacyImportStatus: 'error', lastLegacyImportError: err.message || 'Import failed' }
+      await updateDoc(doc(db, 'projects', activeProject.id), { operationCenterSync: { ...activeProject.operationCenterSync, ...update } }).catch(() => {})
+      updateProject(activeProject.id, { operationCenterSync: { ...activeProject.operationCenterSync, ...update } })
       alert(`Legacy import failed: ${err.message || 'unknown error'}`)
     }
     setImportingLegacy(false)
   }
+
+  // "Recently used" for AccountCodePicker — same cheapest-useful-version-
+  // of-recency pattern as Expenses.jsx's own, derived from records already
+  // loaded in memory. Deduped by code, newest-record-first (records is
+  // already sorted newest-date-first).
+  const recentAccountCodes = (() => {
+    const seen = new Set()
+    const out = []
+    for (const r of records) {
+      if (!r.accountCodeId || seen.has(r.accountCodeId)) continue
+      seen.add(r.accountCodeId)
+      out.push({ id: r.accountCodeId, code: r.accountCode, name: r.accountName })
+      if (out.length >= 6) break
+    }
+    return out
+  })()
 
   return (
     <div className="page">
@@ -394,24 +443,45 @@ export default function Invoices() {
       </div>
 
       {activeProject?.operationCenterSyncEnabled && (
-        <div className="filter-row" style={{ marginBottom: 16, alignItems: 'center' }}>
-          <button className="btn-ghost btn-small" onClick={syncFromOperationCenter} disabled={syncing}>
-            {syncing ? 'Syncing…' : 'Sync from Operation Center'}
-          </button>
-          <span className="hint">
-            {activeProject.operationCenterSync?.lastStatus === 'error'
-              ? `Last sync failed: ${activeProject.operationCenterSync.lastError}`
-              : activeProject.operationCenterSync?.lastSyncedAt
-              ? `Last synced ${new Date(activeProject.operationCenterSync.lastSyncedAt).toLocaleString()}`
-              : 'Never synced'}
-          </span>
-          <button className="btn-ghost btn-small" onClick={importLegacyJesHistory} disabled={importingLegacy}>
-            {importingLegacy ? 'Importing…' : 'Import Legacy JES History'}
-          </button>
-          {activeProject.operationCenterSync?.lastLegacyImportAt && (
-            <span className="hint">Legacy import: {new Date(activeProject.operationCenterSync.lastLegacyImportAt).toLocaleString()}</span>
-          )}
-        </div>
+        <>
+          <div className="filter-row" style={{ marginBottom: 8, alignItems: 'center' }}>
+            <button className="btn-ghost btn-small" onClick={syncFromOperationCenter} disabled={syncing}>
+              {syncing ? 'Syncing…' : 'Sync from Operation Center'}
+            </button>
+            <span className="hint">
+              {activeProject.operationCenterSync?.lastStatus === 'error'
+                ? `Last sync failed: ${activeProject.operationCenterSync.lastError}`
+                : activeProject.operationCenterSync?.lastSyncedAt
+                ? `Last synced ${new Date(activeProject.operationCenterSync.lastSyncedAt).toLocaleString()}`
+                : 'Never synced'}
+            </span>
+          </div>
+
+          <div className="filter-row" style={{ marginBottom: 16, alignItems: 'center' }}>
+            <div className="date-range">
+              <input type="date" value={legacyFrom} onChange={e => setLegacyFrom(e.target.value)} title="From (optional — leave blank for the full archive)" />
+              <span className="date-sep">–</span>
+              <input type="date" value={legacyTo} onChange={e => setLegacyTo(e.target.value)} title="To (optional)" />
+            </div>
+            <button className="btn-ghost btn-small" onClick={importLegacyJesHistory} disabled={importingLegacy}>
+              {importingLegacy ? 'Importing…' : 'Import Legacy JES History'}
+            </button>
+            <span className="hint">
+              {activeProject.operationCenterSync?.lastLegacyImportStatus === 'error'
+                ? `Last legacy import failed: ${activeProject.operationCenterSync.lastLegacyImportError}`
+                : activeProject.operationCenterSync?.lastLegacyImportAt
+                ? (() => {
+                    const s = activeProject.operationCenterSync
+                    const period = s.lastLegacyImportPeriod?.from || s.lastLegacyImportPeriod?.to
+                      ? ` (${s.lastLegacyImportPeriod.from || '…'} to ${s.lastLegacyImportPeriod.to || '…'})`
+                      : ' (full archive)'
+                    const counts = s.lastLegacyImportCounts
+                    return `Last legacy import ${new Date(s.lastLegacyImportAt).toLocaleString()}${period}${counts ? ` — ${counts.poFetched} PO(s), ${counts.invoicesFetched} invoice(s)` : ''}`
+                  })()
+                : 'Never imported'}
+            </span>
+          </div>
+        </>
       )}
 
       {results.length === 0 && (
@@ -483,6 +553,26 @@ export default function Invoices() {
                       Notes
                       <input value={r.notes || ''} onChange={e => update(r._id, 'notes', e.target.value)} />
                     </label>
+                    <div className="full-width">
+                      <span className="hint">Account Code (optional)</span>
+                      <AccountCodePicker
+                        accountCodes={accountCodes}
+                        recordType={accountCodeRecordType}
+                        recentCodes={recentAccountCodes}
+                        value={r.accountCodeId ? { accountCodeId: r.accountCodeId, accountCode: r.accountCode, accountName: r.accountName } : null}
+                        onChange={v => {
+                          update(r._id, 'accountCodeId', v?.accountCodeId || null)
+                          update(r._id, 'accountCode', v?.accountCode || null)
+                          update(r._id, 'accountName', v?.accountName || null)
+                        }}
+                      />
+                      {r.accountCodeId && r.counterpartyName?.trim() && (
+                        <label className="hint" style={{ display: 'flex', alignItems: 'center', gap: 4, fontWeight: 400 }}>
+                          <input type="checkbox" checked={!!r.rememberAccountCode} onChange={e => update(r._id, 'rememberAccountCode', e.target.checked)} />
+                          Remember for "{r.counterpartyName}"
+                        </label>
+                      )}
+                    </div>
                   </div>
                 )
               }
@@ -543,7 +633,23 @@ export default function Invoices() {
                       {rec.settlementStatus === 'confirmed' ? (tab.kind === 'invoice' ? 'Paid' : 'Settled') : 'Outstanding'}
                     </span>
                   </td>
-                  <td><input value={editDraft.notes} onChange={e => setEditDraft({ ...editDraft, notes: e.target.value })} /></td>
+                  <td>
+                    <input value={editDraft.notes} onChange={e => setEditDraft({ ...editDraft, notes: e.target.value })} style={{ marginBottom: 4 }} />
+                    <span className="hint">Account Code (optional)</span>
+                    <AccountCodePicker
+                      accountCodes={accountCodes}
+                      recordType={accountCodeRecordType}
+                      recentCodes={recentAccountCodes}
+                      value={editDraft.accountCodeId ? { accountCodeId: editDraft.accountCodeId, accountCode: editDraft.accountCode, accountName: editDraft.accountName } : null}
+                      onChange={v => setEditDraft({ ...editDraft, accountCodeId: v?.accountCodeId || null, accountCode: v?.accountCode || null, accountName: v?.accountName || null })}
+                    />
+                    {editDraft.accountCodeId && editDraft.counterpartyName?.trim() && (
+                      <label className="hint" style={{ display: 'flex', alignItems: 'center', gap: 4, fontWeight: 400 }}>
+                        <input type="checkbox" checked={rememberAccountCode} onChange={e => setRememberAccountCode(e.target.checked)} />
+                        Remember for "{editDraft.counterpartyName}"
+                      </label>
+                    )}
+                  </td>
                   <td>{rec.sourceType}</td>
                   <td>
                     <button className="btn-small btn-primary" onClick={() => saveEdit(rec)}>Save</button>
@@ -562,7 +668,10 @@ export default function Invoices() {
                       {rec.settlementStatus === 'confirmed' ? (tab.kind === 'invoice' ? 'Paid' : 'Settled') : 'Outstanding'}
                     </span>
                   </td>
-                  <td className="notes-cell" title={rec.notes}>{rec.notes}</td>
+                  <td>
+                    <div className="notes-cell" title={rec.notes}>{rec.notes}</div>
+                    {rec.accountCode && <div className="hint">{rec.accountCode} · {rec.accountName}</div>}
+                  </td>
                   <td>
                     {rec.sourceFileUrl
                       ? <a href={rec.sourceFileUrl} target="_blank" rel="noreferrer"><AttachIcon size={14} strokeWidth={ICON_STROKE_WIDTH} aria-hidden="true" /> {SOURCE_LABELS[rec.sourceType] || rec.sourceType}</a>

@@ -8,6 +8,31 @@ changes when it's bumped deliberately in `package.json`.
 
 ## Unreleased (still V1.0)
 
+**Account Codes on Invoices & POs, and a full-picture Overview.**
+`salesInvoices`/`purchaseOrders` had no Account Code field at all —
+Expenses/Income got one in MVP-3, Invoices.jsx never did. Now wired in
+(same `AccountCodePicker` pattern, both the review grid and inline
+edit), shown as a hint line under Notes rather than a new column
+(avoids reopening the table-overflow issue). Dashboard/Overview
+previously read `expenses` only — Income, Sales Invoices, and Purchase
+Orders were entirely invisible there. Now shows Income with the same
+by-category-breakdown-plus-list depth as Expenses, and two compact
+"Business (Operation Center)" stat cards for Sales Invoices/Purchase
+Orders totals. Every section stays its own clearly-labeled total,
+never blended into one figure — the four collections never share a
+line item, so summing is safe, but conflating an OC-covered total
+with a Finance-only one under one label wouldn't be.
+
+**Legacy JES import: a date range to select, and always-visible status.**
+The one-time "Import Legacy JES History" action gained an optional
+From/To period (leave both blank for the full archive) — `/api/erp`
+has no date-range filter of its own, so `sync-operation-center.js`
+filters the fetched rows by date after paging through. Its status line
+now always shows something ("Never imported" / last result / last
+error) instead of only appearing after a successful run, matching the
+regular Sync button's own always-visible status.
+
+
 **One-time Legacy JES History import for Invoices & POs.**
 Operation Center's frozen "JES ERP archive" (historical Purchase
 Orders and Sales Invoices predating the costing-tool app, which don't

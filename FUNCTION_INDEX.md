@@ -202,9 +202,10 @@ Also exports `PROJECT_COLORS` (24 color identities) and `COLOR_KEYS`.
 |---|---|---|
 | `isoDate(d)` | 10 | Formats a `Date` as `YYYY-MM-DD`. |
 | `firstOfMonth()` | 12 | Returns the first day of the current month as `YYYY-MM-DD`. |
-| `setPreset(preset)` | 56 | Applies a date-range preset (This Month / Last Month / This Year / All). |
+| `totalsByCurrency(records)` | — | Sums a list of `{amount, currency}` records into `{currency: total}` — shared by the Expense/Income/Invoice/PO totals below (Expense's own inline version predates this; the other three use it directly). |
+| `setPreset(preset)` | 56 | Applies a date-range preset (This Month / Last Month / This Year / All) — applies to Income/Sales Invoices/Purchase Orders too, same `from`/`to` state. |
 
-Renders the `.dashboard-grid` (By Category `span-4` / Expenses `span-8`) and the KPI `.stat-row`.
+Renders the `.dashboard-grid`: Expenses (By Category `span-4` / list `span-8`, unchanged) plus, added so Overview reflects the full picture instead of Expense-only — Income (By Category `span-4` / list `span-8`, full treatment mirroring Expenses) and two compact "Business (Operation Center)" stat cards (`span-6` each) for Sales Invoices/Purchase Orders totals only (no row-list — they have their own detail page, `Invoices.jsx`). Every section keeps its own explicit label and total, never summed together — `expenses`/`income`/`salesInvoices`/`purchaseOrders` never share a line item, so summing is safe, but blending an OC-covered figure into a Finance-only one under one label wouldn't be. Also the KPI `.stat-row`.
 
 ### [Capture.jsx](src/pages/Capture.jsx)
 No functions — a pure dispatcher component (three link cards routing to Upload / Payment Sources). See its header comment for why it exists (mobile bottom-nav slot capacity).
@@ -310,8 +311,8 @@ No standalone named functions beyond small in-render helpers (`setPreset`, `acco
 |---|---|---|
 | `readFiles(rawFiles)` | 59 | Reads dropped/selected files — CSV files are tagged for direct parsing, PDF/image files are base64-encoded for the extraction API. |
 | `processFiles(items)` | 92 | For CSV: parses via `parseCSV`/`mapDocumentCsvRecords` directly (one result row per CSV row). For PDF/image: posts to `/api/process-invoice` with the active tab's `docKind`. |
-| `saveAll()` | 150 | Writes each reviewed result to `salesInvoices` or `purchaseOrders` (per active tab), then uploads the original source file via `uploadDocumentFile` and attaches its URL. |
-| `startEdit(rec)` / `saveEdit(rec)` | 187 | Inline edit of an already-saved record in the list below. |
+| `saveAll()` | 150 | Writes each reviewed result to `salesInvoices` or `purchaseOrders` (per active tab), then uploads the original source file via `uploadDocumentFile` and attaches its URL. Includes `accountCodeId`/`accountCode`/`accountName` (optional) and fires `saveAccountCodeRule` when "Remember for X" was checked. |
+| `startEdit(rec)` / `saveEdit(rec)` | 187 | Inline edit of an already-saved record in the list below, including its Account Code. |
 | `syncFromOperationCenter()` | — | Finance repositioning MVP-5 — only shown when the active project's `operationCenterSyncEnabled` toggle (Settings.jsx) is on. Calls `/api/sync-operation-center`, then upserts each row into `purchaseOrders`/`salesInvoices` via a chunked `writeBatch` keyed by `operationCenterDocId()` (idempotent — a re-run never duplicates), and writes sync status onto the project doc's `operationCenterSync` field. |
 | `importLegacyJesHistory()` / `runLegacyImport()` | — | One-time pull of costing-tool's frozen JES archive, behind a confirm dialog (larger pull, separate from the recurring sync). Calls `/api/sync-operation-center` with `action:'import_legacy'`; same chunked-`writeBatch` idempotent-upsert pattern as `syncFromOperationCenter()`, keyed by `jesLegacyDocId()` instead, `sourceType:'jes_archive'`. |
 

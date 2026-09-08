@@ -5,12 +5,16 @@
 // Two request shapes:
 //   { idToken, projectId, since? }                  -> recurring Sync
 //     (app-authored source: finance-po-sync.js + uc.js's list_invoices)
-//   { idToken, projectId, action: 'import_legacy' }  -> one-time pull of
-//     costing-tool's frozen JES ERP archive (entities 'purchase'/
-//     'sales_invoice' via its existing /api/erp, paged with `offset`
-//     since that endpoint has no cursor of its own beyond `limit`).
-//     Doesn't change, so it's not part of the recurring Sync above —
-//     see Invoices.jsx's separate "Import Legacy JES History" button.
+//   { idToken, projectId, action: 'import_legacy', legacyFrom?, legacyTo? }
+//     -> one-time pull of costing-tool's frozen JES ERP archive
+//     (entities 'purchase'/'sales_invoice' via its existing /api/erp,
+//     paged with `offset` since that endpoint has no cursor of its own
+//     beyond `limit`). Doesn't change, so it's not part of the
+//     recurring Sync above — see Invoices.jsx's separate "Import
+//     Legacy JES History" button. legacyFrom/legacyTo (YYYY-MM-DD,
+//     both optional) filter by each row's own `date` — /api/erp has no
+//     date-range filter itself, so this is applied here after
+//     fetching, not passed through as a query param.
 //
 // This function does no Firestore WRITES anywhere — it verifies the
 // caller, checks the gate, fetches rows from costing-tool, and returns
@@ -62,9 +66,9 @@ export default async (request) => {
     return json({ error: 'Server not configured' }, 500)
   }
 
-  let idToken, projectId, since, action
+  let idToken, projectId, since, action, legacyFrom, legacyTo
   try {
-    ({ idToken, projectId, since, action } = await request.json())
+    ({ idToken, projectId, since, action, legacyFrom, legacyTo } = await request.json())
   } catch { return json({ error: 'Bad JSON' }, 400) }
   if (!idToken || !projectId) return json({ error: 'Missing idToken or projectId' }, 400)
 
@@ -148,11 +152,12 @@ export default async (request) => {
 
   try {
     if (action === 'import_legacy') {
+      const inRange = row => (!legacyFrom || row.date >= legacyFrom) && (!legacyTo || row.date <= legacyTo)
       const [poRows, invoiceRows] = await Promise.all([
         pageAllErp('purchase', 1000),
         pageAllErp('sales_invoice', 500),
       ])
-      return json({ poRows, invoiceRows })
+      return json({ poRows: poRows.filter(inRange), invoiceRows: invoiceRows.filter(inRange) })
     }
     const [poData, invoiceData] = await Promise.all([
       callOc('/api/finance-po-sync', { since: since || undefined }),

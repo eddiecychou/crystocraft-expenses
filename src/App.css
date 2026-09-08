@@ -871,8 +871,11 @@ body {
    (e.g. an Operation Center sync's WooCommerce fee breakdown) — without a
    cap it stretches the whole table well past the viewport, pushing the
    Source/Actions columns out of reach. Truncated with an ellipsis; full
-   text is still available via the cell's title tooltip. */
-.expense-table td.notes-cell {
+   text is still available via the cell's title tooltip. A plain class
+   selector (not scoped to td) since the Account Code hint line sits as a
+   sibling div below it in the same cell — the truncation must stay
+   confined to the notes text itself, not swallow that hint line too. */
+.notes-cell {
   max-width: 220px;
   white-space: nowrap;
   overflow: hidden;
