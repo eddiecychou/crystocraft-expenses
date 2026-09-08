@@ -998,11 +998,29 @@ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
 
 .expense-total-row {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 24px;
   padding: 10px 0 2px;
   border-top: 2px solid #e2e8f0;
   margin-top: 6px;
+  font-weight: 700;
+  color: var(--t-dark);
+  font-size: 14px;
+}
+
+/* Dashboard's Sales Invoices/Purchase Orders stat cards — unlike
+   .expense-total-row (a handful of currencies, right-aligned against a
+   single total line), Operation Center totals can span many currencies
+   at once. Right-aligned wrapping there stranded the record count on
+   its own line squeezed against the card edge (count moved to the card
+   header instead) — left-aligned wrap reads cleanly regardless of how
+   many currencies show up. */
+.stat-currency-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  padding-top: 6px;
   font-weight: 700;
   color: var(--t-dark);
   font-size: 14px;

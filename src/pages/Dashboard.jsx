@@ -276,15 +276,17 @@ export default function Dashboard() {
               Income/Expenses above — an OC-covered total and a
               Finance-only total answer different questions. */}
           <div className="card dashboard-span-6">
-            <h3>Sales Invoices (Operation Center)</h3>
+            <div className="card-header">
+              <h3 style={{ marginBottom: 0 }}>Sales Invoices (Operation Center)</h3>
+              {invoices.length > 0 && <span className="hint">{invoices.length}</span>}
+            </div>
             {invoices.length === 0
               ? <p className="empty">No sales invoices for this period.</p>
               : (
-                <div className="expense-total-row">
+                <div className="stat-currency-list">
                   {Object.entries(invoiceTotals).map(([currency, amount]) => (
                     <span key={currency}>{currency} {amount.toFixed(2)}</span>
                   ))}
-                  <span className="hint" style={{ marginLeft: 8 }}>({invoices.length})</span>
                 </div>
               )
             }
@@ -292,15 +294,17 @@ export default function Dashboard() {
           </div>
 
           <div className="card dashboard-span-6">
-            <h3>Purchase Orders (Operation Center)</h3>
+            <div className="card-header">
+              <h3 style={{ marginBottom: 0 }}>Purchase Orders (Operation Center)</h3>
+              {purchaseOrders.length > 0 && <span className="hint">{purchaseOrders.length}</span>}
+            </div>
             {purchaseOrders.length === 0
               ? <p className="empty">No purchase orders for this period.</p>
               : (
-                <div className="expense-total-row">
+                <div className="stat-currency-list">
                   {Object.entries(poTotals).map(([currency, amount]) => (
                     <span key={currency}>{currency} {amount.toFixed(2)}</span>
                   ))}
-                  <span className="hint" style={{ marginLeft: 8 }}>({purchaseOrders.length})</span>
                 </div>
               )
             }
