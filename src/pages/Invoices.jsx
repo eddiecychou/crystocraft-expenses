@@ -143,6 +143,7 @@ export default function Invoices() {
 
   function removeResult(id) {
     setConfirmDialog({
+      message: 'Remove this row?',
       onConfirm: () => {
         setResults(prev => prev.filter(r => r._id !== id))
         setConfirmDialog(null)
@@ -212,6 +213,8 @@ export default function Invoices() {
 
   function deleteRecord(rec) {
     setConfirmDialog({
+      message: `Delete ${rec.number || 'this record'}?`,
+      confirmLabel: 'Delete',
       onConfirm: async () => {
         await deleteDoc(doc(db, tab.collection, rec.id))
         setConfirmDialog(null)
@@ -412,14 +415,6 @@ export default function Invoices() {
             <button onClick={addManual} disabled={processing} className="btn-ghost">+ Add Manually</button>
             <button onClick={() => { setResults([]); setFileItems([]) }} className="btn-ghost">Cancel</button>
           </div>
-          {confirmDialog && (
-            <ConfirmDialog
-              message="Remove this row?"
-              confirmLabel="Remove"
-              onConfirm={confirmDialog.onConfirm}
-              onCancel={() => setConfirmDialog(null)}
-            />
-          )}
         </div>
       )}
 
@@ -505,6 +500,15 @@ export default function Invoices() {
         </div>
         )
       })()}
+
+      {confirmDialog && (
+        <ConfirmDialog
+          message={confirmDialog.message || 'Are you sure?'}
+          confirmLabel={confirmDialog.confirmLabel || 'Remove'}
+          onConfirm={confirmDialog.onConfirm}
+          onCancel={() => setConfirmDialog(null)}
+        />
+      )}
     </div>
   )
 }
