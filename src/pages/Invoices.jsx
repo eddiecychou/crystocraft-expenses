@@ -150,7 +150,7 @@ export default function Invoices() {
   }
 
   function addManual() {
-    setResults(prev => [...prev, { fileName: 'Manual Entry', number: '', counterpartyName: '', date: new Date().toISOString().slice(0, 10), amount: '', currency: 'HKD', notes: '', sourceType: 'manual', _id: ++resultIdRef.current }])
+    setResults(prev => [...prev, { fileName: 'Manual Entry', number: '', counterpartyName: '', counterpartyCode: '', date: new Date().toISOString().slice(0, 10), amount: '', currency: 'HKD', notes: '', sourceType: 'manual', _id: ++resultIdRef.current }])
   }
 
   async function saveAll() {
@@ -165,6 +165,7 @@ export default function Invoices() {
         projectId: activeProject.id,
         number: r.number || '',
         counterpartyName: r.counterpartyName || '',
+        counterpartyCode: r.counterpartyCode || '',
         date: r.date || '',
         amount: parseFloat(r.amount) || 0,
         currency: r.currency || 'HKD',
@@ -192,13 +193,14 @@ export default function Invoices() {
 
   function startEdit(rec) {
     setEditingId(rec.id)
-    setEditDraft({ number: rec.number || '', counterpartyName: rec.counterpartyName || '', date: rec.date || '', amount: rec.amount ?? '', currency: rec.currency || 'HKD', notes: rec.notes || '' })
+    setEditDraft({ number: rec.number || '', counterpartyName: rec.counterpartyName || '', counterpartyCode: rec.counterpartyCode || '', date: rec.date || '', amount: rec.amount ?? '', currency: rec.currency || 'HKD', notes: rec.notes || '' })
   }
 
   async function saveEdit(rec) {
     await updateDoc(doc(db, tab.collection, rec.id), {
       number: editDraft.number.trim(),
       counterpartyName: editDraft.counterpartyName.trim(),
+      counterpartyCode: editDraft.counterpartyCode.trim(),
       date: editDraft.date,
       amount: parseFloat(editDraft.amount) || 0,
       currency: editDraft.currency,
@@ -277,6 +279,10 @@ export default function Invoices() {
                       <input value={r.counterpartyName || ''} onChange={e => update(r._id, 'counterpartyName', e.target.value)} />
                     </label>
                     <label>
+                      {tab.counterpartyLabel} Code
+                      <input value={r.counterpartyCode || ''} onChange={e => update(r._id, 'counterpartyCode', e.target.value)} />
+                    </label>
+                    <label>
                       Date
                       <input type="date" value={r.date || ''} onChange={e => update(r._id, 'date', e.target.value)} />
                     </label>
@@ -342,7 +348,7 @@ export default function Invoices() {
           {filteredRecords.length > 0 &&
           <table className="expense-table">
             <thead>
-              <tr><th>Date</th><th>{tab.numberLabel}</th><th>{tab.counterpartyLabel}</th><th>Amount</th><th>Status</th><th>Notes</th><th>Source</th><th>Actions</th></tr>
+              <tr><th>Date</th><th>{tab.numberLabel}</th><th>{tab.counterpartyLabel}</th><th>Code</th><th>Amount</th><th>Status</th><th>Notes</th><th>Source</th><th>Actions</th></tr>
             </thead>
             <tbody>
               {filteredRecords.map(rec => editingId === rec.id ? (
@@ -350,6 +356,7 @@ export default function Invoices() {
                   <td><input type="date" value={editDraft.date} onChange={e => setEditDraft({ ...editDraft, date: e.target.value })} /></td>
                   <td><input value={editDraft.number} onChange={e => setEditDraft({ ...editDraft, number: e.target.value })} /></td>
                   <td><input value={editDraft.counterpartyName} onChange={e => setEditDraft({ ...editDraft, counterpartyName: e.target.value })} /></td>
+                  <td><input value={editDraft.counterpartyCode} onChange={e => setEditDraft({ ...editDraft, counterpartyCode: e.target.value })} style={{ width: 70 }} /></td>
                   <td>
                     <input type="number" step="0.01" value={editDraft.amount} onChange={e => setEditDraft({ ...editDraft, amount: e.target.value })} style={{ width: 90 }} />
                     <select value={editDraft.currency} onChange={e => setEditDraft({ ...editDraft, currency: e.target.value })}>
@@ -373,6 +380,7 @@ export default function Invoices() {
                   <td>{rec.date}</td>
                   <td>{rec.number}</td>
                   <td>{rec.counterpartyName}</td>
+                  <td>{rec.counterpartyCode}</td>
                   <td data-amount="true">{rec.currency} {Number(rec.amount || 0).toFixed(2)}</td>
                   <td>
                     <span className={`badge ${rec.settlementStatus === 'confirmed' ? 'badge-success' : 'badge-warning'}`} title={rec.matchedPaymentTransactionId ? 'Matched to a bank/card transaction in Reconciliation' : 'No matching transaction yet'}>

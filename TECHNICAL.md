@@ -300,6 +300,7 @@ the project-list query ever runs against `memberUids`.
   projectId: string,
   number: string,          // invoice # or PO #, as extracted/typed — not validated for uniqueness
   counterpartyName: string,
+  counterpartyCode: string,  // the ERP's own short code for the customer/supplier, e.g. "H37" — separate column from the name in both this app's real source exports
   date: string,             // YYYY-MM-DD
   amount: number,
   currency: string,

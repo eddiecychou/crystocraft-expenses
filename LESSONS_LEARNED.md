@@ -439,6 +439,25 @@ first when the bug is likely client-side logic.
 
 ---
 
+## Excel's ="text" formula-escaping needs stripping; every new CSV mapper needs the same substring-match fix independently
+
+`documentImport.js`'s `findColumn` was written with the exact-match bug
+already fixed once in `paymentMatching.js` (see below) — it's a separate
+copy of the same helper, so the fix didn't carry over automatically.
+Caught on a real Costing Tool export: `"PU No."` never equals the alias
+`'pu no'` character-for-character (trailing period), so the whole column
+went unrecognized and the PO number field was silently blank. **Any new
+CSV-header-matching helper must use substring matching from day one, not
+copy the pre-fix version of an older one.**
+
+Separately, the same file's PU numbers and codes were stored as
+`="PU260055"` — Excel's own text-forcing escape for a value that would
+otherwise be reinterpreted as a formula/number/date (common for reference
+numbers and codes with leading zeros or letters). Not just this file: any
+CSV a spreadsheet tool re-saves is a candidate for this. A CSV importer
+that reads reference-number-shaped columns should assume this and strip
+`="..."` before using the value, not just trim/parse it as plain text.
+
 ## A curly apostrophe (’) in a header breaks a straight-apostrophe (') string match, silently
 
 X Transfer's CSV export headers use a curly apostrophe — `Recipient’s
