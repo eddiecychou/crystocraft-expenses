@@ -152,7 +152,16 @@ export default async (request) => {
 
   try {
     if (action === 'import_legacy') {
-      const inRange = row => (!legacyFrom || row.date >= legacyFrom) && (!legacyTo || row.date <= legacyTo)
+      // Supabase/PostgREST serializes a `date`/`timestamp` column as
+      // "2026-01-12T00:00:00", not the bare "2026-01-12" legacyFrom/
+      // legacyTo arrive as — sliced to the first 10 chars before
+      // comparing so a row landing exactly on the `to` boundary date
+      // isn't excluded by string comparison against its own timestamp.
+      const plainDate = v => (v ? String(v).slice(0, 10) : '')
+      const inRange = row => {
+        const d = plainDate(row.date)
+        return (!legacyFrom || d >= legacyFrom) && (!legacyTo || d <= legacyTo)
+      }
       const [poRows, invoiceRows] = await Promise.all([
         pageAllErp('purchase', 1000),
         pageAllErp('sales_invoice', 500),

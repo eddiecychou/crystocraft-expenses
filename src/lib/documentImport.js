@@ -92,6 +92,18 @@ export function operationCenterDocId(kind, ocId) {
   return `oc_${kind === 'po' ? 'po' : 'si'}_${String(ocId || '').replace(/[^a-zA-Z0-9_-]/g, '_')}`
 }
 
+// costing-tool's own APIs pass through whatever Supabase/PostgREST hands
+// back for a date column — a `timestamp` column serializes as
+// "2026-01-12T00:00:00" rather than a plain "2026-01-12", unlike this
+// app's own date fields, which are always bare YYYY-MM-DD strings. A
+// plain string slice (not new Date(...).toISOString(), which this app's
+// LESSONS_LEARNED.md already flags as a timezone footgun — see
+// parseStatementDate in paymentMatching.js) — the value is already in
+// YYYY-MM-DD[Txx:xx:xx] form, so no timezone conversion is involved.
+function toPlainDate(v) {
+  return v ? String(v).slice(0, 10) : ''
+}
+
 // Maps one row from costing-tool's finance-po-sync endpoint into the
 // purchaseOrders row shape (same fields mapDocumentCsvRecords produces),
 // so Invoices.jsx/Reconciliation.jsx need no changes to treat a synced PO
@@ -101,7 +113,7 @@ export function mapOperationCenterPoRow(row) {
     number: row.pu_number || '',
     counterpartyName: row.supplier_name || '',
     counterpartyCode: row.supplier_erp_code || '',
-    date: row.issued_date || '',
+    date: toPlainDate(row.issued_date),
     amount: Number(row.grandTotal) || 0,
     currency: row.currency || '',
     notes: row.status ? `Operation Center status: ${row.status}` : '',
@@ -117,7 +129,7 @@ export function mapOperationCenterInvoiceRow(row) {
     number: row.si_no || '',
     counterpartyName: row.customer || '',
     counterpartyCode: '',
-    date: row.invoice_date || row.invoiced_at || '',
+    date: toPlainDate(row.invoice_date || row.invoiced_at),
     amount: Number(row.accounting_total ?? row.total) || 0,
     currency: row.currency || '',
     notes: row.remarks || '',
@@ -142,7 +154,7 @@ export function mapJesLegacyPoRow(row) {
     number: row.code || '',
     counterpartyName: row.supplier || '',
     counterpartyCode: row.supplier_code || '',
-    date: row.date || '',
+    date: toPlainDate(row.date),
     amount: Number(row.amount) || 0,
     currency: row.currency || '',
     notes: row.status ? `JES status: ${row.status}` : '',
@@ -155,7 +167,7 @@ export function mapJesLegacyInvoiceRow(row) {
     number: row.code || '',
     counterpartyName: row.customer || '',
     counterpartyCode: row.customer_code || '',
-    date: row.date || '',
+    date: toPlainDate(row.date),
     amount: Number(row.amount) || 0,
     currency: row.currency || '',
     notes: [row.customer_po && `Customer PO: ${row.customer_po}`, row.status && `JES status: ${row.status}`].filter(Boolean).join(' · '),
