@@ -2,6 +2,16 @@
 // live from Operation Center (costing-tool) instead of a manual CSV
 // export/import.
 //
+// Two request shapes:
+//   { idToken, projectId, since? }                  -> recurring Sync
+//     (app-authored source: finance-po-sync.js + uc.js's list_invoices)
+//   { idToken, projectId, action: 'import_legacy' }  -> one-time pull of
+//     costing-tool's frozen JES ERP archive (entities 'purchase'/
+//     'sales_invoice' via its existing /api/erp, paged with `offset`
+//     since that endpoint has no cursor of its own beyond `limit`).
+//     Doesn't change, so it's not part of the recurring Sync above —
+//     see Invoices.jsx's separate "Import Legacy JES History" button.
+//
 // This function does no Firestore WRITES anywhere — it verifies the
 // caller, checks the gate, fetches rows from costing-tool, and returns
 // them; the client performs the actual upsert into purchaseOrders/
@@ -52,9 +62,9 @@ export default async (request) => {
     return json({ error: 'Server not configured' }, 500)
   }
 
-  let idToken, projectId, since
+  let idToken, projectId, since, action
   try {
-    ({ idToken, projectId, since } = await request.json())
+    ({ idToken, projectId, since, action } = await request.json())
   } catch { return json({ error: 'Bad JSON' }, 400) }
   if (!idToken || !projectId) return json({ error: 'Missing idToken or projectId' }, 400)
 
@@ -117,7 +127,33 @@ export default async (request) => {
     return data
   }
 
+  // One-time legacy history import (see TECHNICAL.md's "Operation Center
+  // Sync" section) — pages through costing-tool's existing /api/erp for
+  // the frozen JES archive (entities 'purchase'/'sales_invoice'), which
+  // the recurring Sync above never touches. Requires the service
+  // account to hold the 'erp' module there (broader than 'supply'/'uc'
+  // — the user's own call whether to grant it standing or temporarily).
+  async function pageAllErp(entity, pageLimit) {
+    const rows = []
+    let offset = 0
+    for (;;) {
+      const data = await callOc('/api/erp', { entity, limit: pageLimit, offset })
+      const page = data.rows || []
+      rows.push(...page)
+      if (page.length < pageLimit) break
+      offset += pageLimit
+    }
+    return rows
+  }
+
   try {
+    if (action === 'import_legacy') {
+      const [poRows, invoiceRows] = await Promise.all([
+        pageAllErp('purchase', 1000),
+        pageAllErp('sales_invoice', 500),
+      ])
+      return json({ poRows, invoiceRows })
+    }
     const [poData, invoiceData] = await Promise.all([
       callOc('/api/finance-po-sync', { since: since || undefined }),
       callOc('/api/uc', { op: 'list_invoices', since: since || undefined, limit: 1000 }),

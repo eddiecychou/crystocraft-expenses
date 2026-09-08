@@ -8,6 +8,25 @@ changes when it's bumped deliberately in `package.json`.
 
 ## Unreleased (still V1.0)
 
+**One-time Legacy JES History import for Invoices & POs.**
+Operation Center's frozen "JES ERP archive" (historical Purchase
+Orders and Sales Invoices predating the costing-tool app, which don't
+change) was deliberately left out of MVP-5's recurring Sync — it
+doesn't belong in a "what's new since last time" loop. A separate
+"Import Legacy JES History" button on Invoices & POs pulls it in
+instead, as its own one-time (but safe to re-run) action, behind a
+confirm dialog. Reuses costing-tool's existing `/api/erp` endpoint
+(entities `purchase`/`sales_invoice`) rather than building something
+new there — which needed one small addition, an `offset` paging
+param, since that endpoint previously had no way past its first
+`limit`-sized page. Requires the service account to additionally hold
+the `erp` module on costing-tool (broader than `supply`/`uc` — your
+call whether to grant it standing or just around running the import).
+Imported rows are tagged `sourceType: 'jes_archive'` ("JES Archive"),
+with their own doc-id prefix so they can never collide with a
+live-synced app record even if a number happened to match.
+
+
 **Security: Operation Center Sync now gated by a server-side connector registry.**
 The Crystocraft-only gate for MVP-5's Operation Center Sync was a
 client-writable Firestore boolean (`operationCenterSyncEnabled`) — a UI

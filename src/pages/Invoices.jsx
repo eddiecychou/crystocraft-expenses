@@ -6,7 +6,7 @@ import { useProject } from '../contexts/ProjectContext'
 import ProjectBanner from '../components/ProjectBanner'
 import ConfirmDialog from '../components/ConfirmDialog'
 import { parseCSV } from '../lib/paymentMatching'
-import { mapDocumentCsvRecords, uploadDocumentFile, operationCenterDocId, mapOperationCenterPoRow, mapOperationCenterInvoiceRow } from '../lib/documentImport'
+import { mapDocumentCsvRecords, uploadDocumentFile, operationCenterDocId, mapOperationCenterPoRow, mapOperationCenterInvoiceRow, jesLegacyDocId, mapJesLegacyPoRow, mapJesLegacyInvoiceRow } from '../lib/documentImport'
 import { DocumentIcon, AttachIcon, ICON_STROKE_WIDTH } from '../icons'
 
 // Phase 1: import, review, store, and list customer invoices (income) and
@@ -23,7 +23,7 @@ const TABS = [
   { kind: 'po', label: 'Supplier POs', collection: 'purchaseOrders', counterpartyLabel: 'Supplier', numberLabel: 'PO #' },
 ]
 
-const SOURCE_LABELS = { csv: 'CSV', pdf: 'PDF', manual: 'Manual', operation_center: 'Operation Center' }
+const SOURCE_LABELS = { csv: 'CSV', pdf: 'PDF', manual: 'Manual', operation_center: 'Operation Center', jes_archive: 'JES Archive' }
 
 export default function Invoices() {
   const { activeProject, updateProject } = useProject()
@@ -48,6 +48,7 @@ export default function Invoices() {
   // linkPurchaseOrder in Reconciliation.jsx.
   const [statusFilter, setStatusFilter] = useState('all') // 'all' | 'outstanding' | 'paid'
   const [syncing, setSyncing] = useState(false)
+  const [importingLegacy, setImportingLegacy] = useState(false)
   const fileRef = useRef()
   const resultIdRef = useRef(0)
   const fileIdRef = useRef(0)
@@ -308,6 +309,77 @@ export default function Invoices() {
     setSyncing(false)
   }
 
+  // One-time pull of Operation Center's frozen JES ERP archive — the
+  // historical POs/invoices that predate the app and don't change, so
+  // they're not part of the recurring syncFromOperationCenter() above
+  // (see TECHNICAL.md's "Operation Center Sync" section). No `since`
+  // watermark — always a full pull, but idempotent (jesLegacyDocId) so
+  // re-running is safe, just slower than it needs to be.
+  async function importLegacyJesHistory() {
+    if (!activeProject || importingLegacy) return
+    setConfirmDialog({
+      message: 'Import all historical Purchase Orders and Sales Invoices from Operation Center’s legacy JES archive? This is a larger one-time pull, separate from the regular Sync — safe to re-run, but may take a while.',
+      confirmLabel: 'Import',
+      onConfirm: () => { setConfirmDialog(null); runLegacyImport() },
+    })
+  }
+
+  async function runLegacyImport() {
+    setImportingLegacy(true)
+    const nowIso = new Date().toISOString()
+    try {
+      const idToken = await auth.currentUser.getIdToken()
+      const res = await fetch('/api/sync-operation-center', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idToken, projectId: activeProject.id, action: 'import_legacy' }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || `Import failed (${res.status})`)
+
+      const poRows = data.poRows || []
+      const invoiceRows = data.invoiceRows || []
+      const writes = [
+        ...poRows.filter(r => r.code).map(r => ({
+          collectionName: 'purchaseOrders',
+          docId: jesLegacyDocId('po', r.code),
+          data: mapJesLegacyPoRow(r),
+        })),
+        ...invoiceRows.filter(r => r.code).map(r => ({
+          collectionName: 'salesInvoices',
+          docId: jesLegacyDocId('si', r.code),
+          data: mapJesLegacyInvoiceRow(r),
+        })),
+      ]
+
+      for (let i = 0; i < writes.length; i += 500) {
+        const batch = writeBatch(db)
+        for (const w of writes.slice(i, i + 500)) {
+          batch.set(doc(db, w.collectionName, w.docId), {
+            projectId: activeProject.id,
+            ...w.data,
+            sourceType: 'jes_archive',
+            lastSyncedAt: nowIso,
+          }, { merge: true })
+        }
+        await batch.commit()
+      }
+
+      const counts = { poFetched: poRows.length, invoicesFetched: invoiceRows.length }
+      await updateDoc(doc(db, 'projects', activeProject.id), {
+        'operationCenterSync.lastLegacyImportAt': nowIso,
+        'operationCenterSync.lastLegacyImportCounts': counts,
+      })
+      updateProject(activeProject.id, {
+        operationCenterSync: { ...activeProject.operationCenterSync, lastLegacyImportAt: nowIso, lastLegacyImportCounts: counts },
+      })
+      setMessage(`Imported ${poRows.length} legacy purchase order(s) and ${invoiceRows.length} legacy invoice(s) from the JES archive.`)
+    } catch (err) {
+      alert(`Legacy import failed: ${err.message || 'unknown error'}`)
+    }
+    setImportingLegacy(false)
+  }
+
   return (
     <div className="page">
       <ProjectBanner />
@@ -333,6 +405,12 @@ export default function Invoices() {
               ? `Last synced ${new Date(activeProject.operationCenterSync.lastSyncedAt).toLocaleString()}`
               : 'Never synced'}
           </span>
+          <button className="btn-ghost btn-small" onClick={importLegacyJesHistory} disabled={importingLegacy}>
+            {importingLegacy ? 'Importing…' : 'Import Legacy JES History'}
+          </button>
+          {activeProject.operationCenterSync?.lastLegacyImportAt && (
+            <span className="hint">Legacy import: {new Date(activeProject.operationCenterSync.lastLegacyImportAt).toLocaleString()}</span>
+          )}
         </div>
       )}
 

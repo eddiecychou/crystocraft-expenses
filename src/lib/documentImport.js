@@ -124,6 +124,44 @@ export function mapOperationCenterInvoiceRow(row) {
   }
 }
 
+// Doc id for a one-time legacy JES history import (distinct prefix from
+// operationCenterDocId's 'oc_' — belt-and-suspenders against collision,
+// though costing-tool's own UI already excludes a JES row whose number
+// matches an app row, and makes the source unambiguous at a glance in
+// Firestore).
+export function jesLegacyDocId(kind, jesCode) {
+  return `jes_${kind === 'po' ? 'po' : 'si'}_${String(jesCode || '').replace(/[^a-zA-Z0-9_-]/g, '_')}`
+}
+
+// Maps one row from costing-tool's /api/erp (entity:'purchase') into the
+// purchaseOrders row shape — the JES archive's own field names, distinct
+// from the app-authored purchase_orders collection finance-po-sync.js
+// reads (code vs pu_number, supplier vs supplier_name, etc.).
+export function mapJesLegacyPoRow(row) {
+  return {
+    number: row.code || '',
+    counterpartyName: row.supplier || '',
+    counterpartyCode: row.supplier_code || '',
+    date: row.date || '',
+    amount: Number(row.amount) || 0,
+    currency: row.currency || '',
+    notes: row.status ? `JES status: ${row.status}` : '',
+  }
+}
+
+// Maps one row from costing-tool's /api/erp (entity:'sales_invoice').
+export function mapJesLegacyInvoiceRow(row) {
+  return {
+    number: row.code || '',
+    counterpartyName: row.customer || '',
+    counterpartyCode: row.customer_code || '',
+    date: row.date || '',
+    amount: Number(row.amount) || 0,
+    currency: row.currency || '',
+    notes: [row.customer_po && `Customer PO: ${row.customer_po}`, row.status && `JES status: ${row.status}`].filter(Boolean).join(' · '),
+  }
+}
+
 // Upload the original source file (CSV or PDF/image) exactly as received,
 // for audit trail — same rationale as uploadStatementFile in
 // statementStorage.js. Returns { url, path } to store on the record.
