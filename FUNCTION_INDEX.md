@@ -289,6 +289,7 @@ No standalone named functions beyond small in-render helpers (`setPreset`, `acco
 |---|---|
 | `loadStarterChart()` | Batch-writes `DEFAULT_ACCOUNT_CODES` as real `accountCodes` docs — the empty-state button, deliberately not a silent migration. |
 | `addCode()` | Adds one custom code (`source: 'company'`). |
+| `handleCsvImport(e)` | Bulk alternative to `addCode` — parses a CSV (Code/Name required, Type optional, `findColumn` substring alias matching same as `documentImport.js`), skips a code already in this project's list, batch-writes the rest. |
 | `toggleActive(c)` | Active/Deactivate — no hard delete, so a record that already used it keeps displaying correctly. |
 | `deleteRule(rule)` | Deletes an `accountCodeRules` suggestion (not the codes it referenced). |
 

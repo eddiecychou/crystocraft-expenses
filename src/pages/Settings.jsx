@@ -4,11 +4,12 @@ import { db, auth } from '../firebase'
 import { useProject, PROJECT_COLORS, COLOR_KEYS } from '../contexts/ProjectContext'
 import ProjectBanner from '../components/ProjectBanner'
 import ConfirmDialog from '../components/ConfirmDialog'
-import { CATEGORIES, DEFAULT_PAYMENT_METHODS, DEFAULT_ACCOUNT_CODES, projectCategories, projectPaymentMethods } from '../constants'
+import { CATEGORIES, DEFAULT_PAYMENT_METHODS, DEFAULT_ACCOUNT_CODES, projectCategories, projectPaymentMethods, projectIncomeCategories } from '../constants'
 
 export default function Settings() {
   const { projects, activeProject, selectProject, updateProject, reloadProjects } = useProject()
   const [newCategoryText, setNewCategoryText] = useState('')
+  const [newIncomeCategoryText, setNewIncomeCategoryText] = useState('')
   const [newPaymentMethodText, setNewPaymentMethodText] = useState('')
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState('')
@@ -142,14 +143,17 @@ export default function Settings() {
 
   function startEdit(p) { setEditId(p.id); setEditName(p.name); setEditColor(p.color) }
 
-  // Shared by both list editors below — 'categories' or 'paymentMethods'.
-  // Firestore's array field grows/shrinks by full replacement (simplest
-  // approach for an admin list this size, no need for arrayUnion/Remove's
-  // atomicity here since only one person edits Settings at a time).
+  // Shared by all three list editors below — 'categories' (expense),
+  // 'incomeCategories', or 'paymentMethods'. Firestore's array field
+  // grows/shrinks by full replacement (simplest approach for an admin
+  // list this size, no need for arrayUnion/Remove's atomicity here since
+  // only one person edits Settings at a time).
+  const CURRENT_LIST = { categories: projectCategories, incomeCategories: projectIncomeCategories, paymentMethods: projectPaymentMethods }
+
   async function addListItem(field, value) {
     const v = value.trim()
     if (!v || !activeProject) return
-    const current = field === 'categories' ? projectCategories(activeProject) : projectPaymentMethods(activeProject)
+    const current = CURRENT_LIST[field](activeProject)
     if (current.includes(v)) return
     const next = [...current, v]
     await updateDoc(doc(db, 'projects', activeProject.id), { [field]: next })
@@ -158,7 +162,7 @@ export default function Settings() {
 
   async function removeListItem(field, value) {
     if (!activeProject) return
-    const current = field === 'categories' ? projectCategories(activeProject) : projectPaymentMethods(activeProject)
+    const current = CURRENT_LIST[field](activeProject)
     const next = current.filter(v => v !== value)
     await updateDoc(doc(db, 'projects', activeProject.id), { [field]: next })
     updateProject(activeProject.id, { [field]: next })
@@ -300,7 +304,7 @@ export default function Settings() {
       {activeProject && (
         <>
           <div className="settings-section">
-            <h3 className="settings-section-title">Categories</h3>
+            <h3 className="settings-section-title">Expense Categories</h3>
             <p className="hint">Used across Upload, Records, and Dashboard for "{activeProject.name}" — each company can customize its own list.</p>
             <div className="chip-list">
               {projectCategories(activeProject).map(c => (
@@ -319,6 +323,29 @@ export default function Settings() {
                 onKeyDown={e => { if (e.key === 'Enter') { addListItem('categories', newCategoryText); setNewCategoryText('') } }}
               />
               <button className="btn-small" onClick={() => { addListItem('categories', newCategoryText); setNewCategoryText('') }} disabled={!newCategoryText.trim()}>Add</button>
+            </div>
+          </div>
+
+          <div className="settings-section">
+            <h3 className="settings-section-title">Income Categories</h3>
+            <p className="hint">Used on the Income page for "{activeProject.name}" — each company can customize its own list.</p>
+            <div className="chip-list">
+              {projectIncomeCategories(activeProject).map(c => (
+                <span key={c} className="chip">
+                  {c}
+                  <button type="button" onClick={() => removeListItem('incomeCategories', c)} aria-label={`Remove ${c}`}>×</button>
+                </span>
+              ))}
+            </div>
+            <div className="filter-row" style={{ marginTop: 8 }}>
+              <input
+                type="text"
+                placeholder="New income category…"
+                value={newIncomeCategoryText}
+                onChange={e => setNewIncomeCategoryText(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') { addListItem('incomeCategories', newIncomeCategoryText); setNewIncomeCategoryText('') } }}
+              />
+              <button className="btn-small" onClick={() => { addListItem('incomeCategories', newIncomeCategoryText); setNewIncomeCategoryText('') }} disabled={!newIncomeCategoryText.trim()}>Add</button>
             </div>
           </div>
 

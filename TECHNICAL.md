@@ -150,14 +150,20 @@ The frontend is a pure SPA deployed to Netlify. All API calls stay within the sa
   members: {
     [uid]: { role: 'owner' | 'editor', email: string, addedAt: Timestamp }
   },
-  // Per-project Categories/Payment Methods (Settings) — this app is shared
-  // across companies, so these are no longer one global hardcoded list.
-  // Absent on a project falls back to CATEGORIES/PAYMENT_METHODS in
-  // constants.js (every project that predates this feature) — see
-  // projectCategories()/projectPaymentMethods() there, used everywhere a
-  // page needs either list instead of importing the constant directly.
+  // Per-project Categories/Income Categories/Payment Methods (Settings) —
+  // this app is shared across companies, so these are no longer one
+  // global hardcoded list. Absent on a project falls back to
+  // CATEGORIES/INCOME_CATEGORIES/PAYMENT_METHODS in constants.js (every
+  // project that predates each field) — see
+  // projectCategories()/projectIncomeCategories()/projectPaymentMethods()
+  // there, used everywhere a page needs one of these lists instead of
+  // importing the constant directly.
   categories: string[] | undefined,
+  incomeCategories: string[] | undefined,
   paymentMethods: string[] | undefined,
+  // Finance repositioning MVP-5 — see "Operation Center Sync" below.
+  operationCenterSyncEnabled: boolean | undefined,
+  operationCenterSync: { lastSyncedAt, lastStatus, lastCounts, lastError } | undefined,
 }
 ```
 Existing projects created before sharing lack `memberUids`/`members` —
@@ -592,11 +598,11 @@ Deliberately **header-level only** (number, counterparty, date, currency, amount
 
 ### Income
 
-`Income.jsx` (Finance repositioning MVP-2) — see the `income` schema above. PDF/image only (no CSV — these are scanned/photographed notices, not spreadsheet exports), same OCR+Gemini pipeline as Invoices.jsx (`process-invoice.js`, now `docKind: 'invoice' | 'po' | 'income'`). Deliberately its own page and its own collection, never merged with Invoices & POs (which is specifically for Operation-Center-covered customer sales) or with `expenses` — Income is a same-level `FinanceRecord` to Expense, never a negative expense category. `INCOME_CATEGORIES` (`src/constants.js`) is a plain list, kept as-is alongside the newer Account Codes below (not replaced).
+`Income.jsx` (Finance repositioning MVP-2) — see the `income` schema above. PDF/image only (no CSV — these are scanned/photographed notices, not spreadsheet exports), same OCR+Gemini pipeline as Invoices.jsx (`process-invoice.js`, now `docKind: 'invoice' | 'po' | 'income'`). Deliberately its own page and its own collection, never merged with Invoices & POs (which is specifically for Operation-Center-covered customer sales) or with `expenses` — Income is a same-level `FinanceRecord` to Expense, never a negative expense category. `INCOME_CATEGORIES` (`src/constants.js`) is the fallback; per-project via `projectIncomeCategories(project)`, editable in Settings (same chip-list pattern as Expense Categories) — kept as-is alongside the newer Account Codes below (not replaced).
 
 ### Account Codes
 
-`AccountCodes.jsx` (Finance repositioning MVP-3, route `/account-codes`) — chart-of-accounts management: add a code, Activate/Deactivate (no hard delete — see the `accountCodes` schema above), and a "Rules" list of saved `accountCodeRules`, Delete only (no Auto-Approve — see that schema's own note on why).
+`AccountCodes.jsx` (Finance repositioning MVP-3, route `/account-codes`) — chart-of-accounts management: add a code one at a time, or bulk via CSV import (Code/Name required, Type optional — defaults to `expense`; a code already in the project's list is skipped, never duplicated/overwritten), Activate/Deactivate (no hard delete — see the `accountCodes` schema above), and a "Rules" list of saved `accountCodeRules`, Delete only (no Auto-Approve — see that schema's own note on why).
 
 `AccountCodePicker.jsx` (`src/components/`) is the reusable assignment control, used in `Upload.jsx`, `Income.jsx`, and `Expenses.jsx`'s edit views, next to (not replacing) the existing Category field. Type-to-search rather than one long `<select>`, per the spec's explicit UI guidance — filtered to `active` codes whose `type` matches the record's side (`ELIGIBLE_TYPES_FOR_RECORD` in `src/lib/accountCodes.js`: expense → expense/asset/liability/other, income → income/other). Empty input shows "recently used" codes (computed client-side from already-loaded records — `Expenses.jsx` derives this from its own `expenses` array; Upload/Income don't have an equivalent list in memory, so they skip it).
 

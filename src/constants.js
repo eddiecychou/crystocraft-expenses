@@ -55,3 +55,6 @@ export function projectCategories(project) {
 export function projectPaymentMethods(project) {
   return project?.paymentMethods?.length ? project.paymentMethods : PAYMENT_METHODS
 }
+export function projectIncomeCategories(project) {
+  return project?.incomeCategories?.length ? project.incomeCategories : INCOME_CATEGORIES
+}

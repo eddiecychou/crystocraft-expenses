@@ -8,6 +8,21 @@ changes when it's bumped deliberately in `package.json`.
 
 ## Unreleased (still V1.0)
 
+**Account Codes CSV import, per-project Income Categories, small fixes.**
+`AccountCodes.jsx` can now import a chart of accounts in bulk from a CSV
+(Code/Name required, Type optional) instead of adding codes one at a
+time — a code already present is skipped, never duplicated. Income
+Categories are now per-project and editable in Settings (same chip-list
+pattern as Expense Categories, which Settings' "Categories" section is
+now labeled to make clear), via a new `projectIncomeCategories()`
+fallback in `constants.js`, same as the existing Expense/Payment-Method
+pattern. Also fixed: Invoices & POs' Delete button silently did nothing
+from the saved-records table (its confirm dialog only ever rendered
+inside the file-review section); and a long Notes value (e.g. an
+Operation Center sync's remarks) was stretching that table off-screen —
+Notes now truncates with an ellipsis, full text on hover.
+
+
 **Finance / Bookkeeping Center repositioning — MVP-5 (Operation Center API, Crystocraft-only).**
 Replaces the manual CSV import of Invoices & POs with a live pull from
 Operation Center (`costing-tool`), scoped after actually checking what

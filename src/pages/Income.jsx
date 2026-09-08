@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore'
 import { db, auth } from '../firebase'
-import { CURRENCIES, INCOME_CATEGORIES } from '../constants'
+import { CURRENCIES, projectIncomeCategories } from '../constants'
 import { useProject } from '../contexts/ProjectContext'
 import ProjectBanner from '../components/ProjectBanner'
 import ConfirmDialog from '../components/ConfirmDialog'
@@ -275,7 +275,7 @@ export default function Income() {
                     <label>
                       Category
                       <select value={r.category || 'Other Income'} onChange={e => update(r._id, 'category', e.target.value)}>
-                        {INCOME_CATEGORIES.map(c => <option key={c}>{c}</option>)}
+                        {projectIncomeCategories(activeProject).map(c => <option key={c}>{c}</option>)}
                       </select>
                     </label>
                     <label>
@@ -351,7 +351,7 @@ export default function Income() {
                   <td><input value={editDraft.counterpartyName} onChange={e => setEditDraft({ ...editDraft, counterpartyName: e.target.value })} /></td>
                   <td>
                     <select value={editDraft.category} onChange={e => setEditDraft({ ...editDraft, category: e.target.value })}>
-                      {INCOME_CATEGORIES.map(c => <option key={c}>{c}</option>)}
+                      {projectIncomeCategories(activeProject).map(c => <option key={c}>{c}</option>)}
                     </select>
                   </td>
                   <td>

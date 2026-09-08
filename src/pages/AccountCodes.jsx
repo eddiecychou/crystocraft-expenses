@@ -1,13 +1,30 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { collection, query, where, onSnapshot, addDoc, updateDoc, deleteDoc, doc, writeBatch, serverTimestamp } from 'firebase/firestore'
 import { db } from '../firebase'
 import { useProject } from '../contexts/ProjectContext'
 import ProjectBanner from '../components/ProjectBanner'
 import ConfirmDialog from '../components/ConfirmDialog'
 import { DEFAULT_ACCOUNT_CODES } from '../constants'
+import { parseCSV } from '../lib/paymentMatching'
 
 const TYPE_LABELS = { income: 'Income', expense: 'Expense', asset: 'Asset', liability: 'Liability', equity: 'Equity', other: 'Other' }
 const TYPE_ORDER = ['income', 'expense', 'asset', 'liability', 'equity', 'other']
+
+const CODE_ALIASES = ['code', 'account code', 'account #', 'account no', 'number']
+const NAME_ALIASES = ['name', 'account name', 'description']
+const TYPE_ALIASES = ['type', 'account type']
+
+// Substring match, same pattern as findColumn in paymentMatching.js/
+// documentImport.js — a real export routinely differs from a bare alias
+// by a trailing word or punctuation.
+function findColumn(headers, aliases) {
+  const lower = headers.map(h => h.toLowerCase())
+  for (const alias of aliases) {
+    const i = lower.findIndex(h => h === alias || h.includes(alias))
+    if (i !== -1) return headers[i]
+  }
+  return null
+}
 
 // Finance repositioning MVP-3: a real per-project chart of accounts,
 // added ALONGSIDE category/paymentMethod (Upload.jsx/Income.jsx/
@@ -23,7 +40,10 @@ export default function AccountCodes() {
   const [newCode, setNewCode] = useState({ code: '', name: '', type: 'expense' })
   const [adding, setAdding] = useState(false)
   const [seeding, setSeeding] = useState(false)
+  const [importing, setImporting] = useState(false)
+  const [importMessage, setImportMessage] = useState('')
   const [confirmDialog, setConfirmDialog] = useState(null)
+  const csvRef = useRef()
 
   useEffect(() => {
     if (!activeProject) return
@@ -80,6 +100,61 @@ export default function AccountCodes() {
     setAdding(false)
   }
 
+  // Bulk alternative to adding codes one at a time — for a company with an
+  // existing chart of accounts already in a spreadsheet. Expects Code/Name
+  // columns and an optional Type (defaults to 'expense' when missing or
+  // unrecognized, since a downloaded chart is more often expense-heavy).
+  // Skips a row whose code already exists in this project rather than
+  // creating a duplicate or silently overwriting the existing one.
+  async function handleCsvImport(e) {
+    const file = e.target.files?.[0]
+    if (!file || !activeProject) return
+    setImporting(true)
+    setImportMessage('')
+    try {
+      const text = await file.text()
+      const { headers, records } = parseCSV(text)
+      const codeCol = findColumn(headers, CODE_ALIASES)
+      const nameCol = findColumn(headers, NAME_ALIASES)
+      const typeCol = findColumn(headers, TYPE_ALIASES)
+      if (!codeCol || !nameCol) {
+        setImportMessage(`Could not find Code and Name columns in "${file.name}".`)
+        setImporting(false)
+        if (csvRef.current) csvRef.current.value = ''
+        return
+      }
+      const existing = new Set(codes.map(c => c.code))
+      const seenInFile = new Set()
+      let created = 0, skipped = 0
+      const batch = writeBatch(db)
+      for (const rec of records) {
+        const code = (rec[codeCol] || '').trim()
+        const name = (rec[nameCol] || '').trim()
+        if (!code || !name) continue
+        if (existing.has(code) || seenInFile.has(code)) { skipped++; continue }
+        seenInFile.add(code)
+        const rawType = (typeCol ? rec[typeCol] : '').trim().toLowerCase()
+        const type = TYPE_ORDER.includes(rawType) ? rawType : 'expense'
+        batch.set(doc(collection(db, 'accountCodes')), {
+          projectId: activeProject.id,
+          code, name, type,
+          active: true,
+          source: 'company',
+          description: '',
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        })
+        created++
+      }
+      if (created > 0) await batch.commit()
+      setImportMessage(`Imported ${created} code${created === 1 ? '' : 's'}${skipped ? `, skipped ${skipped} already existing` : ''}.`)
+    } catch (err) {
+      setImportMessage(`Import failed: ${err.message || 'could not read file'}`)
+    }
+    setImporting(false)
+    if (csvRef.current) csvRef.current.value = ''
+  }
+
   async function toggleActive(c) {
     await updateDoc(doc(db, 'accountCodes', c.id), { active: !c.active, updatedAt: serverTimestamp() })
   }
@@ -105,6 +180,17 @@ export default function AccountCodes() {
         A chart of accounts for "{activeProject.name}" — optional alongside Category for now. Assign a code to an
         Expense or Income record from Upload, Income, or Records; "Remember for this vendor" saves a rule below.
       </p>
+
+      <div className="card">
+        <h3>Import from CSV</h3>
+        <p className="hint">
+          For a company that already has a chart of accounts in a spreadsheet — needs Code and Name columns, Type
+          optional (defaults to Expense). A code already in this list is skipped, never duplicated or overwritten.
+        </p>
+        <input ref={csvRef} type="file" accept=".csv,text/csv" onChange={handleCsvImport} disabled={importing} />
+        {importing && <p className="hint">Importing…</p>}
+        {importMessage && <p className="hint">{importMessage}</p>}
+      </div>
 
       {codes.length === 0 ? (
         <div className="card">
