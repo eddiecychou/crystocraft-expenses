@@ -6,6 +6,10 @@ import { useProject } from '../contexts/ProjectContext'
 import ProjectBanner from '../components/ProjectBanner'
 import ConfirmDialog from '../components/ConfirmDialog'
 import { uploadDocumentFile } from '../lib/documentImport'
+import AccountCodePicker from '../components/AccountCodePicker'
+import { useAccountCodes, saveAccountCodeRule } from '../hooks/useAccountCodes'
+import { suggestAccountCode } from '../lib/accountCodes'
+import { normalizeMerchant } from '../lib/paymentMatching'
 import { DocumentIcon, AttachIcon, ICON_STROKE_WIDTH } from '../icons'
 
 // Finance repositioning MVP-2: Income as a first-class FinanceRecord
@@ -23,6 +27,7 @@ import { DocumentIcon, AttachIcon, ICON_STROKE_WIDTH } from '../icons'
 // every payer has their own layout.
 export default function Income() {
   const { activeProject } = useProject()
+  const { accountCodes, rules: accountCodeRules } = useAccountCodes(activeProject?.id)
   const [records, setRecords] = useState([])
   const [fileItems, setFileItems] = useState([])
   const [results, setResults] = useState([])
@@ -91,7 +96,8 @@ export default function Income() {
           body: JSON.stringify({ fileData: item.base64, mimeType: item.mimeType, docKind: 'income' }),
         })
         const data = await res.json()
-        out.push({ ...data, category: 'Other Income', fileName: item.name, fileItem: item, sourceType: 'finance_upload', _id: ++resultIdRef.current })
+        const suggestion = suggestAccountCode(normalizeMerchant(data.counterpartyName), 'income', accountCodeRules)
+        out.push({ ...data, ...suggestion, category: 'Other Income', fileName: item.name, fileItem: item, sourceType: 'finance_upload', _id: ++resultIdRef.current })
       } catch (err) {
         out.push({ fileName: item.name, error: err.message || 'Failed to process', _id: ++resultIdRef.current })
       }
@@ -134,6 +140,9 @@ export default function Income() {
         amount: parseFloat(r.amount) || 0,
         currency: r.currency || 'HKD',
         category: r.category || 'Other Income',
+        accountCodeId: r.accountCodeId || null,
+        accountCode: r.accountCode || null,
+        accountName: r.accountName || null,
         notes: r.notes || '',
         sourceType: r.sourceType || 'manual',
         matchedPaymentTransactionId: null,
@@ -143,6 +152,10 @@ export default function Income() {
         createdBy: uid,
         createdByEmail: email,
       })
+
+      if (r.rememberAccountCode && r.accountCodeId && r.counterpartyName?.trim()) {
+        saveAccountCodeRule(activeProject.id, r.counterpartyName.trim(), 'income', { accountCodeId: r.accountCodeId, accountCode: r.accountCode, accountName: r.accountName }).catch(() => {})
+      }
 
       if (r.fileItem && !r.fileItem.error) {
         try {
@@ -264,6 +277,21 @@ export default function Income() {
                       <select value={r.category || 'Other Income'} onChange={e => update(r._id, 'category', e.target.value)}>
                         {INCOME_CATEGORIES.map(c => <option key={c}>{c}</option>)}
                       </select>
+                    </label>
+                    <label>
+                      Account Code <span className="hint">(optional)</span>
+                      <AccountCodePicker
+                        accountCodes={accountCodes}
+                        recordType="income"
+                        value={r.accountCodeId ? { accountCodeId: r.accountCodeId, accountCode: r.accountCode, accountName: r.accountName } : null}
+                        onChange={v => { update(r._id, 'accountCodeId', v?.accountCodeId || null); update(r._id, 'accountCode', v?.accountCode || null); update(r._id, 'accountName', v?.accountName || null) }}
+                      />
+                      {r.accountCodeId && r.counterpartyName?.trim() && (
+                        <label className="hint" style={{ display: 'flex', alignItems: 'center', gap: 4, fontWeight: 400 }}>
+                          <input type="checkbox" checked={!!r.rememberAccountCode} onChange={e => update(r._id, 'rememberAccountCode', e.target.checked)} />
+                          Remember this code for "{r.counterpartyName}"
+                        </label>
+                      )}
                     </label>
                     <label className="full-width">
                       Notes

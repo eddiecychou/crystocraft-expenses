@@ -1,10 +1,10 @@
 import { useState } from 'react'
-import { collection, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, query, where, getDocs, arrayUnion, arrayRemove, deleteField } from 'firebase/firestore'
+import { collection, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, query, where, getDocs, arrayUnion, arrayRemove, deleteField, writeBatch } from 'firebase/firestore'
 import { db, auth } from '../firebase'
 import { useProject, PROJECT_COLORS, COLOR_KEYS } from '../contexts/ProjectContext'
 import ProjectBanner from '../components/ProjectBanner'
 import ConfirmDialog from '../components/ConfirmDialog'
-import { CATEGORIES, DEFAULT_PAYMENT_METHODS, projectCategories, projectPaymentMethods } from '../constants'
+import { CATEGORIES, DEFAULT_PAYMENT_METHODS, DEFAULT_ACCOUNT_CODES, projectCategories, projectPaymentMethods } from '../constants'
 
 export default function Settings() {
   const { projects, activeProject, selectProject, updateProject, reloadProjects } = useProject()
@@ -26,7 +26,7 @@ export default function Settings() {
   async function createProject() {
     if (!newName.trim()) return
     setSaving(true)
-    await addDoc(collection(db, 'projects'), {
+    const projectRef = await addDoc(collection(db, 'projects'), {
       name: newName.trim(),
       userId: auth.currentUser.uid,
       color: newColor,
@@ -39,6 +39,25 @@ export default function Settings() {
       categories: CATEGORIES,
       paymentMethods: DEFAULT_PAYMENT_METHODS,
     })
+    // Account Codes (MVP-3) — a separate collection, not a project-doc
+    // array like categories/paymentMethods above, so each code can carry
+    // its own active/type/timestamps. Seeded as real, editable docs, same
+    // "visible, not an invisible fallback" reasoning.
+    const batch = writeBatch(db)
+    for (const c of DEFAULT_ACCOUNT_CODES) {
+      batch.set(doc(collection(db, 'accountCodes')), {
+        projectId: projectRef.id,
+        code: c.code,
+        name: c.name,
+        type: c.type,
+        active: true,
+        source: 'default',
+        description: '',
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      })
+    }
+    await batch.commit()
     await reloadProjects()
     setNewName(''); setNewColor('green'); setCreating(false); setSaving(false)
   }

@@ -11,6 +11,7 @@ import PaymentSources from './pages/PaymentSources'
 import Invoices from './pages/Invoices'
 import Reconciliation from './pages/Reconciliation'
 import CompanyReview from './pages/CompanyReview'
+import AccountCodes from './pages/AccountCodes'
 import Settings from './pages/Settings'
 import Layout from './components/Layout'
 import LoadingBar from './components/LoadingBar'
@@ -45,6 +46,7 @@ export default function App() {
           <Route path="invoices" element={<Invoices />} />
           <Route path="reconciliation" element={<Reconciliation />} />
           <Route path="company-review" element={<CompanyReview />} />
+          <Route path="account-codes" element={<AccountCodes />} />
           <Route path="settings" element={<Settings />} />
         </Route>
       </Routes>

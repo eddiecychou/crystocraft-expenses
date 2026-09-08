@@ -22,6 +22,33 @@ export const PAYMENT_STAGES = ['Full Payment', 'Deposit', 'Balance']
 // (MVP-3) replace both.
 export const INCOME_CATEGORIES = ['Rental Income', 'Bank Interest', 'Refund', 'Other Income']
 
+// Account Codes (Finance repositioning MVP-3) — a real per-project chart
+// of accounts, added ALONGSIDE category/paymentMethod (optional, not a
+// replacement — see accountCodes.js). This is the starter chart a new
+// project (or an existing one via AccountCodes.jsx's "Load starter chart"
+// button) gets seeded with as real, editable accountCodes docs — numbered
+// loosely off CATEGORIES/INCOME_CATEGORIES so early adoption maps onto
+// what's already familiar. `code`/`name`/`type` only; `active`/`source`/
+// timestamps are added at write time.
+export const DEFAULT_ACCOUNT_CODES = [
+  { code: '4010', name: 'Rental Income', type: 'income' },
+  { code: '4020', name: 'Bank Interest', type: 'income' },
+  { code: '4030', name: 'Refund', type: 'income' },
+  { code: '4990', name: 'Other Income', type: 'income' },
+  { code: '5000', name: 'Travel', type: 'expense' },
+  { code: '5010', name: 'Meals', type: 'expense' },
+  { code: '5020', name: 'Office', type: 'expense' },
+  { code: '5030', name: 'Software', type: 'expense' },
+  { code: '5040', name: 'Utilities', type: 'expense' },
+  { code: '5050', name: 'Development', type: 'expense' },
+  { code: '5060', name: 'Marketing', type: 'expense' },
+  { code: '5070', name: 'Professional Services', type: 'expense' },
+  { code: '5080', name: 'Equipment', type: 'expense' },
+  { code: '5090', name: 'Bank Charges', type: 'expense' },
+  { code: '5100', name: 'Production', type: 'expense' },
+  { code: '5990', name: 'Other Expense', type: 'expense' },
+]
+
 export function projectCategories(project) {
   return project?.categories?.length ? project.categories : CATEGORIES
 }

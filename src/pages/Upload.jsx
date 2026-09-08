@@ -6,12 +6,17 @@ import { CURRENCIES, PAYMENT_STAGES, projectCategories, projectPaymentMethods } 
 import { useProject } from '../contexts/ProjectContext'
 import ProjectBanner from '../components/ProjectBanner'
 import ConfirmDialog from '../components/ConfirmDialog'
+import AccountCodePicker from '../components/AccountCodePicker'
+import { useAccountCodes, saveAccountCodeRule } from '../hooks/useAccountCodes'
+import { suggestAccountCode } from '../lib/accountCodes'
+import { normalizeMerchant } from '../lib/paymentMatching'
 import { ReceiptIcon, DocumentIcon, RescanIcon, AttachIcon, CloseIcon, ICON_STROKE_WIDTH } from '../icons'
 
 export default function Upload() {
   const { activeProject } = useProject()
   const categories = projectCategories(activeProject)
   const paymentMethods = projectPaymentMethods(activeProject)
+  const { accountCodes, rules: accountCodeRules } = useAccountCodes(activeProject?.id)
   const [fileItems, setFileItems] = useState([])
   const [loading, setLoading] = useState(false)
   const [processing, setProcessing] = useState(false)
@@ -94,7 +99,11 @@ export default function Upload() {
           body: JSON.stringify({ fileData: ocr.base64, mimeType: ocr.mimeType }),
         })
         const data = await res.json()
-        out.push({ ...data, fileName: item.name, _id: ++resultIdRef.current })
+        // Account Code suggestion (MVP-3) — a saved rule for this vendor,
+        // if any. Always shown editable in the review step, never applied
+        // silently; see accountCodes.js.
+        const suggestion = suggestAccountCode(normalizeMerchant(data.vendor), 'expense', accountCodeRules)
+        out.push({ ...data, ...suggestion, fileName: item.name, _id: ++resultIdRef.current })
       } catch (err) {
         out.push({ fileName: item.name, error: err.message || 'Failed to process', _id: ++resultIdRef.current })
       }
@@ -283,6 +292,9 @@ export default function Upload() {
         handlingCharge,
         currency: r.currency || 'HKD',
         category: r.category || 'Other',
+        accountCodeId: r.accountCodeId || null,
+        accountCode: r.accountCode || null,
+        accountName: r.accountName || null,
         notes: r.notes || '',
         paymentMethod: r.paymentMethod || '',
         poNumber: r.poNumber?.trim() || '',
@@ -291,6 +303,10 @@ export default function Upload() {
         images: [],
         createdAt: serverTimestamp(),
       })
+
+      if (r.rememberAccountCode && r.accountCodeId && r.vendor?.trim()) {
+        saveAccountCodeRule(activeProject.id, r.vendor.trim(), 'expense', { accountCodeId: r.accountCodeId, accountCode: r.accountCode, accountName: r.accountName }).catch(() => {})
+      }
 
       // Upload image — prefer manually attached, fall back to scanned fileItem
       const fileItem = r.fileItem || fileItems.find(f => f.name === r.fileName)
@@ -460,6 +476,21 @@ export default function Upload() {
                         <select value={r.category || 'Other'} onChange={e => update(r._id, 'category', e.target.value)}>
                           {categories.map(c => <option key={c}>{c}</option>)}
                         </select>
+                      </label>
+                      <label>
+                        Account Code <span className="hint">(optional)</span>
+                        <AccountCodePicker
+                          accountCodes={accountCodes}
+                          recordType="expense"
+                          value={r.accountCodeId ? { accountCodeId: r.accountCodeId, accountCode: r.accountCode, accountName: r.accountName } : null}
+                          onChange={v => { update(r._id, 'accountCodeId', v?.accountCodeId || null); update(r._id, 'accountCode', v?.accountCode || null); update(r._id, 'accountName', v?.accountName || null) }}
+                        />
+                        {r.accountCodeId && r.vendor?.trim() && (
+                          <label className="hint" style={{ display: 'flex', alignItems: 'center', gap: 4, fontWeight: 400 }}>
+                            <input type="checkbox" checked={!!r.rememberAccountCode} onChange={e => update(r._id, 'rememberAccountCode', e.target.checked)} />
+                            Remember this code for "{r.vendor}"
+                          </label>
+                        )}
                       </label>
                       <label className="full-width">
                         Notes

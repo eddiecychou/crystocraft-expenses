@@ -8,6 +8,26 @@ changes when it's bumped deliberately in `package.json`.
 
 ## Unreleased (still V1.0)
 
+**Finance / Bookkeeping Center repositioning — MVP-3 (Account Codes).**
+A real per-project chart of accounts — new `AccountCodes.jsx` page
+(`/account-codes`), `accountCodes` collection (Active/Deactivate only, no
+hard delete, so a record that already used a since-deactivated code keeps
+displaying correctly), added ALONGSIDE the existing Category field on
+Expenses/Income (optional, never a replacement). New reusable
+`AccountCodePicker` (type-to-search + recently-used, restricted to the
+record's own side — expense → expense/asset/liability/other, income →
+income/other) wired into Upload.jsx, Income.jsx, and Expenses.jsx's edit
+views. A vendor/payer's confirmed code can be remembered via "Remember
+this code for…" (`accountCodeRules`) — a suggestion only, shown editable
+next time, never auto-applied; unlike the existing Merchant Rules for
+personal/company classification, there's no Auto-Approve toggle at all for
+account codes, per the spec's explicit call-out that account coding needs
+human confirmation for salary/tax/related-party/capital items. A new
+project seeds a starter chart (`DEFAULT_ACCOUNT_CODES`); an existing
+project (this one) loads it via a deliberate button, not a silent
+migration.
+
+
 **Finance / Bookkeeping Center repositioning — MVP-2 (Income + Income Upload).**
 Income is now a same-level `FinanceRecord` to Expense, never a negative
 expense category — new `Income.jsx` page + `income` collection, covering

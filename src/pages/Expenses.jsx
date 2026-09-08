@@ -10,6 +10,8 @@ import { uploadReceiptImage, deleteReceiptImage, MAX_IMAGES } from '../receiptSt
 import { CURRENCIES, PAYMENT_STAGES, projectCategories, projectPaymentMethods } from '../constants'
 import ConfirmDialog from '../components/ConfirmDialog'
 import LoadingBar from '../components/LoadingBar'
+import AccountCodePicker from '../components/AccountCodePicker'
+import { useAccountCodes, saveAccountCodeRule } from '../hooks/useAccountCodes'
 import { AttachIcon, CloseIcon, DownloadIcon, ICON_STROKE_WIDTH } from '../icons'
 
 function Lightbox({ expenseId, images, onClose, onAdd, onDelete, uploading }) {
@@ -56,10 +58,12 @@ export default function Expenses() {
   const { activeProject, projects, loading: projectLoading } = useProject()
   const categories = projectCategories(activeProject)
   const paymentMethods = projectPaymentMethods(activeProject)
+  const { accountCodes } = useAccountCodes(activeProject?.id)
   const [expenses, setExpenses] = useState([])
   const [loading, setLoading] = useState(true)
   const [editId, setEditId] = useState(null)
   const [editData, setEditData] = useState({})
+  const [rememberAccountCode, setRememberAccountCode] = useState(false)
   const [viewImages, setViewImages] = useState(null) // { expenseId, images }
   const [uploading, setUploading] = useState(false)
   const fileInputRef = useRef()
@@ -134,8 +138,12 @@ export default function Expenses() {
       ...fields,
       amount: parseFloat(fields.amount) || 0,
     })
+    if (rememberAccountCode && editData.accountCodeId && editData.vendor?.trim()) {
+      saveAccountCodeRule(activeProject.id, editData.vendor.trim(), 'expense', { accountCodeId: editData.accountCodeId, accountCode: editData.accountCode, accountName: editData.accountName }).catch(() => {})
+    }
     setEditId(null)
     setEditErrors({})
+    setRememberAccountCode(false)
   }
 
   function deleteExpense(id) {
@@ -206,7 +214,7 @@ export default function Expenses() {
     })
   }
 
-  function startEdit(e) { setEditId(e.id); setEditData({ ...e }); setEditErrors({}) }
+  function startEdit(e) { setEditId(e.id); setEditData({ ...e }); setEditErrors({}); setRememberAccountCode(false) }
   function upd(field, value) {
     setEditData(p => ({ ...p, [field]: value }))
     if (editErrors[field]) setEditErrors(p => ({ ...p, [field]: false }))
@@ -372,6 +380,21 @@ export default function Expenses() {
     </div>
   )
 
+  // "Recently used" for AccountCodePicker — cheapest useful version of
+  // recency: derived from expenses already loaded in memory, no new
+  // tracking field. Deduped by code, newest-record-first.
+  const recentAccountCodes = (() => {
+    const seen = new Set()
+    const out = []
+    for (const e of expenses) {
+      if (!e.accountCodeId || seen.has(e.accountCodeId)) continue
+      seen.add(e.accountCodeId)
+      out.push({ id: e.accountCodeId, code: e.accountCode, name: e.accountName })
+      if (out.length >= 6) break
+    }
+    return out
+  })()
+
   const filtered = expenses.filter(e => {
     if (filterFrom && e.date < filterFrom) return false
     if (filterTo && e.date > filterTo) return false
@@ -507,6 +530,22 @@ export default function Expenses() {
                       <select value={editData.paymentStage || 'Full Payment'} onChange={ev => upd('paymentStage', ev.target.value)}>
                         {PAYMENT_STAGES.map(s => <option key={s}>{s}</option>)}
                       </select>
+                      <div style={{ marginTop: 4 }}>
+                        <span className="hint">Account Code (optional)</span>
+                        <AccountCodePicker
+                          accountCodes={accountCodes}
+                          recordType="expense"
+                          recentCodes={recentAccountCodes}
+                          value={editData.accountCodeId ? { accountCodeId: editData.accountCodeId, accountCode: editData.accountCode, accountName: editData.accountName } : null}
+                          onChange={v => { upd('accountCodeId', v?.accountCodeId || null); upd('accountCode', v?.accountCode || null); upd('accountName', v?.accountName || null) }}
+                        />
+                        {editData.accountCodeId && editData.vendor?.trim() && (
+                          <label className="hint" style={{ display: 'flex', alignItems: 'center', gap: 4, fontWeight: 400 }}>
+                            <input type="checkbox" checked={rememberAccountCode} onChange={e => setRememberAccountCode(e.target.checked)} />
+                            Remember for "{editData.vendor}"
+                          </label>
+                        )}
+                      </div>
                     </td>
                     <td>
                       <button onClick={saveEdit} className="btn-small">Save</button>
@@ -535,6 +574,7 @@ export default function Expenses() {
                       )}
                       {e.paymentStage && e.paymentStage !== 'Full Payment' && <div className="hint">{e.paymentStage}</div>}
                       {Number(e.handlingCharge) > 0 && <div className="hint">Handling charge: {e.currency} {Number(e.handlingCharge).toFixed(2)}</div>}
+                      {e.accountCode && <div className="hint">{e.accountCode} · {e.accountName}</div>}
                     </td>
                     <td>
                       <button onClick={() => openLightbox(e)} className="btn-small" title="Manage receipts" aria-label={`Manage receipts, ${e.images?.length || 0} attached`}>
@@ -580,6 +620,22 @@ export default function Expenses() {
                   <label>Vendor Code<input value={editData.vendorCode || ''} onChange={ev => upd('vendorCode', ev.target.value)} /></label>
                   <label>Handling Charge<input type="number" inputMode="decimal" step="0.01" value={editData.handlingCharge || ''} onChange={ev => upd('handlingCharge', ev.target.value)} /></label>
                   <label>Payment Stage<select value={editData.paymentStage || 'Full Payment'} onChange={ev => upd('paymentStage', ev.target.value)}>{PAYMENT_STAGES.map(s => <option key={s}>{s}</option>)}</select></label>
+                  <label className="full-width">
+                    Account Code <span className="hint">(optional)</span>
+                    <AccountCodePicker
+                      accountCodes={accountCodes}
+                      recordType="expense"
+                      recentCodes={recentAccountCodes}
+                      value={editData.accountCodeId ? { accountCodeId: editData.accountCodeId, accountCode: editData.accountCode, accountName: editData.accountName } : null}
+                      onChange={v => { upd('accountCodeId', v?.accountCodeId || null); upd('accountCode', v?.accountCode || null); upd('accountName', v?.accountName || null) }}
+                    />
+                    {editData.accountCodeId && editData.vendor?.trim() && (
+                      <label className="hint" style={{ display: 'flex', alignItems: 'center', gap: 4, fontWeight: 400 }}>
+                        <input type="checkbox" checked={rememberAccountCode} onChange={e => setRememberAccountCode(e.target.checked)} />
+                        Remember for "{editData.vendor}"
+                      </label>
+                    )}
+                  </label>
                   <label className="full-width">Notes<input value={editData.notes || ''} onChange={ev => upd('notes', ev.target.value)} /></label>
                 </div>
                 <div className="mob-card-actions">
@@ -614,6 +670,7 @@ export default function Expenses() {
                 )}
                 {e.paymentStage && e.paymentStage !== 'Full Payment' && <div className="hint">{e.paymentStage}</div>}
                 {Number(e.handlingCharge) > 0 && <div className="hint">Handling charge: {e.currency} {Number(e.handlingCharge).toFixed(2)}</div>}
+                {e.accountCode && <div className="hint">{e.accountCode} · {e.accountName}</div>}
                 <div className="mob-card-actions">
                   <button onClick={() => openLightbox(e)} className="btn-small" aria-label={`Manage receipts, ${e.images?.length || 0} attached`}>
                     <AttachIcon size={14} strokeWidth={ICON_STROKE_WIDTH} aria-hidden="true" /> {e.images?.length || 0}

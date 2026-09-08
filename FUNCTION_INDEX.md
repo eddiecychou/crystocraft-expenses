@@ -12,6 +12,14 @@ some of these functions look the way they do, see [LESSONS_LEARNED.md](LESSONS_L
 
 ## `src/lib/` — pure logic modules (no React, no Firestore access)
 
+### [accountCodes.js](src/lib/accountCodes.js) — Account Codes (Finance repositioning MVP-3)
+
+| Function | Purpose |
+|---|---|
+| `ELIGIBLE_TYPES_FOR_RECORD` | Constant — which account-code `type`s an expense vs. income record may pick from (spec §7). |
+| `accountCodeRuleDocId(projectId, merchantKey, recordType)` | Deterministic doc id for an `accountCodeRules` doc, same pattern as `merchantRuleDocId` in `expenseClassification.js`. |
+| `suggestAccountCode(merchantKey, recordType, rules)` | Looks up a saved rule for a vendor/payer — always a suggestion, never applied without the caller showing it editable. |
+
 ### [duplicateDetection.js](src/lib/duplicateDetection.js)
 
 | Function | Line | Purpose |
@@ -259,6 +267,15 @@ No functions — a pure dispatcher component (three link cards routing to Upload
 | `confirmPdfImport()` | 739 | Commits the reviewed PDF rows via `commitRows`; clears `pdfPreview` afterward so Verify/Fix buttons re-enable (see LESSONS_LEARNED — this was previously missing, breaking every button after one reprocess). |
 | `reprocessFromStoredPdf(imp)` | 801 | "Fix from Stored PDF" — re-downloads and re-parses an import's original file for correction. |
 | `skipPdfPreview()` | 836 | Skips the current PDF in a multi-file queue without importing it. |
+
+### [AccountCodes.jsx](src/pages/AccountCodes.jsx) — chart-of-accounts management (Finance repositioning MVP-3)
+
+| Function | Purpose |
+|---|---|
+| `loadStarterChart()` | Batch-writes `DEFAULT_ACCOUNT_CODES` as real `accountCodes` docs — the empty-state button, deliberately not a silent migration. |
+| `addCode()` | Adds one custom code (`source: 'company'`). |
+| `toggleActive(c)` | Active/Deactivate — no hard delete, so a record that already used it keeps displaying correctly. |
+| `deleteRule(rule)` | Deletes an `accountCodeRules` suggestion (not the codes it referenced). |
 
 ### [Income.jsx](src/pages/Income.jsx) — Income as a first-class FinanceRecord (Finance repositioning MVP-2), PDF/image only, no CSV
 

@@ -2,7 +2,7 @@
 
 _Current release: **V1.0** (see [CHANGELOG.md](CHANGELOG.md)). Being repositioned from a narrow "Expense Center" into a **Finance / Bookkeeping Center** that treats Income and Expense as same-level objects and adds Account Codes, bank reconciliation, and (Crystocraft-only, later) Operation Center API sync — see the spec `Claude 执行规格：将 Expense Center 修订为 Finance／Bookkeeping Center.md` and the MVP sequence below. Earlier names ("Expense Organiser", "Expense Operations Center") persist in some historical docs, `.claude/skills/expense-ops-center/`, and Firebase project names (`crystocraft-expenses`); the running app now displays "Finance / Bookkeeping Workspace". Internal route/module preference for new work: `finance`._
 
-**Repositioning MVP sequence** (incremental, approval-gated): MVP-1 rename + `recordType` data foundation (done); MVP-2 Income as a first-class object + Income Upload (done); MVP-3 Account Codes; MVP-4 unified reconciliation + a dedicated Bank Transactions page; MVP-5 Operation Center API (Crystocraft-only optional connector); MVP-6 month-end reports.
+**Repositioning MVP sequence** (incremental, approval-gated): MVP-1 rename + `recordType` data foundation (done); MVP-2 Income as a first-class object + Income Upload (done); MVP-3 Account Codes (done); MVP-4 unified reconciliation + a dedicated Bank Transactions page; MVP-5 Operation Center API (Crystocraft-only optional connector); MVP-6 month-end reports.
 
 **Finance record model:** Expense and Income are same-level `FinanceRecord` objects (`recordType: 'expense' | 'income'`), unified at the CODE layer (`src/lib/financeRecords.js`) but stored in **two physical collections** — `expenses` (unchanged) and `income` (MVP-2) — so existing rules/Storage-paths/matched-transaction references stay valid and no risky physical merge is needed. Existing expense docs predate `recordType`; a missing value is read as `'expense'` (fallback, no migration). New expense writes stamp `recordType: 'expense'` explicitly.
 
@@ -177,6 +177,12 @@ the project-list query ever runs against `memberUids`.
   amount: number,        // total actually paid — item cost + handlingCharge, if any
   currency: string,      // HKD | RMB | USD | EUR | JPY | AUD | GBP | SGD | CAD | KRW | Other
   category: string,      // see CATEGORIES table below
+  // Account Codes (Finance repositioning MVP-3) — OPTIONAL, alongside
+  // category, never a replacement. null/absent on most records; see
+  // "Account Codes" below and src/lib/accountCodes.js.
+  accountCodeId: string | null,
+  accountCode: string | null,
+  accountName: string | null,
   notes: string,
   paymentMethod: string,
   // Added from Upload.jsx (receipt scan + manual entry) at Cindy's request,
@@ -335,6 +341,9 @@ the project-list query ever runs against `memberUids`.
   amount: number,
   currency: string,
   category: string,           // INCOME_CATEGORIES (src/constants.js) — Rental Income | Bank Interest | Refund | Other Income
+  accountCodeId: string | null,  // Account Codes (MVP-3) — optional, same as on expenses
+  accountCode: string | null,
+  accountName: string | null,
   notes: string,
   sourceType: 'finance_upload' | 'manual',
   sourceFileUrl: string | undefined,   // audit trail, only set for finance_upload
@@ -345,6 +354,35 @@ the project-list query ever runs against `memberUids`.
   matchedPaymentTransactionId: string | null,   // set only by Reconciliation.jsx's linkIncome (manual — see below)
   matchedPaymentAccountId: string | null,
   settlementStatus: 'unsettled' | 'confirmed'
+}
+```
+
+**`accountCodes`** (Finance repositioning MVP-3) — a real per-project chart of accounts, added ALONGSIDE `expenses.category`/`income.category`, never a replacement. No hard delete — `active` toggle only, so a record that already used a since-deactivated code keeps displaying it correctly
+```
+{
+  projectId: string,
+  code: string,           // "6100"
+  name: string,            // "Office Supplies"
+  type: 'income' | 'expense' | 'asset' | 'liability' | 'equity' | 'other',
+  active: boolean,         // default true — hidden from new-record pickers when false, never deleted
+  source: 'company' | 'default',   // 'operation_center' unused until MVP-5
+  description: string,
+  createdAt, updatedAt: Timestamp
+}
+```
+`DEFAULT_ACCOUNT_CODES` (`src/constants.js`) is the starter chart, seeded as real docs by `Settings.jsx`'s `createProject()` for a new project, or by hand via `AccountCodes.jsx`'s empty-state button for an existing one (deliberately not a silent background migration).
+
+**`accountCodeRules`** (doc id `{projectId}__{merchantKey}__{recordType}`, see `accountCodeRuleDocId()` in `src/lib/accountCodes.js`) — a vendor/payer's confirmed code, remembered as a SUGGESTION only. Unlike `merchantRules` (Reimbursable Expenses), there is no `autoApprove` field at all — the spec calls out account coding as always needing human confirmation for salary/tax/related-party/capital items
+```
+{
+  projectId: string,
+  merchantKey: string,      // normalizeMerchant(vendor/payer) — paymentMatching.js
+  merchantLabel: string,
+  recordType: 'expense' | 'income',
+  accountCodeId: string, accountCode: string, accountName: string,
+  source: 'user_confirmed',
+  lastConfirmedAt, createdAt: Timestamp,
+  createdBy: string
 }
 ```
 
@@ -554,7 +592,15 @@ Deliberately **header-level only** (number, counterparty, date, currency, amount
 
 ### Income
 
-`Income.jsx` (Finance repositioning MVP-2) — see the `income` schema above. PDF/image only (no CSV — these are scanned/photographed notices, not spreadsheet exports), same OCR+Gemini pipeline as Invoices.jsx (`process-invoice.js`, now `docKind: 'invoice' | 'po' | 'income'`). Deliberately its own page and its own collection, never merged with Invoices & POs (which is specifically for Operation-Center-covered customer sales) or with `expenses` — Income is a same-level `FinanceRecord` to Expense, never a negative expense category. `INCOME_CATEGORIES` (`src/constants.js`) is a plain list for now (Rental Income / Bank Interest / Refund / Other Income), replaced by real Account Codes for both Income and Expense in MVP-3.
+`Income.jsx` (Finance repositioning MVP-2) — see the `income` schema above. PDF/image only (no CSV — these are scanned/photographed notices, not spreadsheet exports), same OCR+Gemini pipeline as Invoices.jsx (`process-invoice.js`, now `docKind: 'invoice' | 'po' | 'income'`). Deliberately its own page and its own collection, never merged with Invoices & POs (which is specifically for Operation-Center-covered customer sales) or with `expenses` — Income is a same-level `FinanceRecord` to Expense, never a negative expense category. `INCOME_CATEGORIES` (`src/constants.js`) is a plain list, kept as-is alongside the newer Account Codes below (not replaced).
+
+### Account Codes
+
+`AccountCodes.jsx` (Finance repositioning MVP-3, route `/account-codes`) — chart-of-accounts management: add a code, Activate/Deactivate (no hard delete — see the `accountCodes` schema above), and a "Rules" list of saved `accountCodeRules`, Delete only (no Auto-Approve — see that schema's own note on why).
+
+`AccountCodePicker.jsx` (`src/components/`) is the reusable assignment control, used in `Upload.jsx`, `Income.jsx`, and `Expenses.jsx`'s edit views, next to (not replacing) the existing Category field. Type-to-search rather than one long `<select>`, per the spec's explicit UI guidance — filtered to `active` codes whose `type` matches the record's side (`ELIGIBLE_TYPES_FOR_RECORD` in `src/lib/accountCodes.js`: expense → expense/asset/liability/other, income → income/other). Empty input shows "recently used" codes (computed client-side from already-loaded records — `Expenses.jsx` derives this from its own `expenses` array; Upload/Income don't have an equivalent list in memory, so they skip it).
+
+A vendor/payer's confirmed code can be remembered via a "Remember this code for…" checkbox next to the picker (`useAccountCodes.js`'s `saveAccountCodeRule`, keyed by `normalizeMerchant()`) — always shown as an editable suggestion next time, never applied silently. `useAccountCodes(projectId)` (`src/hooks/`) is the shared `accountCodes`+`accountCodeRules` subscription all three consuming pages use, to avoid tripling the same two `onSnapshot` calls — the record write itself still happens directly in each page, per this app's usual no-service-layer convention.
 
 ### Payment Source Import & Duplicate Detection
 
