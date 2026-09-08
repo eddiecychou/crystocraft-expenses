@@ -64,3 +64,22 @@ export function resolveMatchedRecord(txn, { expenses = [], invoices = [], purcha
   }
   return null
 }
+
+// Month-End Report (MVP-6) — a record-side counterpart to
+// reconciliationStatusLabel() (paymentMatching.js, transaction-side). Pure
+// display mapping onto existing fields, same "best-effort now" precedent —
+// 'Needs Review'/'sync-failed' from the spec's fuller vocabulary have no
+// clean per-record meaning across all four FinanceRecord collections
+// (needs_accountant_review only exists on Expense-side bank
+// classification; sync-failed is a project-level Operation Center status,
+// not a per-record one), so they're not modeled here. No stored field
+// changes — reads settlementStatus/receiptStatus/reconciliationStatus,
+// already written by Upload.jsx/Income.jsx/Invoices.jsx/Reconciliation.jsx.
+export function recordReconciliationStatus(record) {
+  if (!record) return 'Unreconciled'
+  if (record.reconciliationStatus === 'created_from_statement' && record.receiptStatus === 'missing') {
+    return 'Missing Document'
+  }
+  if (record.settlementStatus === 'confirmed') return 'Reconciled'
+  return 'Unreconciled'
+}

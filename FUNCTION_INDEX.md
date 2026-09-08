@@ -62,6 +62,7 @@ some of these functions look the way they do, see [LESSONS_LEARNED.md](LESSONS_L
 |---|---|
 | `readFinanceRecord(id, data, recordType)` | Reads a Firestore expense/income doc into a `FinanceRecord`, defaulting `recordType` to `'expense'` for pre-MVP-1 docs. |
 | `resolveMatchedRecord(txn, { expenses, invoices, purchaseOrders, income })` | Finance repositioning MVP-4 — resolves the one record (if any) a `paymentTransactions` row is matched to, checking `matchedExpenseIds[0]`/`matchedInvoiceIds[0]`/`matchedPoId`/`matchedIncomeId` in order. Used by `BankTransactions.jsx`. |
+| `recordReconciliationStatus(record)` | MVP-6 — record-side counterpart to `reconciliationStatusLabel()` (transaction-side); maps `settlementStatus`/`receiptStatus`/`reconciliationStatus` to `'Reconciled'`/`'Unreconciled'`/`'Missing Document'`. Used by `Export.jsx`'s Month-End Report. |
 
 ### [documentImport.js](src/lib/documentImport.js)
 
@@ -379,11 +380,16 @@ No standalone named functions beyond small in-render helpers (`setPreset`, `acco
 | `toggleOperationCenterSync(enabled)` | — | Finance repositioning MVP-5 — the Crystocraft-only gate (`operationCenterSyncEnabled`) for live Invoices/POs sync (Invoices.jsx). Off by default for every project. |
 | `ColorPicker({ value, onChange })` | 144 | Swatch grid for picking one of the 24 project color identities. |
 
-### [Export.jsx](src/pages/Export.jsx) — **not routed in `App.jsx`, currently orphaned**
+### [Export.jsx](src/pages/Export.jsx) — Month-End Report (MVP-6, route `/export`)
 
-| Function | Line | Purpose |
-|---|---|---|
-| `downloadExcel()` | 8 | Standalone Excel export utility, superseded by `Expenses.jsx`'s `exportExcel`. Kept but unreachable from the UI. |
+Rebuilt from a previously-orphaned page (no route/nav link existed; its old single-collection Excel download was superseded by `Expenses.jsx`'s own export). Now a downloadable ZIP report across all four `FinanceRecord` collections.
+
+| Function | Purpose |
+|---|---|
+| `filteredByKind()` | Applies date range + record type + Account Code + status + uncoded filters to all four collections, resolving each record's `recordReconciliationStatus()` once. Drives both the on-screen preview counts and the export. |
+| `generateReport()` | Builds the ZIP: `month-end-report.xlsx` (one worksheet per enabled record type), `reconciled.csv`/`unreconciled.csv`/`missing-documents.csv`/`uncoded.csv` (merged across record types with a `RecordType` column), `manifest.json` (period, filters, counts). Same JSZip+ExcelJS pattern as `CompanyReview.jsx`'s Company Package export. |
+| `counterpartyOf(record)` / `sourceOf(record)` | Module-level — normalize field-name differences across the four collections (`vendor` vs `counterpartyName`; `source` vs `sourceType`). |
+| `toCsv(headers, rows)` | Module-level — same CSV-quoting implementation as `CompanyReview.jsx`'s own (duplicated, not shared — ~8 lines, not worth a new module). |
 
 ---
 

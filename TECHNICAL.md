@@ -2,7 +2,7 @@
 
 _Current release: **V1.1** (see [CHANGELOG.md](CHANGELOG.md)). Repositioned from a narrow "Expense Center" into a **Finance / Bookkeeping Center** that treats Income and Expense as same-level objects, with Account Codes, bank reconciliation, and a live (Crystocraft-only) Operation Center API connector — see the spec `Claude 执行规格：将 Expense Center 修订为 Finance／Bookkeeping Center.md` and the MVP sequence below (MVP-1 through MVP-5 done; MVP-6 month-end reports still pending). Earlier names ("Expense Organiser", "Expense Operations Center") persist in some historical docs, `.claude/skills/expense-ops-center/`, and Firebase project names (`crystocraft-expenses`); the running app now displays "Finance / Bookkeeping Workspace". Internal route/module preference for new work: `finance`._
 
-**Repositioning MVP sequence** (incremental, approval-gated): MVP-1 rename + `recordType` data foundation (done); MVP-2 Income as a first-class object + Income Upload (done); MVP-3 Account Codes (done); MVP-4 unified reconciliation + a dedicated Bank Transactions page (done); MVP-5 Operation Center API, Crystocraft-only optional connector (done — live PO/Invoice sync only, see "Operation Center Sync" below); MVP-6 month-end reports.
+**Repositioning MVP sequence** (incremental, approval-gated): MVP-1 rename + `recordType` data foundation (done); MVP-2 Income as a first-class object + Income Upload (done); MVP-3 Account Codes (done); MVP-4 unified reconciliation + a dedicated Bank Transactions page (done); MVP-5 Operation Center API, Crystocraft-only optional connector (done — live PO/Invoice sync only, see "Operation Center Sync" below); MVP-6 Month-End Report export (done — see "Month-End Report" below). The original repositioning roadmap is now complete.
 
 **Finance record model:** Expense and Income are same-level `FinanceRecord` objects (`recordType: 'expense' | 'income'`), unified at the CODE layer (`src/lib/financeRecords.js`) but stored in **two physical collections** — `expenses` (unchanged) and `income` (MVP-2) — so existing rules/Storage-paths/matched-transaction references stay valid and no risky physical merge is needed. Existing expense docs predate `recordType`; a missing value is read as `'expense'` (fallback, no migration). New expense writes stamp `recordType: 'expense'` explicitly.
 
@@ -640,6 +640,16 @@ Replaces the manual CSV import of Invoices & POs with a live pull from Operation
 
 **costing-tool side**: new `netlify/edge-functions/finance-po-sync.js` (module `supply`, mirrors `uc.js`/`erp.js`'s auth pattern; totals computed via a hand-ported copy of `src/purchaseOrders.js`'s `poTotals()`, verified against the original). `uc.js`'s existing `list_invoices` op gained the optional `since` param. See that repo's `API-REFERENCE.md`.
 
+### Month-End Report (MVP-6)
+
+`Export.jsx` (route `/export`) — the final item on the original repositioning roadmap. A downloadable ZIP export across all four `FinanceRecord` collections (`expenses`/`income`/`salesInvoices`/`purchaseOrders`), filterable by date range (same preset pattern as Dashboard.jsx), record type (checkboxes, all on by default), Account Code, and reconciliation status — spec §11/§12. Rebuilt in place from what was a completely orphaned page (no route, no nav link — its old single-collection Excel download was already superseded by `Expenses.jsx`'s own export, see "Records Export" above).
+
+Reuses the exact JSZip + ExcelJS + CSV pattern already proven in `CompanyReview.jsx`'s Company Package export (`toCsv()` duplicated rather than extracted to a shared module, since it's ~8 lines and `CompanyReview.jsx` doesn't export it) — that export is scoped to Expense/bank-transaction personal-company classification; this one spans the full `FinanceRecord` picture the same way Dashboard's Overview extension does, with no personal/company redaction concerns (none of the four collections carry that classification).
+
+**`recordReconciliationStatus(record)`** (`src/lib/financeRecords.js`) — a record-side counterpart to MVP-4's `reconciliationStatusLabel()` (which is transaction-side): pure display mapping onto existing fields (`settlementStatus`, `receiptStatus`, `reconciliationStatus`) → `'Reconciled' | 'Unreconciled' | 'Missing Document'`. "Uncoded" is a separate boolean (`!record.accountCodeId`), not mutually exclusive with the status — a record can be both Reconciled and Uncoded. Same spec-vocabulary-mismatch handling as MVP-4: the spec's "Needs Review" and "sync-failed" buckets aren't modeled, since neither maps cleanly onto a field shared by all four collections (`needs_accountant_review` only exists on Expense-side bank classification; sync-failed is a project-level Operation Center status, not a per-record list) — deferred rather than forced with new stored fields.
+
+**The export** produces `month-end-report.xlsx` (one worksheet per enabled record type), `reconciled.csv`/`unreconciled.csv`/`missing-documents.csv`/`uncoded.csv` (merged across all enabled record types with a `RecordType` column, built from the same filtered set the workbook uses — if the status filter narrowed to one bucket, the other CSVs are simply empty rather than omitted, keeping the ZIP's shape predictable), and `manifest.json` (company, period, filters applied, generatedAt/By, per-bucket counts — same shape as Company Package's own manifest).
+
 ### Payment Source Import & Duplicate Detection
 
 Accounts (bank or credit-card) are created in **Payment Sources**, then CSV or PDF statements are uploaded and parsed:
@@ -789,10 +799,12 @@ top of it inherits that risk and is treated accordingly (belt-and-suspenders,
 plus an explicit "spot-check before sending" note in the exported
 `PERSONAL_ACCOUNT_STATEMENTS_REDACTED.txt`).
 
-### Export
+### Records Export (Excel & Receipt ZIP, on Expenses.jsx)
 
 - **Excel (`.xlsx`)**: Built client-side with ExcelJS. Columns: Date, Vendor, Amount, Currency, Category, Notes, Receipts (image URLs). Includes per-currency totals row.
 - **Receipt ZIP**: Images are downloaded via the `/api/download-receipt` CORS proxy, then packed with JSZip. Files are organised as `YYYY-MM/Category/date_vendor_amount_currency.ext`. Downloads in batches of 6 with progress counter.
+
+Distinct from the **Month-End Report** (`Export.jsx`, route `/export`) below — this one is a single-collection, no-filter Expenses-only export; that one covers all four `FinanceRecord` collections with real filters.
 
 ### Confirmation Dialogs
 

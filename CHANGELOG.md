@@ -8,7 +8,21 @@ changes when it's bumped deliberately in `package.json`.
 
 ## Unreleased (still V1.1)
 
-_Nothing yet._
+**Finance / Bookkeeping Center repositioning — MVP-6 (Month-End Report).**
+The final item on the original repositioning roadmap. A new "Month-End
+Report" page (`/export`) generates a downloadable ZIP across all four
+`FinanceRecord` collections (Expenses/Income/Sales Invoices/Purchase
+Orders) — filterable by date range, record type, Account Code, and
+reconciliation status. Contains a multi-sheet Excel workbook plus
+`reconciled.csv`/`unreconciled.csv`/`missing-documents.csv`/`uncoded.csv`
+and a manifest, reusing the exact JSZip+ExcelJS+CSV pattern already
+proven in the Company Package export. New `recordReconciliationStatus()`
+helper (`financeRecords.js`) maps existing fields to Reconciled/
+Unreconciled/Missing Document — same "best-effort now" precedent as
+MVP-4's transaction-side status mapping; "Needs Review"/"sync-failed"
+from the spec's fuller vocabulary aren't modeled, since neither has a
+clean per-record meaning across all four collections. Rebuilt in place
+from a previously-orphaned, unrouted `Export.jsx`.
 
 ## V1.1 — 2026-09-09
 

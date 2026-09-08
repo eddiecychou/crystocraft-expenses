@@ -40,6 +40,7 @@ export default function Layout() {
         <NavLink to="/reconciliation">Reconcile</NavLink>
         <NavLink to="/company-review">Reimbursable Expenses</NavLink>
         <NavLink to="/account-codes">Account Codes</NavLink>
+        <NavLink to="/export">Month-End Report</NavLink>
         <NavLink to="/settings">Settings</NavLink>
         <button onClick={handleLogout} className="logout-btn">Logout</button>
       </nav>
@@ -88,6 +89,7 @@ export default function Layout() {
             <NavLink to="/invoices" className="mobile-sheet-item" onClick={() => setMoreOpen(false)}>Invoices & POs</NavLink>
             <NavLink to="/company-review" className="mobile-sheet-item" onClick={() => setMoreOpen(false)}>Reimbursable Expenses</NavLink>
             <NavLink to="/account-codes" className="mobile-sheet-item" onClick={() => setMoreOpen(false)}>Account Codes</NavLink>
+            <NavLink to="/export" className="mobile-sheet-item" onClick={() => setMoreOpen(false)}>Month-End Report</NavLink>
             <NavLink to="/settings" className="mobile-sheet-item" onClick={() => setMoreOpen(false)}>Settings</NavLink>
             <button type="button" className="mobile-sheet-item mobile-sheet-danger" onClick={handleLogout}>Logout</button>
           </div>
