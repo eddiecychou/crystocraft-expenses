@@ -867,6 +867,18 @@ body {
 .expense-table td:nth-child(6) { min-width: 180px; }
 .payment-sub { color: #718096; font-size: 12px; margin-top: 3px; }
 
+/* Invoices & POs' Notes column can carry a long, unbounded remarks string
+   (e.g. an Operation Center sync's WooCommerce fee breakdown) — without a
+   cap it stretches the whole table well past the viewport, pushing the
+   Source/Actions columns out of reach. Truncated with an ellipsis; full
+   text is still available via the cell's title tooltip. */
+.expense-table td.notes-cell {
+  max-width: 220px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .expense-table input, .expense-table select {
   padding: 4px 8px;
   border: 1px solid #cbd5e0;

@@ -23,6 +23,8 @@ const TABS = [
   { kind: 'po', label: 'Supplier POs', collection: 'purchaseOrders', counterpartyLabel: 'Supplier', numberLabel: 'PO #' },
 ]
 
+const SOURCE_LABELS = { csv: 'CSV', pdf: 'PDF', manual: 'Manual', operation_center: 'Operation Center' }
+
 export default function Invoices() {
   const { activeProject, updateProject } = useProject()
   const [activeKind, setActiveKind] = useState('invoice')
@@ -482,11 +484,11 @@ export default function Invoices() {
                       {rec.settlementStatus === 'confirmed' ? (tab.kind === 'invoice' ? 'Paid' : 'Settled') : 'Outstanding'}
                     </span>
                   </td>
-                  <td>{rec.notes}</td>
+                  <td className="notes-cell" title={rec.notes}>{rec.notes}</td>
                   <td>
                     {rec.sourceFileUrl
-                      ? <a href={rec.sourceFileUrl} target="_blank" rel="noreferrer"><AttachIcon size={14} strokeWidth={ICON_STROKE_WIDTH} aria-hidden="true" /> {rec.sourceType}</a>
-                      : rec.sourceType}
+                      ? <a href={rec.sourceFileUrl} target="_blank" rel="noreferrer"><AttachIcon size={14} strokeWidth={ICON_STROKE_WIDTH} aria-hidden="true" /> {SOURCE_LABELS[rec.sourceType] || rec.sourceType}</a>
+                      : SOURCE_LABELS[rec.sourceType] || rec.sourceType}
                   </td>
                   <td>
                     <button className="btn-small btn-ghost" onClick={() => startEdit(rec)}>Edit</button>
