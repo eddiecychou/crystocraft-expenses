@@ -672,7 +672,7 @@ export default function PaymentSources() {
       const resp = await fetchWithTimeout('/api/download-receipt', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: imp.sourceFileUrl }),
+        body: JSON.stringify({ url: imp.sourceFileUrl, idToken: await auth.currentUser.getIdToken() }),
       })
       if (!resp.ok) throw new Error(`could not re-fetch the stored file (HTTP ${resp.status})`)
       const blob = await resp.blob()
@@ -1027,7 +1027,7 @@ export default function PaymentSources() {
       const resp = await fetchWithTimeout('/api/download-receipt', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: imp.sourceFileUrl }),
+        body: JSON.stringify({ url: imp.sourceFileUrl, idToken: await auth.currentUser.getIdToken() }),
       })
       if (!resp.ok) throw new Error(`could not re-fetch the stored file (HTTP ${resp.status})`)
       const blob = await resp.blob()

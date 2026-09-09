@@ -408,6 +408,7 @@ export default function CompanyReview() {
     setExportProgress('Building spreadsheet…')
     try {
       const zip = new JSZip()
+      const idToken = await auth.currentUser.getIdToken()
 
       // expense-register.xlsx
       const wb = new ExcelJS.Workbook()
@@ -552,7 +553,7 @@ export default function CompanyReview() {
           let redacted = false
           if (imp.sourceType === 'pdf' && imp.sourceFileUrl) {
             try {
-              const res = await fetch('/api/download-receipt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: imp.sourceFileUrl }) })
+              const res = await fetch('/api/download-receipt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: imp.sourceFileUrl, idToken }) })
               if (!res.ok) throw new Error(`HTTP ${res.status}`)
               const blob = await res.blob()
               const file = new File([blob], imp.sourceFileName || 'statement.pdf', { type: 'application/pdf' })
@@ -581,7 +582,7 @@ export default function CompanyReview() {
 
         if (!imp.sourceFileUrl) continue
         try {
-          const res = await fetch('/api/download-receipt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: imp.sourceFileUrl }) })
+          const res = await fetch('/api/download-receipt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: imp.sourceFileUrl, idToken }) })
           if (!res.ok) throw new Error(`HTTP ${res.status}`)
           zip.file(`source-statements/${imp.sourceFileName || importId}`, await res.arrayBuffer())
         } catch (err) {
@@ -612,7 +613,7 @@ export default function CompanyReview() {
           const img = expense.images[i]
           if (!img.path) continue
           try {
-            const res = await fetch('/api/download-receipt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: img.url }) })
+            const res = await fetch('/api/download-receipt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: img.url, idToken }) })
             if (!res.ok) throw new Error(`HTTP ${res.status}`)
             const ext = img.path.split('.').pop() || 'jpg'
             zip.file(`receipts/${t.transactionDate}_${expense.vendor || 'receipt'}${expense.images.length > 1 ? `_${i + 1}` : ''}.${ext}`, await res.arrayBuffer())

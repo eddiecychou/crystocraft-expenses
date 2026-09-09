@@ -314,6 +314,7 @@ export default function Expenses() {
       let added = 0
       const failures = []
       const BATCH = 6
+      const idToken = await auth.currentUser.getIdToken()
 
       for (let i = 0; i < tasks.length; i += BATCH) {
         const batch = tasks.slice(i, i + BATCH)
@@ -323,7 +324,7 @@ export default function Expenses() {
             const download = fetch('/api/download-receipt', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ url: img.url }),
+              body: JSON.stringify({ url: img.url, idToken }),
             }).then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.arrayBuffer() })
             return Promise.race([download, timeout])
           })

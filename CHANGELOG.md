@@ -8,6 +8,18 @@ changes when it's bumped deliberately in `package.json`.
 
 ## Unreleased (still V1.1)
 
+**Auth on download-receipt.js (code review finding #7).**
+This CORS-bypassing proxy for Firebase Storage URLs had no auth check
+at all — restricted to `firebasestorage.googleapis.com` URLs, but not
+to this app's own signed-in users. Now verifies an ID token first,
+same pattern as the other four endpoints hardened in the previous
+round. Also now rejects non-POST requests explicitly (previously a GET
+just failed JSON parsing with an opaque 500). All 6 client call sites
+(Expenses.jsx's receipt ZIP export, CompanyReview.jsx's Company
+Package export ×3, PaymentSources.jsx's Verify-Against-PDF and
+Fix-from-Stored-PDF) now send `idToken`.
+
+
 **Security & data-integrity fixes from an external code review.**
 `process-receipt.js`/`process-invoice.js` (the Gemini/Vision OCR
 endpoints) had no authentication at all — anyone who found the URL
