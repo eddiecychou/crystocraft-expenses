@@ -8,6 +8,7 @@ import ConfirmDialog from '../components/ConfirmDialog'
 import { parseCSV } from '../lib/paymentMatching'
 import { mapDocumentCsvRecords, uploadDocumentFile, operationCenterDocId, mapOperationCenterPoRow, mapOperationCenterInvoiceRow, jesLegacyDocId, mapJesLegacyPoRow, mapJesLegacyInvoiceRow } from '../lib/documentImport'
 import AccountCodePicker from '../components/AccountCodePicker'
+import ExtractionWarning from '../components/ExtractionWarning'
 import { useAccountCodes, saveAccountCodeRule } from '../hooks/useAccountCodes'
 import { DocumentIcon, AttachIcon, ICON_STROKE_WIDTH } from '../icons'
 
@@ -527,6 +528,8 @@ export default function Invoices() {
               {r.error
                 ? <div className="error-msg">Could not extract: {r.error}</div>
                 : (
+                  <>
+                  <ExtractionWarning validation={r.validation} />
                   <div className="result-grid">
                     <label>
                       {tab.numberLabel}
@@ -579,6 +582,7 @@ export default function Invoices() {
                       )}
                     </div>
                   </div>
+                  </>
                 )
               }
             </div>

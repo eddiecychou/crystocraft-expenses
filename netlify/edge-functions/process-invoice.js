@@ -71,7 +71,18 @@ export default async function handler(req) {
 
     const match = raw.match(/\{[\s\S]*\}/)
     if (match) {
-      try { return json(JSON.parse(match[0])) } catch {}
+      try {
+        const parsed = JSON.parse(match[0])
+        // Same validation idea as process-receipt.js — check the
+        // extraction against the document's own numbers/text before it
+        // reaches the review UI, rather than trusting it blindly.
+        // subtotal/tax exist purely to power this check.
+        parsed.validation = {
+          arithmeticMismatch: checkArithmetic(parsed),
+          ungroundedFields: transcript ? ['amount', 'counterpartyName'].filter(f => !isGrounded(parsed[f], transcript)) : [],
+        }
+        return json(parsed)
+      } catch {}
     }
 
     return json(emptyResult(kind))
@@ -104,7 +115,9 @@ function extractionPrompt(kind) {
   "date": "YYYY-MM-DD or null",
   "amount": <final total amount${amountLabel}, as a number or null>,
   "currency": "HKD or RMB or USD or EUR or JPY or AUD or GBP or SGD or CAD or KRW or Other or null",
-  "notes": "brief description of what the ${notesLabel} is for, or null"
+  "notes": "brief description of what the ${notesLabel} is for, or null",
+  "subtotal": <the subtotal/pre-tax amount, only if separately printed, as a number or null — used only to double-check the total, not shown to the user>,
+  "tax": <the tax amount, only if separately printed, as a number or null>
 }
 
 Currency rules: HK$ or HKD = HKD | ¥ or RMB or CNY or 人民币 = RMB | $ or USD = USD | € = EUR | JP¥ or JPY = JPY | A$ = AUD | £ = GBP | S$ = SGD | C$ = CAD | ₩ = KRW. Default to HKD if unclear.
@@ -190,6 +203,27 @@ async function callGemini(parts, generationConfig, GEMINI_API_KEY) {
 
   if (rateLimited) throw new Error('AI service is busy right now — please try again in a moment')
   return ''
+}
+
+// Same checks as process-receipt.js (duplicated rather than shared — see
+// that file's own comment on why; edge functions here don't import from
+// each other). checkArithmetic has no serviceCharge param — not a concept
+// on invoices/POs/income documents.
+function checkArithmetic({ subtotal, tax, amount }) {
+  if (subtotal == null || amount == null) return null
+  const expected = Number(subtotal) + (Number(tax) || 0)
+  const difference = Number(amount) - expected
+  return { consistent: Math.abs(difference) <= 0.02, expected, extracted: Number(amount), difference }
+}
+
+function isGrounded(value, transcript) {
+  if (value == null || value === '') return true
+  const norm = transcript.toLowerCase()
+  if (typeof value === 'number') {
+    const numbers = (transcript.match(/[\d,]+\.?\d*/g) || []).map(s => parseFloat(s.replace(/,/g, '')))
+    return numbers.some(n => Math.abs(n - value) <= 0.01)
+  }
+  return norm.includes(String(value).toLowerCase().trim())
 }
 
 function json(data, status = 200) {

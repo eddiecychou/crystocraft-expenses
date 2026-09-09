@@ -720,3 +720,33 @@ match) that can validate *any* extraction method's output — build that
 check once, and it protects against a wrong answer from a hand-coded
 parser and an AI extraction equally, rather than needing separate trust
 logic for each.
+
+**Extended to receipts/invoices/POs/income docs, closing a real
+inconsistency**: those four document types went through `process-receipt.js`/
+`process-invoice.js`'s OCR-then-Gemini pipeline with *no* equivalent
+check at all — whatever Gemini returned went straight to the review
+form. Each document type gets its own framework, built from the
+relationships that actually exist on it, not one generic rule forced
+across all of them:
+
+- **Arithmetic**: `subtotal + tax (+ serviceCharge, receipts only) =
+  amount`, computed from three new nullable fields added to each
+  extraction prompt purely to power this check (not new user-facing
+  form fields). Skipped when no subtotal was printed/extracted — most
+  receipts only show a final total, and that's not itself a problem,
+  same graceful skip `validateStatementTotals` already has for a
+  statement with no printed opening/closing balance.
+- **Grounding**: does the extracted amount/vendor/counterparty name
+  actually appear, in some recognizable form, in the OCR transcript
+  Gemini was given? Numbers are compared by value (tolerant of
+  "4,382.50" vs "4382.5" formatting) rather than exact substring match.
+  Only possible when a transcript exists — a PDF (rare for receipts,
+  common for invoices/POs) skips transcription entirely per the
+  existing "PDF extraction shortcut," so grounding coverage is
+  partial by design, not a bug to chase down.
+
+Both checks run server-side (the edge functions already have the
+transcript; the client never does) and surface as an advisory banner
+(`ExtractionWarning` component, shared across Upload.jsx/Income.jsx/
+Invoices.jsx) — never blocking save, same as the statement panel's own
+non-blocking totals-check message.

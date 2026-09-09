@@ -7,6 +7,7 @@ import ProjectBanner from '../components/ProjectBanner'
 import ConfirmDialog from '../components/ConfirmDialog'
 import { uploadDocumentFile } from '../lib/documentImport'
 import AccountCodePicker from '../components/AccountCodePicker'
+import ExtractionWarning from '../components/ExtractionWarning'
 import { useAccountCodes, saveAccountCodeRule } from '../hooks/useAccountCodes'
 import { suggestAccountCode } from '../lib/accountCodes'
 import { normalizeMerchant } from '../lib/paymentMatching'
@@ -251,6 +252,8 @@ export default function Income() {
               {r.error
                 ? <div className="error-msg">Could not extract: {r.error}</div>
                 : (
+                  <>
+                  <ExtractionWarning validation={r.validation} />
                   <div className="result-grid">
                     <label>
                       Reference
@@ -300,6 +303,7 @@ export default function Income() {
                       <input value={r.notes || ''} onChange={e => update(r._id, 'notes', e.target.value)} />
                     </label>
                   </div>
+                  </>
                 )
               }
             </div>

@@ -72,7 +72,20 @@ export default async function handler(req) {
 
     const match = raw.match(/\{[\s\S]*\}/)
     if (match) {
-      try { return json(JSON.parse(match[0])) } catch {}
+      try {
+        const parsed = JSON.parse(match[0])
+        // Don't trust the extraction blindly — check it against the
+        // receipt's own numbers/text before handing it to the review UI.
+        // See LESSONS_LEARNED.md's statement-parsing entry for why a
+        // deterministic check like this validates any extraction method,
+        // not just AI. subtotal/tax/serviceCharge exist purely to power
+        // this check, not as new user-facing fields.
+        parsed.validation = {
+          arithmeticMismatch: checkArithmetic(parsed),
+          ungroundedFields: transcript ? ['vendor', 'amount'].filter(f => !isGrounded(parsed[f], transcript)) : [],
+        }
+        return json(parsed)
+      } catch {}
     }
 
     return json({ date: null, vendor: null, amount: null, currency: 'HKD', category: 'Other', notes: 'AI could not parse — please fill in manually' })
@@ -91,7 +104,10 @@ const EXTRACTION_PROMPT = `You are an expert receipt parser. Extract expense det
   "currency": "HKD or RMB or USD or EUR or JPY or AUD or GBP or SGD or CAD or KRW or Other or null",
   "category": "one of: Travel, Meals, Office, Software, Utilities, Development, Marketing, Professional Services, Equipment, Bank Charges, Production, Other",
   "notes": "brief description of what was purchased (items or service), or null",
-  "paymentMethod": "one of: Credit Card HK, Bank Account HK, Alipay, WeChat Pay, Bank Account CN, Cash, or null if not shown"
+  "paymentMethod": "one of: Credit Card HK, Bank Account HK, Alipay, WeChat Pay, Bank Account CN, Cash, or null if not shown",
+  "subtotal": <the subtotal/pre-tax amount, only if separately printed on the receipt, as a number or null — used only to double-check the total, not shown to the user>,
+  "tax": <the tax amount, only if separately printed, as a number or null>,
+  "serviceCharge": <the service charge amount, only if separately printed, as a number or null>
 }
 
 Currency rules: HK$ or HKD = HKD | ¥ or RMB or CNY or 人民币 = RMB | $ or USD = USD | € = EUR | JP¥ or JPY = JPY | A$ = AUD | £ = GBP | S$ = SGD | C$ = CAD | ₩ = KRW. Default to HKD if unclear.
@@ -188,6 +204,36 @@ async function callGemini(parts, generationConfig, GEMINI_API_KEY) {
 
   if (rateLimited) throw new Error('AI service is busy right now — please try again in a moment')
   return ''
+}
+
+// Checks the receipt's own printed breakdown against its own printed
+// total — the same "does it add up" idea validateStatementTotals()
+// (duplicateDetection.js) already applies to bank statements, scaled down
+// to one document. Returns null (nothing to check) when no subtotal was
+// extracted — most receipts only print a final total, not a breakdown,
+// and that's not itself a problem.
+function checkArithmetic({ subtotal, tax, serviceCharge, amount }) {
+  if (subtotal == null || amount == null) return null
+  const expected = Number(subtotal) + (Number(tax) || 0) + (Number(serviceCharge) || 0)
+  const difference = Number(amount) - expected
+  return { consistent: Math.abs(difference) <= 0.02, expected, extracted: Number(amount), difference }
+}
+
+// Does this extracted value actually appear on the document, in some
+// recognizable form? Catches a straightforward hallucination/misread,
+// independent of the arithmetic check above. Numbers are compared by
+// value (tolerant of "4,382.50" vs "4382.5" formatting differences)
+// rather than exact substring match; text is compared case/whitespace-
+// insensitively. Only meaningful when a transcript exists — see the
+// PDF-transcription limitation noted where this is called.
+function isGrounded(value, transcript) {
+  if (value == null || value === '') return true // nothing to check
+  const norm = transcript.toLowerCase()
+  if (typeof value === 'number') {
+    const numbers = (transcript.match(/[\d,]+\.?\d*/g) || []).map(s => parseFloat(s.replace(/,/g, '')))
+    return numbers.some(n => Math.abs(n - value) <= 0.01)
+  }
+  return norm.includes(String(value).toLowerCase().trim())
 }
 
 function json(data, status = 200) {

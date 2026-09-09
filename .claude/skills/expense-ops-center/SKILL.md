@@ -214,7 +214,14 @@ anything it covers.
   tier produced the rows) — the same check that already caught a
   positional parser's misreads. Before reaching for an LLM on structured
   data, check whether the domain already has a cheap arithmetic
-  invariant that can validate any extraction method's output.
+  invariant that can validate any extraction method's output. Extended
+  to receipts/invoices/POs/income docs (which had no such check at
+  all): `process-receipt.js`/`process-invoice.js` now extract
+  `subtotal`/`tax`(/`serviceCharge`) purely to check `subtotal + tax
+  (+ serviceCharge) = amount`, plus a grounding check (does the
+  extracted value actually appear in the OCR transcript) — each
+  document type's own framework, not one generic rule, surfaced as a
+  non-blocking banner (`ExtractionWarning` component).
 - **Investigate what an external system actually has before scoping an
   integration to it.** MVP-5's Operation Center API round nearly built
   a full Expense/Income read/write sync per the spec's literal wording

@@ -8,6 +8,25 @@ changes when it's bumped deliberately in `package.json`.
 
 ## Unreleased (still V1.1)
 
+**Receipts/invoices/POs/income docs gain the same validation framework bank statements already had.**
+Bank statement import already checked `opening + net(rows) = closing`
+against the statement's own printed numbers before trusting any parsed
+row — receipts, invoices, POs, and income documents had no equivalent
+check, just an editable form fed straight from Gemini's output. Added
+two checks per document, computed server-side in `process-receipt.js`/
+`process-invoice.js` right after extraction: an **arithmetic** check
+(`subtotal + tax (+ serviceCharge) = amount`, using three new nullable
+extraction fields that exist only to power this check, skipped
+gracefully when no breakdown is printed) and a **grounding** check
+(does the extracted amount/vendor/counterparty actually appear in the
+OCR transcript, tolerant of number-formatting differences — only
+possible when a transcript exists, so partial for PDF-sourced
+invoices/POs, which skip transcription). Both surface as a non-blocking
+advisory banner (new shared `ExtractionWarning` component) on the
+review card — never prevents saving, matches the statement panel's own
+"check carefully before importing" behavior. See LESSONS_LEARNED.md's
+"A deterministic invariant can validate an AI extraction" entry.
+
 **Operation Center UI hidden from non-Crystocraft customers; generalized connector visibility gate.**
 Ahead of inviting outside customers onto the app, added `projects/{id}.connectors`
 (string array, set only on Crystocraft's own project) and gated the whole
