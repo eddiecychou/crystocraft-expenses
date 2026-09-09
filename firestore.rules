@@ -70,30 +70,24 @@ service cloud.firestore {
       allow create: if request.auth != null && isProjectMember(request.resource.data.projectId);
     }
 
-    // ---------------------------------------------------------------------
-    // GAP — no rule exists yet for the collections below, confirmed against
-    // what's actually live in the Console on 2026-09-09. Firestore denies
-    // anything with no matching rule by default, so as of this commit:
-    // Income.jsx and AccountCodes.jsx (and the AccountCodePicker used from
-    // Upload/Income/Expenses/Invoices) should be failing every read/write
-    // with permission-denied. Add the three `match` blocks below (same
-    // shape as salesInvoices/purchaseOrders above — they're already
-    // per-project via isProjectMember, no schema change needed) in the
-    // Console to close this.
-    //
-    // match /income/{docId} {
-    //   allow read, update, delete: if request.auth != null && isProjectMember(resource.data.projectId);
-    //   allow create: if request.auth != null && isProjectMember(request.resource.data.projectId);
-    // }
-    // match /accountCodes/{codeId} {
-    //   allow read, update, delete: if request.auth != null && isProjectMember(resource.data.projectId);
-    //   allow create: if request.auth != null && isProjectMember(request.resource.data.projectId);
-    // }
-    // match /accountCodeRules/{ruleId} {
-    //   allow read, update, delete: if request.auth != null && isProjectMember(resource.data.projectId);
-    //   allow create: if request.auth != null && isProjectMember(request.resource.data.projectId);
-    // }
-    // ---------------------------------------------------------------------
+    // Added 2026-09-09 to close a confirmed live gap — Income.jsx/
+    // AccountCodes.jsx were shipped in code (MVP-2/MVP-3) without ever
+    // getting a matching rule published. Same per-project shape as
+    // salesInvoices/purchaseOrders above.
+    match /income/{docId} {
+      allow read, update, delete: if request.auth != null && isProjectMember(resource.data.projectId);
+      allow create: if request.auth != null && isProjectMember(request.resource.data.projectId);
+    }
+
+    match /accountCodes/{codeId} {
+      allow read, update, delete: if request.auth != null && isProjectMember(resource.data.projectId);
+      allow create: if request.auth != null && isProjectMember(request.resource.data.projectId);
+    }
+
+    match /accountCodeRules/{ruleId} {
+      allow read, update, delete: if request.auth != null && isProjectMember(resource.data.projectId);
+      allow create: if request.auth != null && isProjectMember(request.resource.data.projectId);
+    }
 
   }
 }

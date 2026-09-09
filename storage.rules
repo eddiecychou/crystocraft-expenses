@@ -30,26 +30,21 @@ service firebase.storage {
       );
     }
 
-    // -------------------------------------------------------------------
-    // GAP — no rule exists yet for the paths below, confirmed against
-    // what's actually live in the Console on 2026-09-09.
-    // uploadDocumentFile() (src/lib/documentImport.js) writes to
-    // invoices/{projectId}/{docId}/, purchaseOrders/{projectId}/{docId}/,
-    // and income/{projectId}/{docId}/ — none of which have a matching
-    // path here, so Storage denies by default. Unlike receipts/statements
-    // above, these are already keyed by projectId (not the uploader's
-    // uid), so the rule is simpler — no {userId} fallback needed.
-    //
-    // match /invoices/{projectId}/{docId}/{fileName} {
-    //   allow read, write: if isProjectMember(projectId);
-    // }
-    // match /purchaseOrders/{projectId}/{docId}/{fileName} {
-    //   allow read, write: if isProjectMember(projectId);
-    // }
-    // match /income/{projectId}/{docId}/{fileName} {
-    //   allow read, write: if isProjectMember(projectId);
-    // }
-    // -------------------------------------------------------------------
+    // Added 2026-09-09 to close a confirmed live gap — uploadDocumentFile()
+    // (src/lib/documentImport.js) has written here since MVP-1/MVP-2 with
+    // no matching rule published. Already keyed by projectId (not the
+    // uploader's uid), so no {userId} fallback needed like the paths above.
+    match /invoices/{projectId}/{docId}/{fileName} {
+      allow read, write: if isProjectMember(projectId);
+    }
+
+    match /purchaseOrders/{projectId}/{docId}/{fileName} {
+      allow read, write: if isProjectMember(projectId);
+    }
+
+    match /income/{projectId}/{docId}/{fileName} {
+      allow read, write: if isProjectMember(projectId);
+    }
 
   }
 }

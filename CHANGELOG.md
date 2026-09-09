@@ -8,23 +8,24 @@ changes when it's bumped deliberately in `package.json`.
 
 ## Unreleased (still V1.1)
 
-**`firestore.rules`/`storage.rules` committed to the repo (code review finding #2).**
+**`firestore.rules`/`storage.rules` committed to the repo, and a confirmed live gap fixed (code review finding #2).**
 Previously Console-only, with no version-controlled copy anywhere —
 this repo now carries both files, populated from what the user pasted
 directly from the live Console. This is a snapshot, not a deploy
 mechanism: there's still no CLI/CI publish step, so a future Console
 edit not backported here (or vice versa) can still drift. Diffing the
 pasted rules against what the app's code actually needs surfaced a
-**confirmed live gap**: no Firestore rule for `income`, `accountCodes`,
-or `accountCodeRules`, and no Storage rule for `invoices/`,
-`purchaseOrders/`, or `income/` — meaning Income.jsx, AccountCodes.jsx,
-and document uploads on those three collections should be failing
-every read/write in production right now. The needed `match` blocks
-are drafted (commented, under a `GAP` marker) in both files, ready to
-paste into the Console once confirmed. Also flagged, not yet fixed:
-`projects`'s `update` rule only allows the project owner, which may be
-blocking non-owner collaborators from some project-doc writes
-(Operation Center Sync status, possibly Settings' Categories editors).
+**confirmed live gap, now fixed and published**: no Firestore rule
+existed for `income`, `accountCodes`, or `accountCodeRules`, and no
+Storage rule for `invoices/`, `purchaseOrders/`, or `income/` — meaning
+Income.jsx, AccountCodes.jsx, and document uploads on those three
+collections had been failing every read/write in production since each
+shipped (MVP-1/MVP-2/MVP-3), with no rule ever published for them. Both
+rule sets updated and confirmed live the same day. Still open,
+flagged but not yet fixed: `projects`'s `update` rule only allows the
+project owner, which may be blocking non-owner collaborators from some
+project-doc writes (Operation Center Sync status, possibly Settings'
+Categories editors).
 
 
 **Auth on download-receipt.js (code review finding #7).**
