@@ -98,6 +98,16 @@ anything it covers.
   `invoices/`/`purchaseOrders`/`income` Storage paths, found 2026-09-09
   by finally diffing the repo's rules file against what the user pasted
   from the real Console).
+- **The repo's `firestore.rules`/`storage.rules` are the source of
+  truth — the user will not manually edit rules in the Console
+  themselves.** When a rule changes, edit the repo file first, then
+  hand over the **entire file content**, ready to select-all-replace
+  in that Console tab — never a fragment, a "just swap in this block"
+  diff, or an ask to merge something into their existing rules by
+  hand. The user corrected this explicitly (2026-09-09) after being
+  handed a single changed block with merge instructions: manually
+  splicing rules is exactly the class of easy-to-botch editing that's
+  already caused missed-rule incidents on this project.
 - **`git commit` freely; never `git push` without being asked.** This
   project's rhythm is: implement, build, commit with a detailed message,
   report status, wait for an explicit "push it."
