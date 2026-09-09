@@ -555,6 +555,19 @@ fixed template → positional parser (cheap, deterministic, no API cost);
 many issuers/arbitrary templates → OCR+AI extraction with mandatory human
 review.
 
+**Update, once real customers started bringing their own bank statements:**
+a bank statement doesn't fit either bucket cleanly — one issuer per
+account, so the positional parser stays the fast, free, deterministic
+first choice, but a *new customer's* bank is a template this app has
+never seen, and per-bank tuning ahead of time isn't realistic. Rather
+than pick one approach, `parsePdfStatement` now tries the positional
+parser first, a simpler single-line regex fallback second, and only
+turns to Gemini extraction (`geminiStatementParser.js`) as a third tier
+when both of those find zero rows on real extracted text. See "A
+deterministic invariant can validate an AI extraction the same way it
+validates a parser" below for why this is safe to trust no more than the
+deterministic tiers.
+
 ## OCR architecture direction (in progress, not yet built)
 
 Agreed direction for receipt OCR accuracy: **Cloud Vision `DOCUMENT_TEXT_DETECTION`
@@ -598,6 +611,19 @@ something the client can't write — a Firestore field the UI reads to
 decide what to show is fine; a Firestore field as the *entire* security
 check for reaching a privileged external system is not, especially once
 an app is multi-tenant.
+
+**Generalized when onboarding non-Crystocraft customers:** the same
+"UI-only, never the real gate" role is now played by `projects/{id}.connectors`
+(a string array, e.g. `['operation_center']`) — it decides whether the
+Operation Center section renders in Settings.jsx/Invoices.jsx at all,
+set once by hand on Crystocraft's own project doc, with no UI control
+letting a customer set it themselves. A new customer's project simply
+has no `connectors` entry, so the section never renders — but even if it
+somehow did, `OPERATION_CENTER_CONNECTORS` still refuses any `projectId`
+outside the registry, exactly as before. This is the shape a future
+customer-specific connector should reuse: its own `connectors` entry on
+that customer's project doc, plus its own registry env var keyed by its
+own `projectId`.
 
 ## Investigate what an external system actually has before scoping an integration to it
 
@@ -658,3 +684,39 @@ data-integrity drift.
 relationship (a match, a link), write them in one `writeBatch` — a
 sequential pair of `updateDoc` calls, no matter how each one's errors
 are handled individually, can never guarantee that.
+
+## A deterministic invariant can validate an AI extraction the same way it validates a parser
+
+When a new customer's bank statement uses a layout `pdfStatementParser.js`'s
+column-position parser (and its single-line regex fallback) can't
+recognize at all, the temptation is to hand the whole problem to Gemini
+and trust whatever comes back — but an LLM extraction has no built-in
+way to know it got a date or amount wrong, and accounting data is
+exactly the place that's unacceptable.
+
+The fix wasn't a smarter prompt — it was reusing a check this app
+already had for an unrelated reason: `validateStatementTotals()`
+(`duplicateDetection.js`) computes `openingBalance + net(rows) ==
+closingBalance`, where both balance figures are read straight off the
+statement's own printed text, entirely independent of how the
+transaction rows themselves were produced. That means the exact same
+function that already catches a column-parser misreading one row
+(shown in `PaymentSources.jsx`'s review panel as "Statement totals
+check FAILED... check carefully before importing") also catches a
+Gemini-assisted extraction getting a row wrong, with zero new
+validation logic — a missing or misread transaction breaks the
+arithmetic no matter which tier produced it.
+
+`geminiStatementParser.js`'s rows are tagged `extractionMethod:
+'ai_assisted'` purely for the UI to flag them for extra scrutiny — the
+actual trust decision is `validateStatementTotals()`, run identically
+regardless of provenance, on top of the review panel's existing
+mandatory row-by-row confirmation before anything is written.
+
+**Rule of thumb:** before reaching for an LLM to parse something
+structured, check whether the domain already has a cheap, deterministic
+invariant (a total that must reconcile, a checksum, a count that must
+match) that can validate *any* extraction method's output — build that
+check once, and it protects against a wrong answer from a hand-coded
+parser and an AI extraction equally, rather than needing separate trust
+logic for each.

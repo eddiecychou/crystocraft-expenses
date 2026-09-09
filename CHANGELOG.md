@@ -8,6 +8,34 @@ changes when it's bumped deliberately in `package.json`.
 
 ## Unreleased (still V1.1)
 
+**Operation Center UI hidden from non-Crystocraft customers; generalized connector visibility gate.**
+Ahead of inviting outside customers onto the app, added `projects/{id}.connectors`
+(string array, set only on Crystocraft's own project) and gated the whole
+"Operation Center Sync" section in Settings.jsx and the Sync/Legacy-Import
+UI in Invoices.jsx on `connectors.includes('operation_center')` — a new
+customer's project never sees the section at all. This is a cosmetic fix,
+not a security one: the connector's real key already lived only in a
+server-side env var and was already gated by a server-side per-project
+registry (`OPERATION_CENTER_CONNECTORS`), unaffected by this change. The
+`connectors` shape generalizes so a future customer's own ERP/API
+integration can slot in the same way — see LESSONS_LEARNED.md and
+TECHNICAL.md's "Operation Center Sync" section.
+
+**Bank/credit-card statement parsing gains a third, AI-assisted tier for unrecognized layouts.**
+`pdfStatementParser.js`'s column-position parser and its single-line
+regex fallback both depend on the statement's own layout being one this
+app has already seen; a new customer's bank statement may not be. Added
+a third tier (`geminiStatementParser.js` → new edge function
+`process-statement-text.js`), tried only when the first two find zero
+rows on real extracted text — never on a scanned/empty PDF. Its rows are
+tagged `extractionMethod: 'ai_assisted'` and flagged in
+PaymentSources.jsx's review panel, but are not trusted any more than the
+existing tiers: `validateStatementTotals()`'s opening+net=closing check
+and the existing mandatory row-review-before-import step both apply
+identically regardless of which tier produced the rows. See
+LESSONS_LEARNED.md's "A deterministic invariant can validate an AI
+extraction the same way it validates a parser."
+
 **`firestore.rules`/`storage.rules` committed to the repo, and a confirmed live gap fixed (code review finding #2).**
 Previously Console-only, with no version-controlled copy anywhere —
 this repo now carries both files, populated from what the user pasted

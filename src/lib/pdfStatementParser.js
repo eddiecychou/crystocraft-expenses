@@ -23,11 +23,18 @@
 //
 // Because layout varies bank-to-bank, this is heuristic. If no header row
 // is recognized on a page, we fall back to a simpler date-line + trailing
-// amount heuristic. Unlike CSV import (structured, trusted), callers MUST
-// show parsed rows to the user for review before writing anything.
+// amount heuristic. If BOTH of those find zero rows on real extracted text
+// (a layout genuinely new to this app, e.g. a new customer's own bank),
+// parsePdfStatement falls back once more to Gemini structured extraction on
+// that same text (geminiStatementParser.js) — marked extractionMethod:
+// 'ai_assisted' so it's visibly distinct. None of these three tiers is
+// trusted blindly: callers MUST show parsed rows to the user for review
+// before writing anything, and validateStatementTotals() (duplicateDetection.js)
+// checks opening+net=closing independently of which tier produced the rows.
 
 import * as pdfjsLib from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
+import { parseStatementRowsWithGemini } from './geminiStatementParser'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl
 
@@ -598,6 +605,27 @@ export async function parsePdfStatement(file) {
     // No table with a recognizable header anywhere — try the simpler
     // single-line fallback in case this is a plainer statement format.
     rows.push(...parseFallback(allLines))
+  }
+  rows.forEach(r => { if (!r.extractionMethod) r.extractionMethod = 'column_parser' })
+
+  if (!rows.length && lineCount > 0) {
+    // Tiers 1-2 both work off this statement's own printed table layout,
+    // which varies bank-to-bank — real text was found, but no recognizable
+    // transaction shape in it, which means a genuinely new layout rather
+    // than a scanned/empty PDF. Tier 3 (Gemini, on the same extracted text)
+    // is tried only here, and its rows are marked ai_assisted so the review
+    // panel can flag them — see geminiStatementParser.js and
+    // process-statement-text.js for why this still isn't a blind-trust
+    // path: validateStatementTotals() below is computed independently of
+    // which tier produced the rows.
+    try {
+      const aiRows = await parseStatementRowsWithGemini(allLines.map(l => l.text).join('\n'))
+      rows.push(...aiRows)
+    } catch {
+      // AI fallback failing (offline, quota, etc.) just leaves rows empty —
+      // the caller already handles "zero rows found" as a clear message,
+      // never as a silent gap.
+    }
   }
 
   // sourceRowIndex is assigned per-section above (so it resets per table),

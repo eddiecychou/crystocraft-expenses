@@ -372,22 +372,32 @@ export default function Settings() {
             </div>
           </div>
 
-          <div className="settings-section">
-            <h3 className="settings-section-title">Operation Center Sync (Crystocraft only)</h3>
-            <p className="hint">
-              Pulls Purchase Orders and Sales Invoices live from Crystocraft's Operation Center
-              instead of a manual CSV import (Invoices &amp; POs page). Only meaningful for
-              Crystocraft's own project — leave off for every other company.
-            </p>
-            <label className="checkbox-row">
-              <input
-                type="checkbox"
-                checked={!!activeProject.operationCenterSyncEnabled}
-                onChange={e => toggleOperationCenterSync(e.target.checked)}
-              />
-              Enable Operation Center Sync for "{activeProject.name}"
-            </label>
-          </div>
+          {/* This whole section only exists for projects with the 'operation_center'
+              connector — a non-secret flag set once by us on Crystocraft's own project,
+              never client-writable. It's a visibility gate only: the real enforcement is
+              OPERATION_CENTER_CONNECTORS, a server-only env var in sync-operation-center.js
+              keyed by projectId (see LESSONS_LEARNED.md — "a client-writable boolean is a
+              UI convenience, never a security boundary"). Hiding it here just means a new
+              customer's project never sees a toggle/section that could never do anything
+              for them anyway. */}
+          {activeProject.connectors?.includes('operation_center') && (
+            <div className="settings-section">
+              <h3 className="settings-section-title">Operation Center Sync (Crystocraft only)</h3>
+              <p className="hint">
+                Pulls Purchase Orders and Sales Invoices live from Crystocraft's Operation Center
+                instead of a manual CSV import (Invoices &amp; POs page). Only meaningful for
+                Crystocraft's own project — leave off for every other company.
+              </p>
+              <label className="checkbox-row">
+                <input
+                  type="checkbox"
+                  checked={!!activeProject.operationCenterSyncEnabled}
+                  onChange={e => toggleOperationCenterSync(e.target.checked)}
+                />
+                Enable Operation Center Sync for "{activeProject.name}"
+              </label>
+            </div>
+          )}
         </>
       )}
 

@@ -1217,6 +1217,17 @@ export default function PaymentSources() {
               PDF table parsing is heuristic — uncheck any row that looks wrong before importing.
               {pdfQueue.length > 0 && ` ${pdfQueue.length} more PDF${pdfQueue.length === 1 ? '' : 's'} queued after this one.`}
             </p>
+            {pdfPreview.rows.some(r => r.extractionMethod === 'ai_assisted') && (
+              // This statement's layout wasn't recognized by the normal column
+              // parser — these rows came from the AI fallback instead (see
+              // pdfStatementParser.js). The totals check below still applies
+              // and is the real safeguard; this just tells the user why these
+              // particular rows deserve extra scrutiny.
+              <p className="hint" style={{ color: 'var(--warning, #b45309)' }}>
+                This statement's layout wasn't recognized — rows marked "AI" below were read by AI instead of the
+                usual parser. Check them carefully, especially amounts and dates.
+              </p>
+            )}
             {pdfPreview.totalsCheck && (
               <p className={pdfPreview.totalsCheck.consistent ? 'success-msg' : 'error-msg'}>
                 {pdfPreview.totalsCheck.consistent
@@ -1239,7 +1250,7 @@ export default function PaymentSources() {
                     <tr key={i} style={{ opacity: r.include ? 1 : 0.4 }}>
                       <td><input type="checkbox" checked={r.include} onChange={() => togglePreviewRow(i)} /></td>
                       <td>{r.transactionDate}</td>
-                      <td>{r.merchantRaw}</td>
+                      <td>{r.merchantRaw}{r.extractionMethod === 'ai_assisted' && <span className="hint"> (AI)</span>}</td>
                       <td data-amount="true">{r.direction === 'debit' ? '-' : '+'}{r.settlementAmount.toFixed(2)}</td>
                       <td data-amount="true">{r.balanceAfter != null ? r.balanceAfter.toFixed(2) : '—'}</td>
                     </tr>

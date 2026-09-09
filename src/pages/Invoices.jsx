@@ -442,7 +442,12 @@ export default function Invoices() {
         ))}
       </div>
 
-      {activeProject?.operationCenterSyncEnabled && (
+      {/* Belt-and-suspenders with operationCenterSyncEnabled: 'connectors' is the
+          same non-secret, us-only visibility gate as Settings.jsx's section — a new
+          customer's project has neither field, so this never renders for them even
+          if operationCenterSyncEnabled were ever somehow set. Real enforcement stays
+          server-side (OPERATION_CENTER_CONNECTORS in sync-operation-center.js). */}
+      {activeProject?.connectors?.includes('operation_center') && activeProject?.operationCenterSyncEnabled && (
         <>
           <div className="filter-row" style={{ marginBottom: 8, alignItems: 'center' }}>
             <button className="btn-ghost btn-small" onClick={syncFromOperationCenter} disabled={syncing}>

@@ -199,6 +199,22 @@ anything it covers.
   secondary "pause without an env-var edit" check. Any feature gating
   access to another system's real credentials needs its actual
   enforcement server-side, keyed by something the client can't write.
+  Generalized when the app started onboarding non-Crystocraft customers:
+  `projects/{id}.connectors` (a non-secret array, set by hand only on
+  Crystocraft's project) now gates whether the whole Operation Center UI
+  even renders in Settings.jsx/Invoices.jsx — the same "UI-only, never
+  the real gate" role, so a future customer's own connector reuses the
+  same shape.
+- **A deterministic invariant validates an AI extraction the same way it
+  validates a hand-coded parser.** A new customer's bank statement can
+  have a layout `pdfStatementParser.js`'s column parser has never seen;
+  rather than trust a Gemini-assisted fallback blindly, its rows still
+  get checked by `validateStatementTotals()` (opening + net of rows =
+  closing, read straight off the statement text, independent of which
+  tier produced the rows) — the same check that already caught a
+  positional parser's misreads. Before reaching for an LLM on structured
+  data, check whether the domain already has a cheap arithmetic
+  invariant that can validate any extraction method's output.
 - **Investigate what an external system actually has before scoping an
   integration to it.** MVP-5's Operation Center API round nearly built
   a full Expense/Income read/write sync per the spec's literal wording
