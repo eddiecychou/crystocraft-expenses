@@ -8,6 +8,26 @@ changes when it's bumped deliberately in `package.json`.
 
 ## Unreleased (still V1.1)
 
+**Security & data-integrity fixes from an external code review.**
+`process-receipt.js`/`process-invoice.js` (the Gemini/Vision OCR
+endpoints) had no authentication at all — anyone who found the URL
+could POST arbitrary content and burn the app's AI quota. Both now
+verify a signed-in Finance app user's ID token first, same Identity
+Toolkit check already used by `export-excel.js`/`sync-operation-
+center.js`; the 5 client call sites (Upload.jsx ×3, Income.jsx,
+Invoices.jsx) now send it. Separately, every "confirm a match"/"unlink
+a match" action across Reconciliation.jsx/Expenses.jsx/
+PaymentSources.jsx wrote two (sometimes up to six) documents
+sequentially with no batch — a failure partway through could leave a
+transaction and its matched record disagreeing about whether they're
+still linked. All converted to a single `writeBatch` (or a
+client-generated ref + batch for the one case creating a new doc),
+so a match/link/unlink either fully commits or doesn't happen at all.
+See LESSONS_LEARNED.md for the reasoning behind the one real trade-off
+this introduced (a genuinely-deleted linked doc now fails the whole
+unlink rather than partially succeeding).
+
+
 **Finance / Bookkeeping Center repositioning — MVP-6 (Month-End Report).**
 The final item on the original repositioning roadmap. A new "Month-End
 Report" page (`/export`) generates a downloadable ZIP across all four

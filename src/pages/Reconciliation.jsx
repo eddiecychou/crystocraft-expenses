@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { collection, query, where, onSnapshot, doc, updateDoc, addDoc, serverTimestamp } from 'firebase/firestore'
+import { collection, query, where, onSnapshot, doc, updateDoc, addDoc, writeBatch, serverTimestamp } from 'firebase/firestore'
 import { db, auth } from '../firebase'
 import { useProject } from '../contexts/ProjectContext'
 import ProjectBanner from '../components/ProjectBanner'
@@ -508,22 +508,28 @@ export default function Reconciliation() {
   // that transaction may have been deleted independently since the match.
   async function unlinkExpense(e) {
     if (!confirm(`Unmatch "${e.vendor}" (${e.date}) from its current transaction so you can match it here instead?`)) return
+    // One batch instead of two sequential updateDoc calls — previously the
+    // transaction side was best-effort (.catch) while the expense side
+    // wasn't, so a failure on either could leave them disagreeing about
+    // whether they're still linked. Batched, both commit or neither does.
+    const batch = writeBatch(db)
     if (e.matchedPaymentTransactionId) {
-      await updateDoc(doc(db, 'paymentTransactions', e.matchedPaymentTransactionId), {
+      batch.update(doc(db, 'paymentTransactions', e.matchedPaymentTransactionId), {
         status: 'unmatched',
         matchedExpenseIds: [],
         confidenceScore: null,
         matchReasons: [],
         updatedAt: serverTimestamp(),
-      }).catch(() => {})
+      })
     }
-    await updateDoc(doc(db, 'expenses', e.id), {
+    batch.update(doc(db, 'expenses', e.id), {
       matchedPaymentTransactionId: null,
       matchedPaymentAccountId: null,
       settlementAmount: null,
       settlementCurrency: null,
       settlementStatus: 'unsettled',
     })
+    await batch.commit().catch(() => {})
   }
 
   async function confirmMatch(txn, expenseIdOverride) {
@@ -536,12 +542,17 @@ export default function Reconciliation() {
       return
     }
     setBusyId(txn.id)
-    await updateDoc(doc(db, 'paymentTransactions', txn.id), {
+    // One batch — previously two sequential updateDoc calls, so a failure
+    // on the second (expense) write after the first (transaction) already
+    // committed left the transaction "matched" pointing at an expense that
+    // still claimed to be unmatched.
+    const batch = writeBatch(db)
+    batch.update(doc(db, 'paymentTransactions', txn.id), {
       status: 'matched',
       matchedExpenseIds: [expenseId],
       updatedAt: serverTimestamp(),
     })
-    await updateDoc(doc(db, 'expenses', expenseId), {
+    batch.update(doc(db, 'expenses', expenseId), {
       matchedPaymentTransactionId: txn.id,
       matchedPaymentAccountId: txn.paymentAccountId,
       settlementAmount: txn.settlementAmount,
@@ -550,6 +561,7 @@ export default function Reconciliation() {
       sourceStatementImportId: txn.importId || null,
       sourceStatementRowText: txn.rawRowText || null,
     })
+    await batch.commit()
     await logAction(txn, expenseId, 'matched', { status: txn.status }, { status: 'matched' })
     setBusyId(null)
     setChosenExpenseId('')
@@ -559,20 +571,22 @@ export default function Reconciliation() {
   // Mirrors unlinkExpense, for the income side.
   async function unlinkInvoice(inv) {
     if (!confirm(`Unmatch "${inv.counterpartyName}" (${inv.date}) from its current transaction so you can match it here instead?`)) return
+    const batch = writeBatch(db)
     if (inv.matchedPaymentTransactionId) {
-      await updateDoc(doc(db, 'paymentTransactions', inv.matchedPaymentTransactionId), {
+      batch.update(doc(db, 'paymentTransactions', inv.matchedPaymentTransactionId), {
         status: 'unmatched',
         matchedInvoiceIds: [],
         confidenceScore: null,
         matchReasons: [],
         updatedAt: serverTimestamp(),
-      }).catch(() => {})
+      })
     }
-    await updateDoc(doc(db, 'salesInvoices', inv.id), {
+    batch.update(doc(db, 'salesInvoices', inv.id), {
       matchedPaymentTransactionId: null,
       matchedPaymentAccountId: null,
       settlementStatus: 'unsettled',
     })
+    await batch.commit().catch(() => {})
   }
 
   // Mirrors confirmMatch, for the income side: links a credit transaction
@@ -587,16 +601,18 @@ export default function Reconciliation() {
       return
     }
     setBusyId(txn.id)
-    await updateDoc(doc(db, 'paymentTransactions', txn.id), {
+    const batch = writeBatch(db)
+    batch.update(doc(db, 'paymentTransactions', txn.id), {
       status: 'matched',
       matchedInvoiceIds: [invoiceId],
       updatedAt: serverTimestamp(),
     })
-    await updateDoc(doc(db, 'salesInvoices', invoiceId), {
+    batch.update(doc(db, 'salesInvoices', invoiceId), {
       matchedPaymentTransactionId: txn.id,
       matchedPaymentAccountId: txn.paymentAccountId,
       settlementStatus: 'confirmed',
     })
+    await batch.commit()
     await logAction(txn, invoiceId, 'invoice_matched', { status: txn.status }, { status: 'matched' })
     setBusyId(null)
     setChosenInvoiceId('')
@@ -615,16 +631,18 @@ export default function Reconciliation() {
       return
     }
     setBusyId(txn.id)
-    await updateDoc(doc(db, 'paymentTransactions', txn.id), {
+    const batch = writeBatch(db)
+    batch.update(doc(db, 'paymentTransactions', txn.id), {
       status: 'matched',
       matchedPoId: poId,
       updatedAt: serverTimestamp(),
     })
-    await updateDoc(doc(db, 'purchaseOrders', poId), {
+    batch.update(doc(db, 'purchaseOrders', poId), {
       matchedPaymentTransactionId: txn.id,
       matchedPaymentAccountId: txn.paymentAccountId,
       settlementStatus: 'confirmed',
     })
+    await batch.commit()
     await logAction(txn, null, 'po_linked', { status: txn.status }, { status: 'matched', poId })
     setBusyId(null)
     setPickingPo(false)
@@ -636,18 +654,20 @@ export default function Reconciliation() {
   // search picker below.
   async function unlinkPurchaseOrder(po) {
     if (!confirm(`Unmatch "${po.counterpartyName}" (${po.date}) from its current transaction so you can match it here instead?`)) return
+    const batch = writeBatch(db)
     if (po.matchedPaymentTransactionId) {
-      await updateDoc(doc(db, 'paymentTransactions', po.matchedPaymentTransactionId), {
+      batch.update(doc(db, 'paymentTransactions', po.matchedPaymentTransactionId), {
         status: 'unmatched',
         matchedPoId: null,
         updatedAt: serverTimestamp(),
-      }).catch(() => {})
+      })
     }
-    await updateDoc(doc(db, 'purchaseOrders', po.id), {
+    batch.update(doc(db, 'purchaseOrders', po.id), {
       matchedPaymentTransactionId: null,
       matchedPaymentAccountId: null,
       settlementStatus: 'unsettled',
     })
+    await batch.commit().catch(() => {})
   }
 
   // Manual-only Income linking (Finance repositioning MVP-2) — mirrors
@@ -666,16 +686,18 @@ export default function Reconciliation() {
       return
     }
     setBusyId(txn.id)
-    await updateDoc(doc(db, 'paymentTransactions', txn.id), {
+    const batch = writeBatch(db)
+    batch.update(doc(db, 'paymentTransactions', txn.id), {
       status: 'matched',
       matchedIncomeId: incomeId,
       updatedAt: serverTimestamp(),
     })
-    await updateDoc(doc(db, 'income', incomeId), {
+    batch.update(doc(db, 'income', incomeId), {
       matchedPaymentTransactionId: txn.id,
       matchedPaymentAccountId: txn.paymentAccountId,
       settlementStatus: 'confirmed',
     })
+    await batch.commit()
     await logAction(txn, null, 'income_linked', { status: txn.status }, { status: 'matched', incomeId })
     setBusyId(null)
     setPickingIncome(false)
@@ -687,18 +709,20 @@ export default function Reconciliation() {
   // the search picker below.
   async function unlinkIncome(inc) {
     if (!confirm(`Unmatch "${inc.counterpartyName}" (${inc.date}) from its current transaction so you can match it here instead?`)) return
+    const batch = writeBatch(db)
     if (inc.matchedPaymentTransactionId) {
-      await updateDoc(doc(db, 'paymentTransactions', inc.matchedPaymentTransactionId), {
+      batch.update(doc(db, 'paymentTransactions', inc.matchedPaymentTransactionId), {
         status: 'unmatched',
         matchedIncomeId: null,
         updatedAt: serverTimestamp(),
-      }).catch(() => {})
+      })
     }
-    await updateDoc(doc(db, 'income', inc.id), {
+    batch.update(doc(db, 'income', inc.id), {
       matchedPaymentTransactionId: null,
       matchedPaymentAccountId: null,
       settlementStatus: 'unsettled',
     })
+    await batch.commit().catch(() => {})
   }
 
   async function ignoreTxn(txn) {
@@ -722,8 +746,14 @@ export default function Reconciliation() {
   // reopens something she confirmed by mistake.
   async function unmatchTxn(txn) {
     setBusyId(txn.id)
+    // Up to 6 writes for one logical action (revert whichever of expense/
+    // invoice/PO/income/settlement-partner apply, plus the transaction
+    // itself) — one batch so a failure partway through can't leave some
+    // reverted and others still pointing at a transaction that's about to
+    // say it's unmatched.
+    const batch = writeBatch(db)
     if (txn.matchedExpenseIds?.[0]) {
-      await updateDoc(doc(db, 'expenses', txn.matchedExpenseIds[0]), {
+      batch.update(doc(db, 'expenses', txn.matchedExpenseIds[0]), {
         matchedPaymentTransactionId: null,
         matchedPaymentAccountId: null,
         settlementAmount: null,
@@ -732,21 +762,21 @@ export default function Reconciliation() {
       })
     }
     if (txn.matchedInvoiceIds?.[0]) {
-      await updateDoc(doc(db, 'salesInvoices', txn.matchedInvoiceIds[0]), {
+      batch.update(doc(db, 'salesInvoices', txn.matchedInvoiceIds[0]), {
         matchedPaymentTransactionId: null,
         matchedPaymentAccountId: null,
         settlementStatus: 'unsettled',
       })
     }
     if (txn.matchedPoId) {
-      await updateDoc(doc(db, 'purchaseOrders', txn.matchedPoId), {
+      batch.update(doc(db, 'purchaseOrders', txn.matchedPoId), {
         matchedPaymentTransactionId: null,
         matchedPaymentAccountId: null,
         settlementStatus: 'unsettled',
       })
     }
     if (txn.matchedIncomeId) {
-      await updateDoc(doc(db, 'income', txn.matchedIncomeId), {
+      batch.update(doc(db, 'income', txn.matchedIncomeId), {
         matchedPaymentTransactionId: null,
         matchedPaymentAccountId: null,
         settlementStatus: 'unsettled',
@@ -754,9 +784,9 @@ export default function Reconciliation() {
     }
     if (txn.settlementGroupId) {
       const partner = transactions.find(t => t.id !== txn.id && t.settlementGroupId === txn.settlementGroupId)
-      if (partner) await updateDoc(doc(db, 'paymentTransactions', partner.id), { settlementGroupId: null, matchStatus: null, linkedTransactionIds: [], status: 'unmatched', updatedAt: serverTimestamp() })
+      if (partner) batch.update(doc(db, 'paymentTransactions', partner.id), { settlementGroupId: null, matchStatus: null, linkedTransactionIds: [], status: 'unmatched', updatedAt: serverTimestamp() })
     }
-    await updateDoc(doc(db, 'paymentTransactions', txn.id), {
+    batch.update(doc(db, 'paymentTransactions', txn.id), {
       status: 'unmatched',
       matchedExpenseIds: [],
       matchedInvoiceIds: [],
@@ -769,6 +799,7 @@ export default function Reconciliation() {
       matchReasons: [],
       updatedAt: serverTimestamp(),
     })
+    await batch.commit()
     await logAction(txn, null, 'unmatched', { status: txn.status }, { status: 'unmatched' })
     setBusyId(null)
   }
@@ -790,7 +821,14 @@ export default function Reconciliation() {
     setBusyId(txn.id)
     const account = accountOf(txn.paymentAccountId)
     const source = account?.sourceType === 'credit_card' ? 'credit_card_statement' : 'bank_statement'
-    const expenseRef = await addDoc(collection(db, 'expenses'), {
+    // Client-generated ref (no network round-trip, unlike addDoc) so the
+    // new expense and the transaction-side update land in one batch —
+    // previously addDoc then a separate updateDoc, so a failure on the
+    // second call left a real expense sitting there with no transaction
+    // actually pointing at it as matched.
+    const expenseRef = doc(collection(db, 'expenses'))
+    const batch = writeBatch(db)
+    batch.set(expenseRef, {
       userId: auth.currentUser.uid,
       userEmail: auth.currentUser.email,
       projectId: activeProject.id,
@@ -815,11 +853,12 @@ export default function Reconciliation() {
       matchedPaymentAccountId: txn.paymentAccountId,
       createdAt: serverTimestamp(),
     })
-    await updateDoc(doc(db, 'paymentTransactions', txn.id), {
+    batch.update(doc(db, 'paymentTransactions', txn.id), {
       status: 'matched',
       matchedExpenseIds: [expenseRef.id],
       updatedAt: serverTimestamp(),
     })
+    await batch.commit()
     await logAction(txn, expenseRef.id, 'expense_created', null, { expenseId: expenseRef.id })
     setBusyId(null)
     selectNextNeedingAction(txn.id)
@@ -828,20 +867,22 @@ export default function Reconciliation() {
   async function linkSettlement(card, bankTxn) {
     setBusyId(card.id)
     const groupId = doc(collection(db, 'reconciliationActions')).id
-    await updateDoc(doc(db, 'paymentTransactions', card.id), {
+    const batch = writeBatch(db)
+    batch.update(doc(db, 'paymentTransactions', card.id), {
       settlementGroupId: groupId,
       matchStatus: 'linked_settlement',
       linkedTransactionIds: [bankTxn.id],
       status: 'matched',
       updatedAt: serverTimestamp(),
     })
-    await updateDoc(doc(db, 'paymentTransactions', bankTxn.id), {
+    batch.update(doc(db, 'paymentTransactions', bankTxn.id), {
       settlementGroupId: groupId,
       matchStatus: 'linked_settlement',
       linkedTransactionIds: [card.id],
       status: 'matched',
       updatedAt: serverTimestamp(),
     })
+    await batch.commit()
     await logAction(card, null, 'settlement_linked', null, { settlementGroupId: groupId, linkedTransactionId: bankTxn.id })
     setBusyId(null)
     setPickingSettlement(false)

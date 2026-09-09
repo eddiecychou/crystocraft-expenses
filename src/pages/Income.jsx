@@ -95,7 +95,7 @@ export default function Income() {
         const res = await fetch('/api/process-invoice', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ fileData: item.base64, mimeType: item.mimeType, docKind: 'income' }),
+          body: JSON.stringify({ fileData: item.base64, mimeType: item.mimeType, docKind: 'income', idToken: await auth.currentUser.getIdToken() }),
         })
         const data = await res.json()
         const suggestion = suggestAccountCode(normalizeMerchant(data.counterpartyName), 'income', accountCodeRules)

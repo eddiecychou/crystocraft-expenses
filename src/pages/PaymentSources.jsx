@@ -739,14 +739,24 @@ export default function PaymentSources() {
   // otherwise leave that link pointing at stale or missing data. This
   // reverts both sides of the link before the transaction itself changes.
   async function unlinkTransaction(txn) {
+    // One batch for the expense-side revert + however many settlement
+    // partners are found — same "don't leave records disagreeing after a
+    // partial failure" fix as Reconciliation.jsx's own unlink functions.
+    // Doesn't touch which documents this writes (still nothing on txn
+    // itself — used during import reprocessing/deletion, where the caller
+    // replaces or removes that doc right after), just makes the writes
+    // it does perform atomic.
+    const batch = writeBatch(db)
+    let hasWrites = false
     if (txn.matchedExpenseIds?.[0]) {
-      await updateDoc(doc(db, 'expenses', txn.matchedExpenseIds[0]), {
+      batch.update(doc(db, 'expenses', txn.matchedExpenseIds[0]), {
         matchedPaymentTransactionId: null,
         matchedPaymentAccountId: null,
         settlementAmount: null,
         settlementCurrency: null,
         settlementStatus: 'unsettled',
       })
+      hasWrites = true
     }
     if (txn.settlementGroupId) {
       const partnerSnap = await getDocs(query(
@@ -756,9 +766,11 @@ export default function PaymentSources() {
       ))
       for (const d of partnerSnap.docs) {
         if (d.id === txn.id) continue
-        await updateDoc(doc(db, 'paymentTransactions', d.id), { settlementGroupId: null, status: 'unmatched' })
+        batch.update(doc(db, 'paymentTransactions', d.id), { settlementGroupId: null, status: 'unmatched' })
+        hasWrites = true
       }
     }
+    if (hasWrites) await batch.commit()
   }
 
   function startEditTxn(txn) {

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { collection, query, where, onSnapshot, doc, updateDoc, deleteDoc, serverTimestamp } from 'firebase/firestore'
+import { collection, query, where, onSnapshot, doc, updateDoc, deleteDoc, writeBatch, serverTimestamp } from 'firebase/firestore'
 import { db, auth } from '../firebase'
 import { useProject } from '../contexts/ProjectContext'
 import ProjectBanner from '../components/ProjectBanner'
@@ -162,22 +162,28 @@ export default function Expenses() {
   // the match was made, which must never block unlinking the expense side.
   function unlinkExpenseMatch(e) {
     askConfirm('Unlink this expense from its matched statement transaction? You can re-match it from Reconciliation afterward.', async () => {
+      // One batch instead of two sequential updateDoc calls (same fix as
+      // Reconciliation.jsx's unlinkExpense) — a failure on either side used
+      // to be able to leave the transaction and expense disagreeing about
+      // whether they're still linked.
+      const batch = writeBatch(db)
       if (e.matchedPaymentTransactionId) {
-        await updateDoc(doc(db, 'paymentTransactions', e.matchedPaymentTransactionId), {
+        batch.update(doc(db, 'paymentTransactions', e.matchedPaymentTransactionId), {
           status: 'unmatched',
           matchedExpenseIds: [],
           confidenceScore: null,
           matchReasons: [],
           updatedAt: serverTimestamp(),
-        }).catch(() => {})
+        })
       }
-      await updateDoc(doc(db, 'expenses', e.id), {
+      batch.update(doc(db, 'expenses', e.id), {
         matchedPaymentTransactionId: null,
         matchedPaymentAccountId: null,
         settlementAmount: null,
         settlementCurrency: null,
         settlementStatus: 'unsettled',
       })
+      await batch.commit().catch(() => {})
     })
   }
 

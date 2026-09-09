@@ -9,12 +9,27 @@ export default async function handler(req) {
   }
 
   const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY')
-  if (!GEMINI_API_KEY) return json({ error: 'Server misconfiguration' }, 500)
+  const FIREBASE_API_KEY = Deno.env.get('VITE_FIREBASE_API_KEY')
+  if (!GEMINI_API_KEY || !FIREBASE_API_KEY) return json({ error: 'Server misconfiguration' }, 500)
   const VISION_API_KEY = Deno.env.get('GOOGLE_VISION_API_KEY')
 
   try {
-    const { fileData, mimeType } = await req.json()
+    const { fileData, mimeType, idToken } = await req.json()
     if (!fileData || !mimeType) return json({ error: 'Missing file data' }, 400)
+
+    // Signed-in Finance app users only — an unauthenticated version of
+    // this endpoint lets anyone on the internet burn Gemini/Vision quota
+    // by POSTing arbitrary content, a real cost, not just a theoretical
+    // hole. Same Identity Toolkit check already used by export-excel.js/
+    // sync-operation-center.js.
+    if (!idToken) return json({ error: 'Not signed in' }, 401)
+    const verRes = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${FIREBASE_API_KEY}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ idToken }),
+    })
+    const verData = await verRes.json()
+    if (!verRes.ok || !verData.users?.[0]) return json({ error: 'Unauthorized' }, 401)
 
     // Step 1 — transcribe every line of text from the receipt image.
     // Working from explicit text in step 2 is far more reliable than asking

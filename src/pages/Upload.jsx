@@ -96,7 +96,7 @@ export default function Upload() {
         const res = await fetch('/api/process-receipt', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ fileData: ocr.base64, mimeType: ocr.mimeType }),
+          body: JSON.stringify({ fileData: ocr.base64, mimeType: ocr.mimeType, idToken: await auth.currentUser.getIdToken() }),
         })
         const data = await res.json()
         // Account Code suggestion (MVP-3) — a saved rule for this vendor,
@@ -123,7 +123,7 @@ export default function Upload() {
       const res = await fetch('/api/process-receipt', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileData: ocr.base64, mimeType: ocr.mimeType }),
+        body: JSON.stringify({ fileData: ocr.base64, mimeType: ocr.mimeType, idToken: await auth.currentUser.getIdToken() }),
       })
       const data = await res.json()
       setResults(prev => prev.map(r => r._id === id
@@ -227,7 +227,7 @@ export default function Upload() {
         const res = await fetch('/api/process-receipt', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ fileData: ocr.base64, mimeType: ocr.mimeType }),
+          body: JSON.stringify({ fileData: ocr.base64, mimeType: ocr.mimeType, idToken: await auth.currentUser.getIdToken() }),
         })
         const data = await res.json()
         setFileItems(prev => [...prev, item])

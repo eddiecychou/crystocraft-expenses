@@ -138,7 +138,7 @@ export default function Invoices() {
         const res = await fetch('/api/process-invoice', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ fileData: item.base64, mimeType: item.mimeType, docKind: activeKind }),
+          body: JSON.stringify({ fileData: item.base64, mimeType: item.mimeType, docKind: activeKind, idToken: await auth.currentUser.getIdToken() }),
         })
         const data = await res.json()
         out.push({ ...data, fileName: item.name, fileItem: item, sourceType: 'pdf', _id: ++resultIdRef.current })

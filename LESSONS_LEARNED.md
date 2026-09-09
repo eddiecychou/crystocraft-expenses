@@ -624,3 +624,37 @@ work — a spec written before anyone checked can describe integration
 points that don't exist yet, and building toward them anyway produces
 either dead code or an accidental feature request for someone else's
 codebase.
+
+## Sequential multi-document writes need a batch, not a best-effort `.catch`
+
+Every "confirm a match" or "unlink a match" action in Reconciliation.jsx
+(and its mirrors in Expenses.jsx/PaymentSources.jsx) touches two
+documents that must agree — a `paymentTransactions` row and whatever
+it's matched to (expense/invoice/PO/income/settlement partner). These
+were written as sequential `updateDoc` calls, sometimes with the
+transaction-side write wrapped in `.catch(()=>{})` specifically to
+tolerate "that transaction doc might already be gone" — but the *other*
+write (the actual record) had no such protection. If the network
+dropped or a rule denied the write between the two calls, the first
+commit had already landed: a transaction could end up `status:'matched'`
+pointing at a record that still claimed to be unmatched, or vice versa,
+with no way to detect the drift short of manually cross-checking.
+
+Fixed by converting every such pair (and `unmatchTxn`'s up-to-6-write
+case, and `createExpenseFromTxn`'s `addDoc`+`updateDoc`, converted to a
+client-generated ref + `batch.set()`) into one `writeBatch` — either
+every write in the batch commits, or none do, so the two sides can
+never end up disagreeing from a partial failure. Where the old code's
+`.catch(()=>{})` was tolerating "the linked doc doesn't exist anymore,"
+that tolerance now wraps the whole batch's `.commit()` instead — a
+real, understood trade-off: if the transaction doc genuinely no longer
+exists, the *entire* unlink (including the still-valid record-side
+revert) now also doesn't happen, rather than partially succeeding. This
+was judged the better failure mode — a stuck link that's visibly still
+linked is easier to notice and retry than a silent, undetectable
+data-integrity drift.
+
+**Rule of thumb:** if two documents must always agree about a
+relationship (a match, a link), write them in one `writeBatch` — a
+sequential pair of `updateDoc` calls, no matter how each one's errors
+are handled individually, can never guarantee that.
