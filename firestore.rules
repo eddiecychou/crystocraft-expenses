@@ -22,7 +22,25 @@ service cloud.firestore {
         resource.data.userId == request.auth.uid ||
         (resource.data.memberUids != null && resource.data.memberUids.hasAny([request.auth.uid]))
       );
-      allow update, delete: if request.auth != null && request.auth.uid == resource.data.userId;
+      // The owner can change anything (rename/recolor/delete/manage
+      // membership — those controls are hidden from non-owners in the UI
+      // too, Settings.jsx). A non-owner MEMBER may update the project doc
+      // only for the fields Settings.jsx's own UI already shows them
+      // (Categories/Payment Methods/Income Categories editors, the
+      // Operation Center Sync toggle) or that a member's own actions write
+      // (operationCenterSync's status, from Invoices.jsx's Sync button) —
+      // added 2026-09-09 after confirming those controls were shown to
+      // every member but silently failed for anyone but the owner.
+      allow update: if request.auth != null && (
+        request.auth.uid == resource.data.userId ||
+        (
+          resource.data.memberUids != null && resource.data.memberUids.hasAny([request.auth.uid]) &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+            ['categories', 'incomeCategories', 'paymentMethods', 'operationCenterSyncEnabled', 'operationCenterSync']
+          )
+        )
+      );
+      allow delete: if request.auth != null && request.auth.uid == resource.data.userId;
       allow create: if request.auth != null;
     }
 

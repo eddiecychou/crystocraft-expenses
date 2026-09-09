@@ -21,11 +21,19 @@ Storage rule for `invoices/`, `purchaseOrders/`, or `income/` — meaning
 Income.jsx, AccountCodes.jsx, and document uploads on those three
 collections had been failing every read/write in production since each
 shipped (MVP-1/MVP-2/MVP-3), with no rule ever published for them. Both
-rule sets updated and confirmed live the same day. Still open,
-flagged but not yet fixed: `projects`'s `update` rule only allows the
-project owner, which may be blocking non-owner collaborators from some
-project-doc writes (Operation Center Sync status, possibly Settings'
-Categories editors).
+rule sets updated and confirmed live the same day.
+
+A second gap confirmed and fixed the same day: `projects`'s `update`
+rule was owner-only across every field, but Settings.jsx's Categories/
+Payment Methods/Income Categories editors and the Operation Center
+Sync toggle show their controls to every project member, not just the
+owner — a collaborator using any of those, or clicking "Sync from
+Operation Center" (which writes status onto the project doc), got a
+silent permission-denied. The rule now lets a non-owner member update
+the project doc only when every changed field is one of `categories`/
+`incomeCategories`/`paymentMethods`/`operationCenterSyncEnabled`/
+`operationCenterSync` — name/color/membership stay owner-only,
+matching what the UI already restricts (Rename/Delete/Share).
 
 
 **Auth on download-receipt.js (code review finding #7).**
