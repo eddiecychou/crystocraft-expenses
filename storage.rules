@@ -1,0 +1,55 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // Same membership model as Firestore — the owner always has access;
+    // anyone else needs to be in the project's memberUids. A receipt or
+    // statement file's path is namespaced under the ORIGINAL uploader's
+    // uid, not the project, so a collaborator's uid never matches
+    // {userId} even when they're fully entitled to attach/replace/delete
+    // files on a shared project's records — this check is what grants that.
+    function isProjectMember(projectId) {
+      let proj = firestore.get(/databases/(default)/documents/projects/$(projectId)).data;
+      return request.auth != null && (
+        proj.userId == request.auth.uid ||
+        (proj.memberUids != null && request.auth.uid in proj.memberUids)
+      );
+    }
+
+    match /receipts/{userId}/{expenseId}/{fileName} {
+      allow read, write: if request.auth != null && (
+        request.auth.uid == userId ||
+        isProjectMember(firestore.get(/databases/(default)/documents/expenses/$(expenseId)).data.projectId)
+      );
+    }
+
+    match /statements/{userId}/{importId}/{fileName} {
+      allow read, write: if request.auth != null && (
+        request.auth.uid == userId ||
+        isProjectMember(firestore.get(/databases/(default)/documents/paymentImports/$(importId)).data.projectId)
+      );
+    }
+
+    // -------------------------------------------------------------------
+    // GAP — no rule exists yet for the paths below, confirmed against
+    // what's actually live in the Console on 2026-09-09.
+    // uploadDocumentFile() (src/lib/documentImport.js) writes to
+    // invoices/{projectId}/{docId}/, purchaseOrders/{projectId}/{docId}/,
+    // and income/{projectId}/{docId}/ — none of which have a matching
+    // path here, so Storage denies by default. Unlike receipts/statements
+    // above, these are already keyed by projectId (not the uploader's
+    // uid), so the rule is simpler — no {userId} fallback needed.
+    //
+    // match /invoices/{projectId}/{docId}/{fileName} {
+    //   allow read, write: if isProjectMember(projectId);
+    // }
+    // match /purchaseOrders/{projectId}/{docId}/{fileName} {
+    //   allow read, write: if isProjectMember(projectId);
+    // }
+    // match /income/{projectId}/{docId}/{fileName} {
+    //   allow read, write: if isProjectMember(projectId);
+    // }
+    // -------------------------------------------------------------------
+
+  }
+}

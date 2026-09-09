@@ -86,10 +86,18 @@ anything it covers.
 
 ## Standing conventions
 
-- **No `firestore.rules`/`storage.rules` file lives in this repo.** Rules
-  are Console-only. Every new collection or Storage path needs its rule
-  handed to the user before the feature can possibly work — this has
-  caused multiple "it worked in code review but silently fails" incidents.
+- **`firestore.rules`/`storage.rules` are version-controlled (added V1.1+)
+  but the Console is still the actual deploy target** — no CLI/CI publish
+  step exists, so a Console edit that isn't backported into these files
+  (or a repo edit that isn't pasted into the Console) silently drifts.
+  Every new collection or Storage path still needs its rule handed to
+  the user AND actually published in the Console before the feature can
+  possibly work — this has caused multiple "it worked in code review but
+  silently fails" incidents, most recently a confirmed live gap
+  (`income`/`accountCodes`/`accountCodeRules` Firestore collections and
+  `invoices/`/`purchaseOrders`/`income` Storage paths, found 2026-09-09
+  by finally diffing the repo's rules file against what the user pasted
+  from the real Console).
 - **`git commit` freely; never `git push` without being asked.** This
   project's rhythm is: implement, build, commit with a detailed message,
   report status, wait for an explicit "push it."

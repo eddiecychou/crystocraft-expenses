@@ -394,7 +394,7 @@ the project-list query ever runs against `memberUids`.
 
 ### Security Rules
 
-**This repo has no `firestore.rules` or `storage.rules` file — rules exist only in the Firebase Console.** Every collection and Storage path above needs its own rule published there before the feature works; a missing rule fails silently with `permission-denied` even though the code looks complete. See [LESSONS_LEARNED.md](LESSONS_LEARNED.md#firebase-rules-live-outside-the-repo) before adding anything new.
+**`firestore.rules`/`storage.rules` are now version-controlled in this repo** (added V1.1+, after being Console-only since the app's start) — but **the repo copy is a snapshot, not the deploy mechanism**: publishing a change still means pasting it into the Firebase Console by hand (no CI/CLI deploy step exists), so the two can still drift if a Console edit isn't backported here. Every collection and Storage path above needs its own rule published in the Console before the feature works; a missing rule fails silently with `permission-denied` even though the code looks complete. Confirmed gap as of 2026-09-09 (see the `GAP` comment blocks in both files): `income`, `accountCodes`, `accountCodeRules` have no Firestore rule, and `invoices/`, `purchaseOrders/`, `income/` have no Storage rule — those features are live in code but should be failing every read/write in production until the Console is updated. See [LESSONS_LEARNED.md](LESSONS_LEARNED.md#firebase-rules-live-outside-the-repo) for the history of why this was Console-only for so long.
 
 **Since Project Sharing**, access is membership-based, not ownership-based — every project-scoped collection's rule checks `projects/{projectId}.memberUids` instead of comparing `resource.data.userId` directly:
 ```
