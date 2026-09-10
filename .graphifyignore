@@ -1,0 +1,13 @@
+# .gitignore already excludes node_modules/, dist/, .env*. This trims the rest.
+**/*.png
+**/*.jpg
+**/*.jpeg
+**/*.gif
+**/*.svg
+**/*.ico
+**/*.ttf
+**/*.woff
+**/*.woff2
+package-lock.json
+**/*.min.js
+**/*.rtf
