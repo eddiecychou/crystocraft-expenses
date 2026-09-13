@@ -8,6 +8,34 @@ changes when it's bumped deliberately in `package.json`.
 
 ## Unreleased (still V1.1)
 
+_Nothing yet — new changes land here until the version is next bumped in `package.json`._
+
+## V1.1 — 2026-09-05 to 2026-09-13
+
+Repositioned the app from a narrow **Expense Center** into a **Finance /
+Bookkeeping Center** (per the spec `Claude 执行规格：将 Expense Center 修订为
+Finance／Bookkeeping Center.md`) — Income and Expense as same-level
+objects, a real per-project Account Code system, a unified Bank
+Transactions view, and a live (Crystocraft-only) Operation Center
+connector replacing manual CSV shuttling for Invoices & POs, plus a
+Month-End Report export (MVP-6, the final item on the original
+repositioning roadmap). Also carries the Personal-to-Company Expense
+workflow (Company Review, merchant rules, Company Package export) and
+a round of UI-overflow fixes across the app.
+
+After the roadmap shipped, this release also picked up: a full round
+of security hardening from an external code review (auth on every
+AI/OCR endpoint, atomic multi-document writes, `download-receipt.js`
+auth), `firestore.rules`/`storage.rules` committed to the repo for the
+first time (surfacing and fixing two confirmed live permission gaps), a
+generalized per-project connector visibility model ahead of onboarding
+non-Crystocraft customers, a third AI-assisted fallback tier for bank
+statement parsing when a new layout is unrecognized, and a per-document-
+type extraction validation framework for receipts/invoices/POs/income
+documents. See [TECHNICAL.md](TECHNICAL.md) for full architecture and
+[FUNCTION_INDEX.md](FUNCTION_INDEX.md) for the function-level map —
+both kept current alongside this release.
+
 **Receipts/invoices/POs/income docs gain the same validation framework bank statements already had.**
 Bank statement import already checked `opening + net(rows) = closing`
 against the statement's own printed numbers before trusting any parsed
@@ -130,20 +158,6 @@ MVP-4's transaction-side status mapping; "Needs Review"/"sync-failed"
 from the spec's fuller vocabulary aren't modeled, since neither has a
 clean per-record meaning across all four collections. Rebuilt in place
 from a previously-orphaned, unrouted `Export.jsx`.
-
-## V1.1 — 2026-09-09
-
-Repositioned the app from a narrow **Expense Center** into a **Finance /
-Bookkeeping Center** (per the spec `Claude 执行规格：将 Expense Center 修订为
-Finance／Bookkeeping Center.md`) — Income and Expense as same-level
-objects, a real per-project Account Code system, a unified Bank
-Transactions view, and a live (Crystocraft-only) Operation Center
-connector replacing manual CSV shuttling for Invoices & POs. Also
-carries the Personal-to-Company Expense workflow (Company Review,
-merchant rules, Company Package export) and a round of UI-overflow
-fixes across the app. See [TECHNICAL.md](TECHNICAL.md) for full
-architecture and [FUNCTION_INDEX.md](FUNCTION_INDEX.md) for the
-function-level map — both kept current alongside this release.
 
 **Fixed table overflow on Invoices & POs, Income, and Bank Transactions.**
 An app-wide audit (prompted by "I don't want to scroll left and right"

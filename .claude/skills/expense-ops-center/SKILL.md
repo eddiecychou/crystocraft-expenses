@@ -5,14 +5,24 @@ description: Workflow and hard-won lessons for building/maintaining Expense Oper
 
 # Expense Operations Center — Development Playbook
 
-> **Product repositioning — MVP-1 through MVP-5 done, MVP-6 pending.** The app
-> was renamed/restructured from a narrow "Expense Center" into a **Finance /
-> Bookkeeping Center** (Income + Expense as same-level objects, per-project
-> Account Codes, unified Bank Transactions view, a live Crystocraft-only
-> Operation Center API connector). See TECHNICAL.md's header for the MVP
-> sequence and CHANGELOG.md's V1.1 entry for what shipped. This skill dir
-> keeps its `expense-ops-center` name for now; the running product displays
-> "Finance / Bookkeeping Workspace". New routes/modules prefer `finance`.
+> **Product repositioning — MVP-1 through MVP-6 all done, original roadmap
+> complete.** The app was renamed/restructured from a narrow "Expense
+> Center" into a **Finance / Bookkeeping Center** (Income + Expense as
+> same-level objects, per-project Account Codes, unified Bank Transactions
+> view, a live Crystocraft-only Operation Center API connector, Month-End
+> Report export). Since then V1.1 has also picked up security hardening,
+> a generalized connector visibility model, an AI-assisted statement-
+> parsing fallback tier, and per-document extraction validation — see
+> TECHNICAL.md's header for the MVP sequence and CHANGELOG.md's V1.1
+> entry for the full list. This skill dir keeps its `expense-ops-center`
+> name for now; the running product displays "Finance / Bookkeeping
+> Workspace". New routes/modules prefer `finance`.
+>
+> **This repo now lives at `~/Developer/Expense Tool V1`, not
+> `~/Documents/...`** — moved 2026-09-13 after iCloud's Desktop &
+> Documents Folders sync was found to deadlock plain git operations
+> (`git status`, `mv`) on the old path. See TECHNICAL.md's Local
+> Development section.
 
 This is a React 18 + Firebase (Firestore/Storage/Auth) + Netlify Edge
 Functions bookkeeping app. Full architecture: [TECHNICAL.md](../../../TECHNICAL.md).
