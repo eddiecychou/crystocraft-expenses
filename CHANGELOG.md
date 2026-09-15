@@ -8,7 +8,19 @@ changes when it's bumped deliberately in `package.json`.
 
 ## Unreleased (still V1.1)
 
-_Nothing yet — new changes land here until the version is next bumped in `package.json`._
+**Upgraded AI extraction model: gemini-2.5-flash → gemini-3.6-flash.**
+All three Gemini-calling edge functions (`process-receipt.js`,
+`process-invoice.js`, `process-statement-text.js`) now try
+`gemini-3.6-flash` first. Verified live against this app's exact
+request shapes before switching — JSON-mode extraction, `thinkingBudget:0`,
+and multimodal `inlineData` (image input) all behave identically to
+2.5-flash, so no other code changed. The fallback tier deliberately
+stays `gemini-2.5-pro` rather than the newer `gemini-3.1-pro-preview` —
+that model rejects `thinkingBudget:0` outright, and this app shares one
+`generationConfig` across its whole fallback list, so it isn't a
+drop-in swap. `gemini-2.5-pro` remains fully supported (no shutdown
+date on Google's own deprecation page). See LESSONS_LEARNED.md's
+"Gemini 3.x pro-preview models require thinking mode."
 
 ## V1.1 — 2026-09-05 to 2026-09-13
 

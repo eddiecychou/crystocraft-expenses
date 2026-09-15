@@ -419,6 +419,42 @@ failure. This caused intermittent "no data extracted" in the receipt upload flow
 
 ---
 
+## Gemini 3.x pro-preview models require thinking mode
+
+Upgrading this app's Gemini calls 2026-09-16 (`gemini-2.5-flash` →
+`gemini-3.6-flash`, verified live against this app's exact request shape
+first — JSON mode, `thinkingBudget:0`, multimodal `inlineData` all
+behaved identically), the natural next step was upgrading the fallback
+tier too: `gemini-2.5-pro` → `gemini-3.1-pro-preview`. A live test call
+caught this before it shipped: `gemini-3.1-pro-preview` returns
+`400 INVALID_ARGUMENT: "Budget 0 is invalid. This model only works in
+thinking mode."` — it rejects `thinkingBudget: 0` outright, unlike every
+other model this app calls.
+
+This app's `callGemini(parts, generationConfig, ...)` takes one
+`generationConfig` object and reuses it for every model in the
+`MODELS` fallback array — there's no per-model override. Swapping in
+`gemini-3.1-pro-preview` as-is would mean every fallback attempt to the
+pro tier fails with a 400 (not retried — `isRetryable` only covers
+429/quota errors), silently reducing the "flash → pro fallback" chain
+to just flash with no real second attempt.
+
+**Fixed by not swapping it**: kept `gemini-2.5-pro` as the fallback
+tier (confirmed via Google's own deprecation page as still fully
+supported, no shutdown date announced) and only upgraded the primary
+flash-tier model. Revisit `gemini-3.1-pro-preview` (or whatever
+succeeds it) only alongside restructuring `callGemini` to accept a
+per-model `generationConfig`, or a model-specific override for
+`thinkingConfig`.
+
+**Rule of thumb:** before swapping any model into a shared-config
+fallback list, live-test it against every `generationConfig` flag the
+app actually relies on (thinking budget, response MIME type,
+multimodal input) — a model's name looking like a drop-in successor is
+not evidence it accepts the same parameters.
+
+---
+
 ## Debug "why isn't my data showing" mysteries with direct DB access, not endless UI guessing
 
 A "47 rows flagged as duplicate but nothing shows 47 rows anywhere" mystery went

@@ -108,8 +108,11 @@ async function fetchWithTimeout(url, options, ms) {
 }
 
 // Same model-fallback + retry shape as process-receipt.js/process-invoice.js.
+// Upgraded from gemini-2.5-flash/-pro 2026-09-16 — see process-receipt.js's
+// comment for why the fallback tier stays gemini-2.5-pro rather than
+// gemini-3.1-pro-preview (which rejects thinkingBudget:0 outright).
 async function callGemini(parts, generationConfig, GEMINI_API_KEY) {
-  const MODELS = ['gemini-2.5-flash', 'gemini-2.5-pro']
+  const MODELS = ['gemini-3.6-flash', 'gemini-2.5-pro']
   let rateLimited = false
 
   for (const model of MODELS) {

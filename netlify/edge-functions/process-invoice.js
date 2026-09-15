@@ -48,7 +48,7 @@ export default async function handler(req) {
           { inlineData: { mimeType, data: fileData } },
           { text: 'Transcribe every line of text visible on this document exactly as printed, top to bottom. Preserve all numbers, currency symbols, and punctuation. Output plain text only, no commentary.' },
         ],
-        // thinkingBudget:0 disables gemini-2.5-flash's internal "thinking", which
+        // thinkingBudget:0 disables gemini-3.6-flash's internal "thinking", which
         // otherwise consumes the whole maxOutputTokens budget and returns an empty
         // response (MAX_TOKENS) for some documents — see process-receipt.js.
         { temperature: 0, maxOutputTokens: 2048, thinkingConfig: { thinkingBudget: 0 } },
@@ -160,7 +160,10 @@ async function callVisionOCR(base64Image, VISION_API_KEY) {
 }
 
 async function callGemini(parts, generationConfig, GEMINI_API_KEY) {
-  const MODELS = ['gemini-2.5-flash', 'gemini-2.5-pro']
+  // Upgraded from gemini-2.5-flash/-pro 2026-09-16 — see process-receipt.js's
+  // identical comment for why the fallback tier stays gemini-2.5-pro rather
+  // than gemini-3.1-pro-preview (which rejects thinkingBudget:0 outright).
+  const MODELS = ['gemini-3.6-flash', 'gemini-2.5-pro']
   let rateLimited = false
 
   for (const model of MODELS) {

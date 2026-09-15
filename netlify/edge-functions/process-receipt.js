@@ -47,7 +47,7 @@ export default async function handler(req) {
           { inlineData: { mimeType, data: fileData } },
           { text: 'Transcribe every line of text visible on this receipt exactly as printed, top to bottom. Preserve all numbers, currency symbols, and punctuation. Output plain text only, no commentary.' },
         ],
-        // thinkingBudget:0 disables gemini-2.5-flash's internal "thinking", which
+        // thinkingBudget:0 disables gemini-3.6-flash's internal "thinking", which
         // otherwise consumes the whole maxOutputTokens budget and returns an empty
         // response (MAX_TOKENS) for some receipts — the cause of silent failures.
         { temperature: 0, maxOutputTokens: 2048, thinkingConfig: { thinkingBudget: 0 } },
@@ -161,7 +161,15 @@ async function callVisionOCR(base64Image, VISION_API_KEY) {
 // throws if every model/attempt is exhausted due to rate-limiting, so the
 // caller can surface a real error instead of silently returning blank fields.
 async function callGemini(parts, generationConfig, GEMINI_API_KEY) {
-  const MODELS = ['gemini-2.5-flash', 'gemini-2.5-pro']
+  // Upgraded from gemini-2.5-flash/-pro 2026-09-16 (verified live: JSON mode,
+  // thinkingBudget:0, and multimodal inlineData all behave identically to
+  // 2.5-flash). Fallback tier stays gemini-2.5-pro rather than jumping to
+  // gemini-3.1-pro-preview — that model rejects thinkingBudget:0 outright
+  // ("this model only works in thinking mode"), and generationConfig here
+  // is shared across every model in this list, so it isn't a drop-in swap
+  // without a bigger refactor. 2.5-pro remains fully supported (no shutdown
+  // date on Google's own deprecation page as of this change).
+  const MODELS = ['gemini-3.6-flash', 'gemini-2.5-pro']
   let rateLimited = false
 
   for (const model of MODELS) {
