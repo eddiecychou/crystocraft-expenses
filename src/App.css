@@ -752,6 +752,17 @@ body {
   100% { transform: translateX(260%); }
 }
 
+/* Statement import has several honest, user-visible stages (read, review,
+   save), so its queue shows completed position rather than the generic
+   indeterminate activity bar used for an individual network request. */
+.statement-batch-progress { margin-top: 12px; }
+.statement-batch-progress-copy { display: flex; gap: 6px; align-items: baseline; font-size: 13px; color: var(--t-mid); }
+.statement-batch-progress-copy span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.statement-batch-progress-track { height: 4px; margin-top: 6px; overflow: hidden; border-radius: 3px; background: #e2e8f0; }
+.statement-batch-progress-fill { height: 100%; border-radius: inherit; background: var(--t-btn); transition: width 180ms ease; }
+.statement-review-summary { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 10px 0; padding: 9px 10px; border-radius: 8px; background: var(--color-success-bg); color: var(--color-success); font-size: 13px; }
+.statement-review-summary-warning { background: var(--color-warning-bg); color: var(--color-warning); }
+
 /* ── Expense table ── */
 .table-wrap { overflow-x: auto; }
 

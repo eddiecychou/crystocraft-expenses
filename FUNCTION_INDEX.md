@@ -288,7 +288,7 @@ No standalone named functions beyond small in-render helpers (`setPreset`, `acco
 | `handleAttachOriginal(e)` | 648 | Uploads the attached original file for a pre-existing import. |
 | `loadPdfPreview(file, accountId, remainingQueue)` | 664 | Parses a PDF client-side and opens the review panel before committing. |
 | `advancePdfQueue(queue, accountId)` | 693 | Moves to the next file when multiple PDFs were selected at once. |
-| `handleFileSelected(e)` | 699 | Entry point for statement file selection — routes CSV straight to `commitRows`, PDF to `loadPdfPreview`. |
+| `handleFileSelected(e)` | 699 | Entry point for statement file selection — routes CSV straight to `commitRows`, PDF to the sequential `loadPdfPreview` queue and initializes its exact statement-position/status display. |
 | `togglePreviewRow(i)` | 735 | Toggles skip/include on one row in the PDF review table before import. |
 | `confirmPdfImport()` | 739 | Commits the reviewed PDF rows via `commitRows`; clears `pdfPreview` afterward so Verify/Fix buttons re-enable (see LESSONS_LEARNED — this was previously missing, breaking every button after one reprocess). |
 | `reprocessFromStoredPdf(imp)` | 801 | "Fix from Stored PDF" — re-downloads and re-parses an import's original file for correction. |

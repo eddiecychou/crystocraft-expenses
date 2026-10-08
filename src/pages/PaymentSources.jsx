@@ -58,6 +58,12 @@ export default function PaymentSources() {
   // PDF's rows are heuristically parsed and must be checked before write,
   // so a batch can't just import every PDF's rows unattended.
   const [pdfQueue, setPdfQueue] = useState([])
+  // This is deliberately a statement-level queue, rather than a pretend
+  // byte-progress indicator: parsing happens in the browser and an original
+  // PDF is only uploaded after the user has reviewed its rows. Telling the
+  // user which statement is being read, reviewed, or saved is exact; a byte
+  // percentage across those different operations would not be.
+  const [pdfBatchProgress, setPdfBatchProgress] = useState(null)
   const [confirmDialog, setConfirmDialog] = useState(null)
   const [busyId, setBusyId] = useState(null)
   const [verifyingImportId, setVerifyingImportId] = useState(null)
@@ -74,6 +80,17 @@ export default function PaymentSources() {
   const attachFileRef = useRef()
   const attachingImportRef = useRef(null)
   const [attachingImportId, setAttachingImportId] = useState(null)
+
+  const pdfReviewSummary = pdfPreview && (() => {
+    const sequencedRows = annotateBalanceSequence(pdfPreview.rows)
+    const balanceChecks = sequencedRows.filter(r => r.balanceSequenceValid != null)
+    return {
+      includedRows: pdfPreview.rows.filter(r => r.include).length,
+      aiRows: pdfPreview.rows.filter(r => r.extractionMethod === 'ai_assisted').length,
+      balanceChecks: balanceChecks.length,
+      balanceBreaks: balanceChecks.filter(r => r.balanceSequenceValid === false).length,
+    }
+  })()
 
   useEffect(() => {
     if (!activeProject) return
@@ -877,6 +894,12 @@ export default function PaymentSources() {
   // Parses one PDF and either shows it for review or, if nothing came out
   // of it, records why and moves on to the next queued file.
   async function loadPdfPreview(file, accountId, remainingQueue) {
+    setPdfBatchProgress(prev => prev && {
+      ...prev,
+      currentIndex: prev.total - remainingQueue.length,
+      currentFileName: file.name,
+      stage: 'reading',
+    })
     setImporting(true)
     try {
       const { rows, lineCount, pageCount, openingBalance, closingBalance } = await parsePdfStatement(file)
@@ -896,6 +919,7 @@ export default function PaymentSources() {
       const totalsCheck = validateStatementTotals({ openingBalance, closingBalance, rows })
       setPdfPreview({ file, fileName: file.name, accountId, openingBalance, closingBalance, totalsCheck, rows: rows.map(r => ({ ...r, include: true })) })
       setPdfQueue(remainingQueue)
+      setPdfBatchProgress(prev => prev && { ...prev, stage: 'review' })
     } catch (err) {
       setImportMsg(prev => (prev ? prev + ' ' : '') + `${file.name}: could not read PDF — ${err.message || 'unknown error'}`)
       setImporting(false)
@@ -906,7 +930,12 @@ export default function PaymentSources() {
   }
 
   async function advancePdfQueue(queue, accountId) {
-    if (!queue.length) { setPdfQueue([]); setPdfPreview(null); return }
+    if (!queue.length) {
+      setPdfQueue([])
+      setPdfPreview(null)
+      setPdfBatchProgress(null)
+      return
+    }
     const [next, ...rest] = queue
     await loadPdfPreview(next, accountId, rest)
   }
@@ -949,7 +978,10 @@ export default function PaymentSources() {
     setImportMsg(messages.join(' '))
     setImporting(false)
 
-    if (pdfFiles.length) await advancePdfQueue(pdfFiles, account.id)
+    if (pdfFiles.length) {
+      setPdfBatchProgress({ total: pdfFiles.length, currentIndex: 1, currentFileName: pdfFiles[0].name, stage: 'reading' })
+      await advancePdfQueue(pdfFiles, account.id)
+    }
   }
 
   function togglePreviewRow(i) {
@@ -962,6 +994,7 @@ export default function PaymentSources() {
     const accountId = pdfPreview.accountId
     const queueAfter = pdfQueue
     const reprocessImportId = pdfPreview.reprocessImportId || null
+    if (!reprocessImportId) setPdfBatchProgress(prev => prev && { ...prev, stage: 'saving' })
     setImporting(true)
     try {
       const { written, flagged } = await commitRows(toImport, account, pdfPreview.file, 'pdf', {
@@ -999,6 +1032,7 @@ export default function PaymentSources() {
       )
     } catch (err) {
       setImportMsg(prev => (prev ? prev + ' ' : '') + `${pdfPreview.fileName}: ${reprocessImportId ? 're-processing' : 'import'} failed — ${err.message || 'unknown error'}`)
+      if (!reprocessImportId) setPdfBatchProgress(prev => prev && { ...prev, stage: 'review' })
     }
     setImporting(false)
     // A reprocess has no queue to advance to (that flow was removed) — it
@@ -1202,6 +1236,26 @@ export default function PaymentSources() {
             {importing && !pdfPreview && (
               <div className="scan-progress-bar"><div className="scan-progress-fill" /></div>
             )}
+            {pdfBatchProgress && (
+              <div className="statement-batch-progress" role="status" aria-live="polite">
+                <div className="statement-batch-progress-copy">
+                  <strong>Statement {pdfBatchProgress.currentIndex} of {pdfBatchProgress.total}</strong>
+                  <span>
+                    {pdfBatchProgress.stage === 'reading'
+                      ? 'Reading PDF'
+                      : pdfBatchProgress.stage === 'saving'
+                        ? 'Saving records and original PDF'
+                        : 'Ready for your review'}: {pdfBatchProgress.currentFileName}
+                  </span>
+                </div>
+                <div className="statement-batch-progress-track" aria-hidden="true">
+                  <div
+                    className="statement-batch-progress-fill"
+                    style={{ width: `${Math.max(8, (pdfBatchProgress.currentIndex / pdfBatchProgress.total) * 100)}%` }}
+                  />
+                </div>
+              </div>
+            )}
             <p className="hint">Select multiple CSV/PDF files at once for a batch import. CSV needs Date, Description, and Amount columns (or separate Debit/Credit). PDF must be a digital statement (not a scanned image) — each PDF's parsed rows are shown for review before import, one file at a time.</p>
             {importMsg && <p className={/import failed|could not read|no text found|couldn't recognize/i.test(importMsg) ? 'error-msg' : 'success-msg'}>{importMsg}</p>}
           </>
@@ -1217,6 +1271,18 @@ export default function PaymentSources() {
               PDF table parsing is heuristic — uncheck any row that looks wrong before importing.
               {pdfQueue.length > 0 && ` ${pdfQueue.length} more PDF${pdfQueue.length === 1 ? '' : 's'} queued after this one.`}
             </p>
+            <div className={`statement-review-summary ${!pdfPreview.totalsCheck || pdfPreview.totalsCheck.consistent ? '' : 'statement-review-summary-warning'}`}>
+              <strong>{pdfReviewSummary.includedRows} rows ready to import</strong>
+              <span>
+                {pdfPreview.totalsCheck
+                  ? pdfPreview.totalsCheck.consistent ? 'Totals match the statement.' : 'Totals need attention.'
+                  : 'No opening/closing totals found to check.'}
+              </span>
+              {pdfReviewSummary.balanceChecks > 0 && (
+                <span>{pdfReviewSummary.balanceBreaks ? `${pdfReviewSummary.balanceBreaks} running-balance check${pdfReviewSummary.balanceBreaks === 1 ? '' : 's'} need attention.` : `${pdfReviewSummary.balanceChecks} running-balance checks passed.`}</span>
+              )}
+              {pdfReviewSummary.aiRows > 0 && <span>{pdfReviewSummary.aiRows} row{pdfReviewSummary.aiRows === 1 ? '' : 's'} read by AI — check dates and amounts.</span>}
+            </div>
             {pdfPreview.rows.some(r => r.extractionMethod === 'ai_assisted') && (
               // This statement's layout wasn't recognized by the normal column
               // parser — these rows came from the AI fallback instead (see

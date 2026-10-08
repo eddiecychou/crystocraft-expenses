@@ -8,6 +8,13 @@ changes when it's bumped deliberately in `package.json`.
 
 ## Unreleased (still V1.1)
 
+**Statement imports now show exact batch status and focused review signals.**
+When several PDF statements are selected, Payment Sources identifies the current
+statement number and filename and says whether it is being read, awaiting review,
+or saved. The review panel condenses the human decision to row count, statement-total
+result, available running-balance checks, and AI-assisted-row count; the full editable
+row list remains available before any financial records are written.
+
 **Upgraded AI extraction model: gemini-2.5-flash → gemini-3.6-flash.**
 All three Gemini-calling edge functions (`process-receipt.js`,
 `process-invoice.js`, `process-statement-text.js`) now try
