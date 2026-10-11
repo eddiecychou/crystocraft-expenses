@@ -148,6 +148,10 @@ Re-exports `lucide-react` icons under semantic names (`NavOverviewIcon`, `Receip
 
 ### [receiptStorage.js](src/receiptStorage.js)
 
+`uploadReceiptImage(file, userId, expenseId, index, onProgress?)` stores the original PDF or compressed image and reports actual bytes transferred to the optional callback.
+
+`uploadDocumentFile(file, projectId, kind, docId, onProgress?)` in [documentImport.js](src/lib/documentImport.js) saves invoice, purchase-order, and income originals with the same optional progress callback. [FileUploadProgress.jsx](src/components/FileUploadProgress.jsx) renders the measured transfer bar shared by those pages and receipt upload screens.
+
 | Function | Line | Purpose |
 |---|---|---|
 | `uploadReceiptImage(file, userId, expenseId, index)` | 45 | Uploads a (already-compressed) receipt image to `receipts/{uid}/{expenseId}/image{n}.{ext}`. |
@@ -157,7 +161,7 @@ Re-exports `lucide-react` icons under semantic names (`NavOverviewIcon`, `Receip
 
 | Function | Line | Purpose |
 |---|---|---|
-| `uploadStatementFile(file, userId, importId)` | 10 | Uploads the **original, uncompressed** statement file to `statements/{uid}/{importId}/...` for audit-trail purposes. |
+| `uploadStatementFile(file, userId, importId, onProgress?)` | 10 | Uploads the **original, uncompressed** statement file to `statements/{uid}/{importId}/...` for audit-trail purposes; optional callback receives actual transfer percent. |
 | `deleteStatementFile(storagePath)` | 19 | Deletes a stored statement file. |
 
 ### [hooks/useAuthState.js](src/hooks/useAuthState.js)

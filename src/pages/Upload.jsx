@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react'
 import { collection, addDoc, updateDoc, doc, serverTimestamp } from 'firebase/firestore'
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
+import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage'
 import { db, auth, storage } from '../firebase'
 import { CURRENCIES, PAYMENT_STAGES, projectCategories, projectPaymentMethods } from '../constants'
 import { useProject } from '../contexts/ProjectContext'
@@ -8,6 +8,7 @@ import ProjectBanner from '../components/ProjectBanner'
 import ConfirmDialog from '../components/ConfirmDialog'
 import AccountCodePicker from '../components/AccountCodePicker'
 import ExtractionWarning from '../components/ExtractionWarning'
+import FileUploadProgress from '../components/FileUploadProgress'
 import { useAccountCodes, saveAccountCodeRule } from '../hooks/useAccountCodes'
 import { suggestAccountCode } from '../lib/accountCodes'
 import { normalizeMerchant } from '../lib/paymentMatching'
@@ -28,6 +29,7 @@ export default function Upload() {
   const [confirmDialog, setConfirmDialog] = useState(null)
   const [processDone, setProcessDone] = useState(0)
   const [saveDone, setSaveDone] = useState(0)
+  const [uploadProgress, setUploadProgress] = useState(null)
   const [previewSrc, setPreviewSrc] = useState(null)
   const [reparsing, setReparsing] = useState({})
   const resultIdRef = useRef(0)
@@ -265,10 +267,12 @@ export default function Upload() {
     setValidationErrors({})
     setSaving(true)
     setSaveDone(0)
+    setUploadProgress(null)
     const uid = auth.currentUser.uid
     const email = auth.currentUser.email
     let saved = 0
 
+    let sourceFilesFailed = 0
     for (const r of results) {
       if (r.error) continue
 
@@ -320,7 +324,13 @@ export default function Upload() {
           for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i)
           const blob = new Blob([arr], { type: fileItem.mimeType })
           const storageRef = ref(storage, path)
-          await uploadBytes(storageRef, blob, { contentType: fileItem.mimeType })
+          setUploadProgress({ label: `Receipt ${saved + 1} of ${results.filter(item => !item.error).length}: ${fileItem.name}`, percent: 0 })
+          const task = uploadBytesResumable(storageRef, blob, { contentType: fileItem.mimeType })
+          await new Promise((resolve, reject) => task.on('state_changed',
+            snapshot => setUploadProgress(prev => prev && { ...prev, percent: snapshot.totalBytes ? Math.round(snapshot.bytesTransferred / snapshot.totalBytes * 100) : 100 }),
+            reject,
+            resolve
+          ))
           const url = await getDownloadURL(storageRef)
           await updateDoc(doc(db, 'expenses', docRef.id), {
             images: [{ url, path, name: fileItem.name }],
@@ -328,12 +338,15 @@ export default function Upload() {
         } catch (err) {
           console.error('Image upload failed for', r.fileName, err)
           // Don't block saving if image upload fails
+          sourceFilesFailed++
         }
+        setUploadProgress(null)
       }
       setSaveDone(++saved)
     }
 
     setSaving(false)
+    if (sourceFilesFailed) alert(`${sourceFilesFailed} receipt file(s) could not be saved. The expense records were saved without them.`)
     window.scrollTo(0, 0)
     setSaved(true)
     setFileItems([])
@@ -559,7 +572,8 @@ export default function Upload() {
             <button onClick={addManual} disabled={processing} className="btn-ghost">+ Add Manually</button>
             <button onClick={() => { setResults([]); setFileItems([]) }} className="btn-ghost">Cancel</button>
           </div>
-          {(processing || saving) && (
+          {uploadProgress && <FileUploadProgress {...uploadProgress} />}
+          {(processing || (saving && !uploadProgress)) && (
             <div className="scan-progress-bar">
               <div className="scan-progress-fill" />
             </div>

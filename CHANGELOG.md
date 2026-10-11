@@ -8,6 +8,10 @@ changes when it's bumped deliberately in `package.json`.
 
 ## V1.2 — 2026-10-11 (local build; deployment pending)
 
+**Original-file upload progress.** New PDF imports and the Attach Original action now show the actual file-transfer percentage. If a PDF could not be saved, the completed import keeps a visible warning until the original is attached; transaction rows remain intact.
+
+**All document upload routes.** Receipt uploads (including later attachments), income documents, invoices, and purchase orders now show the current file's actual transfer percentage. Multi-file saves identify the current file. Extraction remains a separate step, and invoice/income saves report source-file failures.
+
 **PDF re-checks are individual only.** Removed the page-wide "Check saved
 PDFs" batch action; each completed statement keeps its own check button, so
 a large history cannot start a long run by accident.

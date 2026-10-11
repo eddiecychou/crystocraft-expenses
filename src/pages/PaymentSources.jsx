@@ -89,6 +89,7 @@ export default function PaymentSources() {
   const attachFileRef = useRef()
   const attachingImportRef = useRef(null)
   const [attachingImportId, setAttachingImportId] = useState(null)
+  const [attachUploadPercent, setAttachUploadPercent] = useState(0)
 
   const pdfReviewSummary = pdfPreview && (() => {
     const sequencedRows = annotateBalanceSequence(pdfPreview.rows)
@@ -326,9 +327,10 @@ export default function PaymentSources() {
       })
       // Attempts are created before PDF review. Save the original here too,
       // otherwise the later "Check saved PDF" action has no source to read.
-      setPdfBatchProgress(prev => prev && { ...prev, stage: 'uploading' })
+      setPdfBatchProgress(prev => prev && { ...prev, stage: 'uploading', uploadPercent: 0 })
       try {
-        const { url, path } = await uploadStatementFile(file, auth.currentUser.uid, importRef.id)
+        const { url, path } = await uploadStatementFile(file, auth.currentUser.uid, importRef.id,
+          percent => setPdfBatchProgress(prev => prev && { ...prev, uploadPercent: percent }))
         await updateDoc(importRef, { sourceFileUrl: url, sourceFilePath: path })
       } catch (err) {
         console.error('Failed to store original statement file:', err.message)
@@ -362,13 +364,16 @@ export default function PaymentSources() {
       // retrievable for audit trail, the same way receipts are kept for
       // expenses. Uploaded as-is (no compression/re-encoding). Skipped on
       // reprocess: the file is already stored and unchanged.
+      if (sourceType === 'pdf') setPdfBatchProgress(prev => prev && { ...prev, stage: 'uploading', uploadPercent: 0 })
       try {
-        const { url, path } = await uploadStatementFile(file, auth.currentUser.uid, importRef.id)
+        const { url, path } = await uploadStatementFile(file, auth.currentUser.uid, importRef.id,
+          sourceType === 'pdf' ? percent => setPdfBatchProgress(prev => prev && { ...prev, uploadPercent: percent }) : undefined)
         await updateDoc(doc(db, 'paymentImports', importRef.id), { sourceFileUrl: url, sourceFilePath: path })
       } catch (err) {
         console.error('Failed to store original statement file:', err.message)
         sourceFileError = err.message || 'unknown error'
       }
+      if (sourceType === 'pdf') setPdfBatchProgress(prev => prev && { ...prev, stage: 'saving' })
     }
 
     // Check existing rows sharing a fingerprint on this account, so a
@@ -600,6 +605,7 @@ export default function PaymentSources() {
       importStatus: 'ready',
       lineCount: rowsToWrite.length,
       totalsCheck,
+      errorMessage: sourceFileError ? `Original ${sourceType === 'pdf' ? 'PDF' : 'file'} could not be saved. Attach it again below.` : null,
       updatedAt: serverTimestamp(),
     })
 
@@ -880,6 +886,7 @@ export default function PaymentSources() {
   // storage existed (or where the upload failed at import time).
   function openAttachOriginal(imp) {
     attachingImportRef.current = imp
+    setAttachUploadPercent(0)
     setAttachingImportId(imp.id)
     attachFileRef.current.click()
   }
@@ -895,12 +902,13 @@ export default function PaymentSources() {
       return
     }
     try {
-      const { url, path } = await uploadStatementFile(file, auth.currentUser.uid, imp.id)
-      await updateDoc(doc(db, 'paymentImports', imp.id), { sourceFileUrl: url, sourceFilePath: path })
+      const { url, path } = await uploadStatementFile(file, auth.currentUser.uid, imp.id, setAttachUploadPercent)
+      await updateDoc(doc(db, 'paymentImports', imp.id), { sourceFileUrl: url, sourceFilePath: path, errorMessage: null })
     } catch (err) {
       alert('Failed to attach file: ' + (err.message || 'unknown error'))
     }
     setAttachingImportId(null)
+    setAttachUploadPercent(0)
   }
 
   // Parses one PDF and either shows it for review or, if nothing came out
@@ -1355,20 +1363,25 @@ export default function PaymentSources() {
                           : pdfBatchProgress.stage === 'ocr_choice'
                             ? 'Image page found — choose how to continue'
                           : pdfBatchProgress.stage === 'uploading'
-                            ? 'Saving original PDF'
+                            ? pdfBatchProgress.uploadPercent === 100 ? 'Upload complete — saving file link' : `Uploading original PDF — ${pdfBatchProgress.uploadPercent || 0}%`
                             : pdfBatchProgress.stage === 'saving'
                               ? 'Saving transactions'
                               : 'Ready — review the rows below'}
                   </span>
                   <span>{Math.max(0, pdfBatchProgress.currentIndex - 1)} of {pdfBatchProgress.total} files finished</span>
                 </div>
+                {pdfBatchProgress.stage === 'uploading' && (
+                  <div className="statement-batch-progress-track" role="progressbar" aria-label="Original PDF uploaded" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pdfBatchProgress.uploadPercent || 0}>
+                    <div className="statement-batch-progress-fill" style={{ width: `${pdfBatchProgress.uploadPercent || 0}%` }} />
+                  </div>
+                )}
                 <div className="statement-batch-progress-track" role="progressbar" aria-label="Statements finished" aria-valuemin={0} aria-valuemax={pdfBatchProgress.total} aria-valuenow={Math.max(0, pdfBatchProgress.currentIndex - 1)}>
                   <div
                     className="statement-batch-progress-fill"
                     style={{ width: `${((pdfBatchProgress.currentIndex - 1) / pdfBatchProgress.total) * 100}%` }}
                   />
                 </div>
-                {importing && <div className="scan-progress-bar" aria-hidden="true"><div className="scan-progress-fill" /></div>}
+                {importing && pdfBatchProgress.stage !== 'uploading' && <div className="scan-progress-bar" aria-hidden="true"><div className="scan-progress-fill" /></div>}
               </div>
             )}
             {ocrPending && (
@@ -1483,7 +1496,7 @@ export default function PaymentSources() {
                       <td>{imp.lineCount}</td>
                       <td>
                         {IMPORT_STATUS_LABELS[imp.importStatus] || imp.importStatus}
-                        {imp.importStatus === 'error' && imp.errorMessage && (
+                        {(imp.importStatus === 'error' || (imp.importStatus === 'ready' && !imp.sourceFileUrl)) && imp.errorMessage && (
                           <div className="hint" style={{ maxWidth: 160 }}>{imp.errorMessage}</div>
                         )}
                         {imp.importStatus === 'cancelled' && <div className="hint" style={{ maxWidth: 160 }}>Retry by selecting the file again.</div>}
@@ -1557,9 +1570,12 @@ export default function PaymentSources() {
                         </button>
                         {imp.sourceFileUrl
                           ? <a href={imp.sourceFileUrl} target="_blank" rel="noreferrer" className="btn-small">Original</a>
-                          : <button className="btn-small" disabled={attachingImportId === imp.id} onClick={() => openAttachOriginal(imp)}>
-                              {attachingImportId === imp.id ? 'Saving…' : imp.sourceType === 'pdf' && imp.importStatus === 'ready' ? 'Attach original PDF to check' : 'Attach Original'}
-                            </button>}
+                          : <>
+                              <button className="btn-small" disabled={!!attachingImportId} onClick={() => openAttachOriginal(imp)}>
+                                {attachingImportId === imp.id ? attachUploadPercent === 100 ? 'Finishing…' : `Uploading… ${attachUploadPercent}%` : imp.sourceType === 'pdf' && imp.importStatus === 'ready' ? 'Attach original PDF to check' : 'Attach Original'}
+                              </button>
+                              {attachingImportId === imp.id && <div className="statement-batch-progress-track" role="progressbar" aria-label="Original file uploaded" aria-valuemin={0} aria-valuemax={100} aria-valuenow={attachUploadPercent}><div className="statement-batch-progress-fill" style={{ width: `${attachUploadPercent}%` }} /></div>}
+                            </>}
                         {imp.importStatus === 'error' && imp.sourceType === 'pdf' && (
                           <button className="btn-small" onClick={() => fileRef.current.click()}>Choose Retry PDF</button>
                         )}

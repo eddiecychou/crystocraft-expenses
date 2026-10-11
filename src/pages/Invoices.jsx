@@ -9,6 +9,7 @@ import { parseCSV } from '../lib/paymentMatching'
 import { mapDocumentCsvRecords, uploadDocumentFile, operationCenterDocId, mapOperationCenterPoRow, mapOperationCenterInvoiceRow, jesLegacyDocId, mapJesLegacyPoRow, mapJesLegacyInvoiceRow } from '../lib/documentImport'
 import AccountCodePicker from '../components/AccountCodePicker'
 import ExtractionWarning from '../components/ExtractionWarning'
+import FileUploadProgress from '../components/FileUploadProgress'
 import { useAccountCodes, saveAccountCodeRule } from '../hooks/useAccountCodes'
 import { DocumentIcon, AttachIcon, ICON_STROKE_WIDTH } from '../icons'
 
@@ -46,6 +47,7 @@ export default function Invoices() {
   const [processing, setProcessing] = useState(false)
   const [processDone, setProcessDone] = useState(0)
   const [saving, setSaving] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState(null)
   const [message, setMessage] = useState('')
   const [confirmDialog, setConfirmDialog] = useState(null)
   const [editingId, setEditingId] = useState(null)
@@ -173,10 +175,12 @@ export default function Invoices() {
     const valid = results.filter(r => !r.error)
     if (!valid.length) return
     setSaving(true)
+    setUploadProgress(null)
     const uid = auth.currentUser.uid
     const email = auth.currentUser.email
+    let sourceFilesFailed = 0
 
-    for (const r of valid) {
+    for (const [index, r] of valid.entries()) {
       const docRef = await addDoc(collection(db, tab.collection), {
         projectId: activeProject.id,
         number: r.number || '',
@@ -201,16 +205,20 @@ export default function Invoices() {
 
       if (r.fileItem && !r.fileItem.error) {
         try {
-          const { url, path } = await uploadDocumentFile(r.fileItem.file, activeProject.id, activeKind, docRef.id)
+          setUploadProgress({ label: `File ${index + 1} of ${valid.length}: ${r.fileName}`, percent: 0 })
+          const { url, path } = await uploadDocumentFile(r.fileItem.file, activeProject.id, activeKind, docRef.id,
+            percent => setUploadProgress(prev => prev && { ...prev, percent }))
           await updateDoc(doc(db, tab.collection, docRef.id), { sourceFileUrl: url, sourceFilePath: path })
         } catch (err) {
           console.error('Source file upload failed for', r.fileName, err)
+          sourceFilesFailed++
         }
+        setUploadProgress(null)
       }
     }
 
     setSaving(false)
-    setMessage(`Saved ${valid.length} ${tab.label.toLowerCase()}.`)
+    setMessage(`Saved ${valid.length} ${tab.label.toLowerCase()}.` + (sourceFilesFailed ? ` ${sourceFilesFailed} original file(s) could not be saved; check the records before relying on them.` : ''))
     setFileItems([]); setResults([])
   }
 
@@ -508,6 +516,7 @@ export default function Invoices() {
           </div>
           {loading && <p className="hint">Reading files…</p>}
           {processing && <p className="hint">Extracting {processDone} of {fileItems.length}…</p>}
+          {uploadProgress && <FileUploadProgress {...uploadProgress} />}
           {message && <p className="success-msg">{message}</p>}
         </>
       )}
@@ -516,6 +525,7 @@ export default function Invoices() {
         <div>
           <h3>Review Extracted Data</h3>
           <p className="hint">Check and correct any fields before saving.</p>
+          {uploadProgress && <FileUploadProgress {...uploadProgress} />}
           {results.map(r => (
             <div key={r._id} className="result-card">
               <div className="result-card-header">

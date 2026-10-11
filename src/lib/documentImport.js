@@ -5,7 +5,7 @@
 // paymentMatching.js rather than re-implementing CSV tokenizing or date
 // parsing.
 import { parseStatementDate } from './paymentMatching'
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
+import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage'
 import { storage } from '../firebase'
 
 const NUMBER_ALIASES = {
@@ -177,12 +177,17 @@ export function mapJesLegacyInvoiceRow(row) {
 // Upload the original source file (CSV or PDF/image) exactly as received,
 // for audit trail — same rationale as uploadStatementFile in
 // statementStorage.js. Returns { url, path } to store on the record.
-export async function uploadDocumentFile(file, projectId, kind, docId) {
+export async function uploadDocumentFile(file, projectId, kind, docId, onProgress) {
   const collectionPath = kind === 'po' ? 'purchaseOrders' : kind === 'income' ? 'income' : 'invoices'
   const ext = file.name.split('.').pop() || 'bin'
   const path = `${collectionPath}/${projectId}/${docId}/source.${ext}`
   const storageRef = ref(storage, path)
-  await uploadBytes(storageRef, file, { contentType: file.type || 'application/octet-stream' })
+  const task = uploadBytesResumable(storageRef, file, { contentType: file.type || 'application/octet-stream' })
+  await new Promise((resolve, reject) => task.on('state_changed',
+    snapshot => onProgress?.(snapshot.totalBytes ? Math.round(snapshot.bytesTransferred / snapshot.totalBytes * 100) : 100),
+    reject,
+    resolve
+  ))
   const url = await getDownloadURL(storageRef)
   return { url, path }
 }

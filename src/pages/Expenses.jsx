@@ -10,11 +10,12 @@ import { uploadReceiptImage, deleteReceiptImage, MAX_IMAGES } from '../receiptSt
 import { CURRENCIES, PAYMENT_STAGES, projectCategories, projectPaymentMethods } from '../constants'
 import ConfirmDialog from '../components/ConfirmDialog'
 import LoadingBar from '../components/LoadingBar'
+import FileUploadProgress from '../components/FileUploadProgress'
 import AccountCodePicker from '../components/AccountCodePicker'
 import { useAccountCodes, saveAccountCodeRule } from '../hooks/useAccountCodes'
 import { AttachIcon, CloseIcon, DownloadIcon, ICON_STROKE_WIDTH } from '../icons'
 
-function Lightbox({ expenseId, images, onClose, onAdd, onDelete, uploading }) {
+function Lightbox({ expenseId, images, onClose, onAdd, onDelete, uploading, uploadProgress }) {
   const canAdd = images.length < MAX_IMAGES
   return (
     <div className="lightbox-overlay" onClick={onClose}>
@@ -48,6 +49,7 @@ function Lightbox({ expenseId, images, onClose, onAdd, onDelete, uploading }) {
             {uploading ? 'Uploading…' : '+ Add Photo'}
           </button>
         )}
+        {uploading && uploadProgress != null && <FileUploadProgress label="Receipt file" percent={uploadProgress} />}
         <button onClick={onClose} className="btn-primary" style={{ width: '100%', marginTop: 8 }}>Done</button>
       </div>
     </div>
@@ -66,6 +68,7 @@ export default function Expenses() {
   const [rememberAccountCode, setRememberAccountCode] = useState(false)
   const [viewImages, setViewImages] = useState(null) // { expenseId, images }
   const [uploading, setUploading] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState(null)
   const fileInputRef = useRef()
   const [filterFrom, setFilterFrom] = useState('')
   const [filterTo, setFilterTo] = useState('')
@@ -199,8 +202,9 @@ export default function Expenses() {
     const { expenseId, images } = viewImages
     if (images.length >= MAX_IMAGES) return
     setUploading(true)
+    setUploadProgress(0)
     try {
-      const img = await uploadReceiptImage(file, uid, expenseId, images.length)
+      const img = await uploadReceiptImage(file, uid, expenseId, images.length, setUploadProgress)
       const newImages = [...images, img]
       await updateDoc(doc(db, 'expenses', expenseId), { images: newImages })
       setViewImages({ expenseId, images: newImages })
@@ -208,6 +212,7 @@ export default function Expenses() {
       alert('Upload failed: ' + err.message)
     }
     setUploading(false)
+    setUploadProgress(null)
   }
 
   function handleDeleteImage(img) {
@@ -479,6 +484,7 @@ export default function Expenses() {
           onAdd={() => fileInputRef.current.click()}
           onDelete={handleDeleteImage}
           uploading={uploading}
+          uploadProgress={uploadProgress}
         />
       )}
 

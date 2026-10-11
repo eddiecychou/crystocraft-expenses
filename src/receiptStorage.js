@@ -1,4 +1,4 @@
-import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage'
+import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage'
 import { storage } from './firebase'
 
 const MAX_IMAGES = 5
@@ -42,11 +42,16 @@ async function compressForStorage(file) {
  * @param {string} expenseId - Firestore document ID of the expense
  * @param {number} index     - Position in the images array (0–4)
  */
-export async function uploadReceiptImage(file, userId, expenseId, index) {
+export async function uploadReceiptImage(file, userId, expenseId, index, onProgress) {
   const { blob, mimeType, ext } = await compressForStorage(file)
   const path = `receipts/${userId}/${expenseId}/image${index}.${ext}`
   const storageRef = ref(storage, path)
-  await uploadBytes(storageRef, blob, { contentType: mimeType })
+  const task = uploadBytesResumable(storageRef, blob, { contentType: mimeType })
+  await new Promise((resolve, reject) => task.on('state_changed',
+    snapshot => onProgress?.(snapshot.totalBytes ? Math.round(snapshot.bytesTransferred / snapshot.totalBytes * 100) : 100),
+    reject,
+    resolve
+  ))
   const url = await getDownloadURL(storageRef)
   return { url, path, name: file.name }
 }

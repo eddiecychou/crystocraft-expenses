@@ -1,4 +1,4 @@
-import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage'
+import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage'
 import { storage } from './firebase'
 
 /**
@@ -7,11 +7,16 @@ import { storage } from './firebase'
  * for audit trail, not a display thumbnail. Returns { url, path } to store
  * on the paymentImports doc.
  */
-export async function uploadStatementFile(file, userId, importId) {
+export async function uploadStatementFile(file, userId, importId, onProgress) {
   const ext = file.name.split('.').pop() || 'bin'
   const path = `statements/${userId}/${importId}/source.${ext}`
   const storageRef = ref(storage, path)
-  await uploadBytes(storageRef, file, { contentType: file.type || 'application/octet-stream' })
+  const task = uploadBytesResumable(storageRef, file, { contentType: file.type || 'application/octet-stream' })
+  await new Promise((resolve, reject) => task.on('state_changed',
+    snapshot => onProgress?.(snapshot.totalBytes ? Math.round(snapshot.bytesTransferred / snapshot.totalBytes * 100) : 100),
+    reject,
+    resolve
+  ))
   const url = await getDownloadURL(storageRef)
   return { url, path }
 }
