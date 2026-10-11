@@ -773,16 +773,14 @@ export default function PaymentSources() {
     setVerifyingAll(true)
     setVerifyMsg(`Checking 0 of ${eligible.length}…`)
     let mismatches = 0
+    let unreadable = 0
     for (let i = 0; i < eligible.length; i++) {
       setVerifyMsg(`Checking ${i + 1} of ${eligible.length}…`)
       const result = await verifyImportAgainstSource(eligible[i])
-      if (result && !result.consistent) mismatches++
+      if (result?.error) unreadable++
+      else if (result && !result.consistent) mismatches++
     }
-    setVerifyMsg(
-      mismatches === 0
-        ? `Checked ${eligible.length} statement${eligible.length === 1 ? '' : 's'} — saved rows match the current PDF reading.`
-        : `Checked ${eligible.length} statement${eligible.length === 1 ? '' : 's'} — ${mismatches} need review below.`
-    )
+    setVerifyMsg(`Checked ${eligible.length} statement${eligible.length === 1 ? '' : 's'}: ${eligible.length - mismatches - unreadable} matched, ${mismatches} differed, ${unreadable} could not be read.`)
     setVerifyingAll(false)
   }
 
@@ -1542,6 +1540,11 @@ export default function PaymentSources() {
                             <>
                               <span className="badge badge-warning"><WarningIcon size={12} strokeWidth={ICON_STROKE_WIDTH} aria-hidden="true" /> Couldn't re-check</span>
                               <div className="hint" style={{ maxWidth: 220 }}>{imp.verification.error}</div>
+                            </>
+                          ) : imp.verification.reparsedCount === 0 && imp.verification.storedCount > 0 ? (
+                            <>
+                              <span className="badge badge-warning"><WarningIcon size={12} strokeWidth={ICON_STROKE_WIDTH} aria-hidden="true" /> Couldn't re-check</span>
+                              <div className="hint" style={{ maxWidth: 220 }}>This PDF could not be read again. The saved transactions were not changed.</div>
                             </>
                           ) : imp.verification.consistent ? (
                             <span className="badge badge-office" title="A fresh PDF reading matches the saved transactions and totals."><MatchedIcon size={12} strokeWidth={ICON_STROKE_WIDTH} aria-hidden="true" /> Checked</span>

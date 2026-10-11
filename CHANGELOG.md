@@ -16,6 +16,8 @@ imports can attach the matching original PDF to enable a re-check. Progress
 now names the file, page, current step, and number of files finished, without
 pretending that reading and saving share an exact percentage. Long AI checks
 also show which part of the page is being processed.
+Previously saved zero-row re-check results now show "Couldn't re-check"
+instead of a false "Mismatch"; they no longer offer a replace-records action.
 
 **Bank statement reading now has a scanned-page route and a completeness check.**
 Digital PDFs still start with local text and column positions. If a PDF page

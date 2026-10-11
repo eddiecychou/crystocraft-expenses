@@ -314,6 +314,11 @@ and show an explicit attach action for already-affected imports. A re-parse
 is a consistency check against stored rows, not proof that an OCR result is
 correct. Progress must count completed files, not mark the current file as
 finished while it is still being read or reviewed.
+If a fresh parser returns zero rows for an older statement, comparing that
+empty set with stored transactions makes every stored row look "missing from
+the PDF." Treat both new and already-saved zero-row verification results as
+an unreadable PDF, not a financial mismatch; never offer the replace-records
+action for that result.
 
 **V1.2 extension:** A browser parser returning *some* rows does not prove the
 statement is complete. Page coverage, transaction-like line counts, running
