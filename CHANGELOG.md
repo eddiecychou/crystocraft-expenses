@@ -8,6 +8,10 @@ changes when it's bumped deliberately in `package.json`.
 
 ## V1.2 — 2026-10-11 (local build; deployment pending)
 
+**PDF re-checks are individual only.** Removed the page-wide "Check saved
+PDFs" batch action; each completed statement keeps its own check button, so
+a large history cannot start a long run by accident.
+
 **Statement list and checking follow-up.** Payment Sources now shows newer
 statement periods first (new attempts use their start time). V1.2's early
 attempt record accidentally skipped saving the original PDF after review, so

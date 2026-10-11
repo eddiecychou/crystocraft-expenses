@@ -306,6 +306,10 @@ re-read an already-stored file (statements, receipts) must go through
 
 ## PDF statement parsing is fragile — verify against real files
 
+**Long histories:** A page-wide re-check can sequentially re-read hundreds
+of PDFs and appear stuck. Keep the action per statement and disable other
+checks while one is running; retain the normal review gate for any repair.
+
 **V1.2 follow-up:** Creating `paymentImports` before PDF review introduced a
 new `commitRows` branch. That branch wrote transactions but missed the old
 original-file upload, so `sourceFileUrl` stayed empty and the Verify action

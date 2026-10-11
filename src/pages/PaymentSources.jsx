@@ -33,12 +33,8 @@ const IMPORT_STATUS_LABELS = {
   cancelled: 'Cancelled',
 }
 
-// A sequential batch (Verify All / Fix All Mismatches) awaits one fetch at
-// a time — with no timeout, a single stalled request (slow cold start,
-// dropped connection) hangs the whole batch indefinitely with no visible
-// error, which looks exactly like "it fixes a few then just stops."
-// Aborting after 30s turns that into a per-item failure the loop can move
-// past, instead of a silent, unrecoverable stall.
+// A stalled source-file download should fail visibly instead of leaving
+// the selected statement in an endless "Checking" state.
 async function fetchWithTimeout(url, options, timeoutMs = 30000) {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
@@ -84,8 +80,6 @@ export default function PaymentSources() {
   const [verifyingImportId, setVerifyingImportId] = useState(null)
   const [reprocessingImportId, setReprocessingImportId] = useState(null)
   const [expandedDuplicateId, setExpandedDuplicateId] = useState(null)
-  const [verifyingAll, setVerifyingAll] = useState(false)
-  const [verifyMsg, setVerifyMsg] = useState('')
   // Transactions for whichever import the user has expanded to review/edit.
   const [viewingImportId, setViewingImportId] = useState(null)
   const [importTxns, setImportTxns] = useState([])
@@ -763,27 +757,6 @@ export default function PaymentSources() {
       setVerifyingImportId(null)
     }
   }
-
-  async function verifyAllImports() {
-    const eligible = imports.filter(imp => imp.sourceType === 'pdf' && imp.importStatus === 'ready' && imp.sourceFileUrl)
-    if (!eligible.length) {
-      setVerifyMsg('No PDF imports with a stored original file to verify.')
-      return
-    }
-    setVerifyingAll(true)
-    setVerifyMsg(`Checking 0 of ${eligible.length}…`)
-    let mismatches = 0
-    let unreadable = 0
-    for (let i = 0; i < eligible.length; i++) {
-      setVerifyMsg(`Checking ${i + 1} of ${eligible.length}…`)
-      const result = await verifyImportAgainstSource(eligible[i])
-      if (result?.error) unreadable++
-      else if (result && !result.consistent) mismatches++
-    }
-    setVerifyMsg(`Checked ${eligible.length} statement${eligible.length === 1 ? '' : 's'}: ${eligible.length - mismatches - unreadable} matched, ${mismatches} differed, ${unreadable} could not be read.`)
-    setVerifyingAll(false)
-  }
-
 
   // Editing or deleting a transaction that's already confirmed against an
   // expense (or linked as a card-payment/bank-debit settlement) would
@@ -1492,19 +1465,8 @@ export default function PaymentSources() {
 
         {imports.length > 0 && (
           <div style={{ marginTop: 16 }}>
-            <div className="action-row" style={{ alignItems: 'center' }}>
-              {imports.some(imp => imp.sourceType === 'pdf' && imp.importStatus === 'ready' && imp.sourceFileUrl) && (
-                <button className="btn-primary btn-small" disabled={verifyingAll || !!pdfPreview || verifyingImportId} onClick={verifyAllImports}>
-                  {verifyingAll ? 'Checking…' : 'Check saved PDFs'}
-                </button>
-              )}
-              {verifyMsg && <span className="hint">{verifyMsg}</span>}
-            </div>
-            {verifyingAll && (
-              <div className="scan-progress-bar"><div className="scan-progress-fill" /></div>
-            )}
             <p className="hint">
-              Check compares saved transactions with a fresh reading of the original PDF. It can spot differences, but it does not replace your review of the statement.
+              Use "Check saved PDF" on one statement at a time. It compares saved transactions with a fresh reading of that PDF, but does not replace your review.
             </p>
           <div className="table-wrap">
             <table className="expense-table">
@@ -1527,10 +1489,8 @@ export default function PaymentSources() {
                         {imp.importStatus === 'cancelled' && <div className="hint" style={{ maxWidth: 160 }}>Retry by selecting the file again.</div>}
                       </td>
                       <td>
-                        {/* Fixed min-height regardless of content, so a check landing
-                            mid-list (Verify All runs them one at a time) doesn't grow
-                            this row and shove every row below it up/down while
-                            scrolling — the "bouncing" the badge text used to cause. */}
+                        {/* Keep the check result's height stable so updating a
+                            badge doesn't bounce the surrounding rows. */}
                         <div style={{ minHeight: 40 }}>
                           {imp.sourceType !== 'pdf' ? '—' : !imp.sourceFileUrl ? (
                             <span className="hint">Original PDF missing</span>
@@ -1581,7 +1541,7 @@ export default function PaymentSources() {
                                   )}
                                 </details>
                               )}
-                              <button className="btn-small" style={{ marginTop: 4, minWidth: 140 }} disabled={importing || !!pdfPreview || verifyingAll} onClick={() => reprocessFromStoredPdf(imp)}>
+                              <button className="btn-small" style={{ marginTop: 4, minWidth: 140 }} disabled={importing || !!pdfPreview || !!verifyingImportId} onClick={() => reprocessFromStoredPdf(imp)}>
                                 {reprocessingImportId === imp.id ? 'Reading PDF…' : 'Fix from Stored PDF'}
                               </button>
                               {reprocessingImportId === imp.id && (
@@ -1604,7 +1564,7 @@ export default function PaymentSources() {
                           <button className="btn-small" onClick={() => fileRef.current.click()}>Choose Retry PDF</button>
                         )}
                         {imp.sourceType === 'pdf' && imp.importStatus === 'ready' && imp.sourceFileUrl && (
-                          <button className="btn-small" style={{ minWidth: 130, display: 'inline-block' }} disabled={verifyingImportId === imp.id || verifyingAll || !!pdfPreview} onClick={() => verifyImportAgainstSource(imp)}>
+                          <button className="btn-small" style={{ minWidth: 130, display: 'inline-block' }} disabled={!!verifyingImportId || !!pdfPreview || importing} onClick={() => verifyImportAgainstSource(imp)}>
                             {verifyingImportId === imp.id ? 'Checking…' : 'Check saved PDF'}
                           </button>
                         )}

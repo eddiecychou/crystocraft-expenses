@@ -287,7 +287,6 @@ No standalone named functions beyond small in-render helpers (`setPreset`, `acco
 | `dismissDuplicateWarning(txn)` | 391 | Marks a duplicate warning as reviewed without changing its verdict. |
 | `renderDuplicateStatus(txn, imp)` | 411 | Shared render function for the duplicate-review UI (badge + reason + actions when expanded, collapsed "Resolved · Change" when already resolved) — used by both the desktop table cell and the mobile card. |
 | `verifyImportAgainstSource(imp)` | 461 | Re-downloads and re-parses the stored original file, diffs against what's stored (`diffTransactionSets`). |
-| `verifyAllImports()` | 511 | Runs `verifyImportAgainstSource` across every import for the active account. |
 | `unlinkTransaction(txn)` | 538 | Detaches a transaction from its matched expense. |
 | `startEditTxn(txn)` | 561 | Enters inline edit mode for a transaction row. |
 | `saveEditTxn(txn)` | 566 | Persists an inline transaction edit. |
