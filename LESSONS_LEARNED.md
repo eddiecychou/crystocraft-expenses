@@ -822,3 +822,5 @@ non-blocking totals-check message.
 # Statement original-file progress (2026-10-12)
 
 Keep reading/parsing and file transfer as separate progress stages: only the latter has a reliable byte percentage. A successful transaction import can still lack its original PDF if Storage fails, so retain a visible warning on the import row and clear it only after the original is attached successfully. The same distinction applies to receipt, invoice, purchase-order, and income PDFs: Storage transfer progress does not measure extraction or the final record-link write.
+
+For saved-PDF re-checks, distinguish the in-progress state from the previous stored result. Keep a completed mismatch visible if the saved rows and PDF still differ; checking is not confirmation.

@@ -1507,6 +1507,11 @@ export default function PaymentSources() {
                         <div style={{ minHeight: 40 }}>
                           {imp.sourceType !== 'pdf' ? '—' : !imp.sourceFileUrl ? (
                             <span className="hint">Original PDF missing</span>
+                          ) : verifyingImportId === imp.id ? (
+                            <>
+                              <span className="badge badge-office">Checking saved PDF…</span>
+                              <div className="scan-progress-bar" style={{ maxWidth: 220 }}><div className="scan-progress-fill" /></div>
+                            </>
                           ) : !imp.verification ? (
                             <span className="hint">Not checked yet</span>
                           ) : imp.verification.error ? (

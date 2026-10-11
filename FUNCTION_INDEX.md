@@ -290,7 +290,7 @@ No standalone named functions beyond small in-render helpers (`setPreset`, `acco
 | `resolveDuplicate(txn, newStatus)` | 375 | Applies Keep as Separate / Confirm Duplicate to a flagged transaction; restores `status: 'unmatched'` if it was previously `ignored`. |
 | `dismissDuplicateWarning(txn)` | 391 | Marks a duplicate warning as reviewed without changing its verdict. |
 | `renderDuplicateStatus(txn, imp)` | 411 | Shared render function for the duplicate-review UI (badge + reason + actions when expanded, collapsed "Resolved · Change" when already resolved) — used by both the desktop table cell and the mobile card. |
-| `verifyImportAgainstSource(imp)` | 461 | Re-downloads and re-parses the stored original file, diffs against what's stored (`diffTransactionSets`). |
+| `verifyImportAgainstSource(imp)` | 461 | Re-downloads and re-parses the stored original file, diffs against what's stored (`diffTransactionSets`); the UI shows a temporary checking state until the comparison finishes. |
 | `unlinkTransaction(txn)` | 538 | Detaches a transaction from its matched expense. |
 | `startEditTxn(txn)` | 561 | Enters inline edit mode for a transaction row. |
 | `saveEditTxn(txn)` | 566 | Persists an inline transaction edit. |
