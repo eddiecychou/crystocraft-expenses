@@ -8,3 +8,15 @@ export function sortStatementImports(imports) {
     (a.sourceFileName || '').localeCompare(b.sourceFileName || '')
   )
 }
+
+export function filterStatementImports(imports, accountId, from, to) {
+  if (from && to && from > to) return []
+  return imports.filter(imp => {
+    if (accountId && imp.paymentAccountId !== accountId) return false
+    if (!from && !to) return true
+    const start = imp.periodStart || imp.periodEnd
+    const end = imp.periodEnd || imp.periodStart
+    if (!start || !end) return false
+    return (!from || end >= from) && (!to || start <= to)
+  })
+}

@@ -107,7 +107,7 @@ some of these functions look the way they do, see [LESSONS_LEARNED.md](LESSONS_L
 | [statementOcr.js](src/lib/statementOcr.js) | Renders one PDF page to a bounded JPEG and calls the authenticated OCR endpoint. |
 | [statementOcrGeometry.js](src/lib/statementOcrGeometry.js) | Converts Vision word positions to the PDF-point lines consumed by the statement parser. |
 | [statementAiEvidence.js](src/lib/statementAiEvidence.js) | Grounds AI rows in cited printed amount lines and flags description/balance values that could not be confirmed nearby. |
-| [statementImportOrder.js](src/lib/statementImportOrder.js) | Sorts statement imports newest period first, using the attempt start time when no period is available. |
+| [statementImportOrder.js](src/lib/statementImportOrder.js) | Sorts statement imports newest period first and filters by account and overlapping statement-date range; attempts without a period appear only with date filters cleared. |
 
 ### [pdfRedaction.js](src/lib/pdfRedaction.js)
 

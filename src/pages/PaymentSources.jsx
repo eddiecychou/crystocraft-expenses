@@ -8,7 +8,7 @@ import { CURRENCIES } from '../constants'
 import { parseCSV, mapCsvRecords, normalizeMerchant, classifyTransactionType, computeFingerprints } from '../lib/paymentMatching'
 import { isXTransferCsv, mapXTransferRecords } from '../lib/xtransferImport'
 import { parsePdfStatement } from '../lib/pdfStatementParser'
-import { sortStatementImports } from '../lib/statementImportOrder'
+import { sortStatementImports, filterStatementImports } from '../lib/statementImportOrder'
 import { uploadStatementFile, deleteStatementFile } from '../statementStorage'
 import { annotateBalanceSequence, classifyFingerprintCollision, validateStatementTotals, diffTransactionSets, reviewedExclusionsMatch, DUPLICATE_STATUS_LABELS } from '../lib/duplicateDetection'
 import { classifyTransaction, computeVisibleToMembers } from '../lib/expenseClassification'
@@ -59,6 +59,9 @@ export default function PaymentSources() {
   const { activeProject } = useProject()
   const [accounts, setAccounts] = useState([])
   const [imports, setImports] = useState([])
+  const [statementAccountFilter, setStatementAccountFilter] = useState('')
+  const [statementPeriodFrom, setStatementPeriodFrom] = useState('')
+  const [statementPeriodTo, setStatementPeriodTo] = useState('')
   const [creating, setCreating] = useState(false)
   const [newAccount, setNewAccount] = useState({ label: '', sourceType: 'bank', accountTail: '', institutionName: '', settlementCurrency: 'HKD', ownershipType: 'company' })
   const [editAccountId, setEditAccountId] = useState(null)
@@ -97,6 +100,14 @@ export default function PaymentSources() {
   const attachingImportRef = useRef(null)
   const [attachingImportId, setAttachingImportId] = useState(null)
   const [attachUploadPercent, setAttachUploadPercent] = useState(0)
+  const visibleImports = filterStatementImports(imports, statementAccountFilter, statementPeriodFrom, statementPeriodTo)
+  const invalidStatementPeriod = statementPeriodFrom && statementPeriodTo && statementPeriodFrom > statementPeriodTo
+
+  useEffect(() => {
+    setStatementAccountFilter('')
+    setStatementPeriodFrom('')
+    setStatementPeriodTo('')
+  }, [activeProject?.id])
 
   const pdfReviewSummary = pdfPreview && (() => {
     const sequencedRows = annotateBalanceSequence(pdfPreview.rows)
@@ -1264,6 +1275,7 @@ export default function PaymentSources() {
     <div className="page page-standard">
       <ProjectBanner />
       <h2>Payment Sources</h2>
+      {imports.length > 0 && <a className="btn-small" href="#statement-list">Find a statement</a>}
 
       <div className="card">
         <div className="card-header">
@@ -1531,17 +1543,35 @@ export default function PaymentSources() {
         )}
 
         {imports.length > 0 && (
-          <div style={{ marginTop: 16 }}>
+          <div id="statement-list" style={{ marginTop: 16 }}>
             <p className="hint">
               Use "Check saved PDF" on one statement at a time. It compares saved transactions with a fresh reading of that PDF, but does not replace your review.
             </p>
+          <div className="filter-row" style={{ marginBottom: 12 }}>
+            <label className="statement-filter-field">Account
+              <select value={statementAccountFilter} onChange={e => setStatementAccountFilter(e.target.value)}>
+                <option value="">All accounts</option>
+                {accounts.map(account => <option key={account.id} value={account.id}>{account.label}</option>)}
+              </select>
+            </label>
+            <label className="statement-filter-field">Period from
+              <input type="date" value={statementPeriodFrom} onChange={e => setStatementPeriodFrom(e.target.value)} />
+            </label>
+            <label className="statement-filter-field">Period to
+              <input type="date" value={statementPeriodTo} onChange={e => setStatementPeriodTo(e.target.value)} />
+            </label>
+            {(statementAccountFilter || statementPeriodFrom || statementPeriodTo) && (
+              <button className="btn-small btn-ghost" onClick={() => { setStatementAccountFilter(''); setStatementPeriodFrom(''); setStatementPeriodTo('') }}>Clear filters</button>
+            )}
+          </div>
+          <p className="hint" role="status">{invalidStatementPeriod ? '“Period from” must be before “Period to”.' : `Showing ${visibleImports.length} of ${imports.length} statements${statementPeriodFrom || statementPeriodTo ? ' whose periods overlap the selected dates' : ''}.`}</p>
           <div className="table-wrap">
             <table className="expense-table">
               <thead>
                 <tr><th>File</th><th>Account</th><th>Period</th><th>Rows</th><th>Status</th><th>Check</th><th>Actions</th></tr>
               </thead>
               <tbody>
-                {imports.map(imp => (
+                {visibleImports.map(imp => (
                   <Fragment key={imp.id}>
                     <tr id={`import-row-${imp.id}`} style={imp.lineCount === 0 ? { opacity: 0.55 } : undefined}>
                       <td>{imp.sourceFileName}{imp.lineCount === 0 && <span className="hint"> (empty — safe to delete)</span>}</td>
@@ -1779,6 +1809,9 @@ export default function PaymentSources() {
                     )}
                   </Fragment>
                 ))}
+                {visibleImports.length === 0 && (
+                  <tr><td colSpan={7} className="hint">No statements match these filters. Try a different account or period.</td></tr>
+                )}
               </tbody>
             </table>
           </div>
