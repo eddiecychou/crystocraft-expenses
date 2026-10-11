@@ -8,6 +8,7 @@ import { CURRENCIES } from '../constants'
 import { parseCSV, mapCsvRecords, normalizeMerchant, classifyTransactionType, computeFingerprints } from '../lib/paymentMatching'
 import { isXTransferCsv, mapXTransferRecords } from '../lib/xtransferImport'
 import { parsePdfStatement } from '../lib/pdfStatementParser'
+import { sortStatementImports } from '../lib/statementImportOrder'
 import { uploadStatementFile, deleteStatementFile } from '../statementStorage'
 import { annotateBalanceSequence, classifyFingerprintCollision, validateStatementTotals, diffTransactionSets, DUPLICATE_STATUS_LABELS } from '../lib/duplicateDetection'
 import { classifyTransaction, computeVisibleToMembers } from '../lib/expenseClassification'
@@ -114,15 +115,7 @@ export default function PaymentSources() {
     )
     const unsubI = onSnapshot(
       query(collection(db, 'paymentImports'), where('projectId', '==', activeProject.id)),
-      // Grouped by filename (then real-data-first within a group) rather than
-      // plain creation order — a failed/duplicate re-import of the same
-      // statement creates a second row with the same name, and sorting
-      // purely by createdAt scatters it far from the original, making it
-      // easy to attach a file or take an action on the wrong one (verified:
-      // this happened in practice).
-      snap => setImports(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) =>
-        (a.sourceFileName || '').localeCompare(b.sourceFileName || '') || (b.lineCount || 0) - (a.lineCount || 0)
-      ))
+      snap => setImports(sortStatementImports(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
     )
     return () => { unsubA(); unsubI() }
   }, [activeProject?.id])
@@ -297,6 +290,7 @@ export default function PaymentSources() {
   // parsed rows.
   async function commitRows(mapped, account, file, sourceType, statementTotals, reprocessImportId, existingAttemptId) {
     let importRef
+    let sourceFileError = null
     if (reprocessImportId) {
       importRef = doc(db, 'paymentImports', reprocessImportId)
       const oldSnap = await getDocs(query(
@@ -336,6 +330,17 @@ export default function PaymentSources() {
         totalsCheck: null,
         verification: null,
       })
+      // Attempts are created before PDF review. Save the original here too,
+      // otherwise the later "Check saved PDF" action has no source to read.
+      setPdfBatchProgress(prev => prev && { ...prev, stage: 'uploading' })
+      try {
+        const { url, path } = await uploadStatementFile(file, auth.currentUser.uid, importRef.id)
+        await updateDoc(importRef, { sourceFileUrl: url, sourceFilePath: path })
+      } catch (err) {
+        console.error('Failed to store original statement file:', err.message)
+        sourceFileError = err.message || 'unknown error'
+      }
+      setPdfBatchProgress(prev => prev && { ...prev, stage: 'saving' })
     } else {
       importRef = await addDoc(collection(db, 'paymentImports'), {
         userId: auth.currentUser.uid,
@@ -368,6 +373,7 @@ export default function PaymentSources() {
         await updateDoc(doc(db, 'paymentImports', importRef.id), { sourceFileUrl: url, sourceFilePath: path })
       } catch (err) {
         console.error('Failed to store original statement file:', err.message)
+        sourceFileError = err.message || 'unknown error'
       }
     }
 
@@ -603,7 +609,7 @@ export default function PaymentSources() {
       updatedAt: serverTimestamp(),
     })
 
-    return { written: rowsToWrite.length, flagged: counts.possible_duplicate + counts.confirmed_duplicate + counts.needs_review, counts, totalsCheck, importId: importRef.id }
+    return { written: rowsToWrite.length, flagged: counts.possible_duplicate + counts.confirmed_duplicate + counts.needs_review, counts, totalsCheck, importId: importRef.id, sourceFileError }
 
     } catch (err) {
       await updateDoc(doc(db, 'paymentImports', importRef.id), {
@@ -707,7 +713,7 @@ export default function PaymentSources() {
   // is a direct structured mapping, not the heuristic table-layout guessing
   // a PDF import depends on, so there's nothing here for it to catch.
   async function verifyImportAgainstSource(imp) {
-    if (imp.sourceType !== 'pdf' || !imp.sourceFileUrl) return null
+    if (imp.sourceType !== 'pdf' || imp.importStatus !== 'ready' || !imp.sourceFileUrl) return null
     setVerifyingImportId(imp.id)
     try {
       // Firebase Storage download URLs don't allow a direct cross-origin
@@ -721,7 +727,9 @@ export default function PaymentSources() {
       })
       if (!resp.ok) throw new Error(`could not re-fetch the stored file (HTTP ${resp.status})`)
       const blob = await resp.blob()
-      const { rows: reparsedRows, openingBalance, closingBalance } = await parsePdfStatement(blob, { allowOcr: imp.ocrUsed === true })
+      const { rows: reparsedRows, openingBalance, closingBalance, needsOcr } = await parsePdfStatement(blob, { allowOcr: imp.ocrUsed === true })
+      if (needsOcr) throw new Error('This scanned PDF needs image reading before it can be checked')
+      if (!reparsedRows.length) throw new Error('No transactions could be read from the original PDF')
 
       const storedSnap = await getDocs(query(
         collection(db, 'paymentTransactions'),
@@ -757,23 +765,23 @@ export default function PaymentSources() {
   }
 
   async function verifyAllImports() {
-    const eligible = imports.filter(imp => imp.sourceType === 'pdf' && imp.sourceFileUrl)
+    const eligible = imports.filter(imp => imp.sourceType === 'pdf' && imp.importStatus === 'ready' && imp.sourceFileUrl)
     if (!eligible.length) {
       setVerifyMsg('No PDF imports with a stored original file to verify.')
       return
     }
     setVerifyingAll(true)
-    setVerifyMsg(`Verifying 0 of ${eligible.length}…`)
+    setVerifyMsg(`Checking 0 of ${eligible.length}…`)
     let mismatches = 0
     for (let i = 0; i < eligible.length; i++) {
-      setVerifyMsg(`Verifying ${i + 1} of ${eligible.length}…`)
+      setVerifyMsg(`Checking ${i + 1} of ${eligible.length}…`)
       const result = await verifyImportAgainstSource(eligible[i])
       if (result && !result.consistent) mismatches++
     }
     setVerifyMsg(
       mismatches === 0
-        ? `Verified ${eligible.length} statement${eligible.length === 1 ? '' : 's'} against their original PDFs — all match.`
-        : `Verified ${eligible.length} statement${eligible.length === 1 ? '' : 's'} — ${mismatches} need review (see the Mismatch badge next to each import below).`
+        ? `Checked ${eligible.length} statement${eligible.length === 1 ? '' : 's'} — saved rows match the current PDF reading.`
+        : `Checked ${eligible.length} statement${eligible.length === 1 ? '' : 's'} — ${mismatches} need review below.`
     )
     setVerifyingAll(false)
   }
@@ -909,7 +917,12 @@ export default function PaymentSources() {
     const file = e.target.files[0]
     e.target.value = ''
     const imp = attachingImportRef.current
-    if (!file || !imp) return
+    if (!file || !imp) { setAttachingImportId(null); return }
+    if (imp.sourceType === 'pdf' && (!file.name.toLowerCase().endsWith('.pdf') || (imp.sourceFileName && file.name !== imp.sourceFileName))) {
+      alert(`Choose the original PDF named ${imp.sourceFileName}.`)
+      setAttachingImportId(null)
+      return
+    }
     try {
       const { url, path } = await uploadStatementFile(file, auth.currentUser.uid, imp.id)
       await updateDoc(doc(db, 'paymentImports', imp.id), { sourceFileUrl: url, sourceFilePath: path })
@@ -935,7 +948,7 @@ export default function PaymentSources() {
     try {
       const { rows, lineCount, pageCount, openingBalance, closingBalance, aiFallbackError, parseWarnings, needsOcr } = await parsePdfStatement(file, {
         allowOcr,
-        onProgress: progress => setPdfBatchProgress(prev => prev && { ...prev, ...progress }),
+        onProgress: progress => setPdfBatchProgress(prev => prev && { ...prev, part: null, totalParts: null, ...progress }),
       })
       if (needsOcr) {
         setOcrPending({ item, accountId, remainingQueue })
@@ -1110,7 +1123,7 @@ export default function PaymentSources() {
     if (!reprocessImportId) setPdfBatchProgress(prev => prev && { ...prev, stage: 'saving' })
     setImporting(true)
     try {
-      const { written, flagged } = await commitRows(toImport, account, pdfPreview.file, 'pdf', {
+      const { written, flagged, sourceFileError } = await commitRows(toImport, account, pdfPreview.file, 'pdf', {
         openingBalance: pdfPreview.openingBalance,
         closingBalance: pdfPreview.closingBalance,
       }, reprocessImportId, existingAttemptId)
@@ -1141,6 +1154,7 @@ export default function PaymentSources() {
           ? `${pdfPreview.fileName}: re-processed from the stored PDF — ${written} transaction${written === 1 ? '' : 's'} now on record`
           : `${pdfPreview.fileName}: imported ${written} transaction${written === 1 ? '' : 's'} from PDF`) +
         (flagged ? ` (${flagged} flagged for duplicate review — see View/Edit below)` : '') +
+        (sourceFileError ? ' The original PDF could not be saved; attach it below to enable checking.' : '') +
         (reprocessImportId ? recheckNote : ' Go to Reconciliation to review matches.')
       )
     } catch (err) {
@@ -1353,33 +1367,37 @@ export default function PaymentSources() {
               <input type="file" multiple accept=".csv,.pdf,text/csv,application/pdf" hidden ref={fileRef} onChange={handleFileSelected} />
               <input type="file" accept=".csv,.pdf,text/csv,application/pdf" hidden ref={attachFileRef} onChange={handleAttachOriginal} />
             </div>
-            {importing && !pdfPreview && (
+            {importing && !pdfPreview && !pdfBatchProgress && (
               <div className="scan-progress-bar"><div className="scan-progress-fill" /></div>
             )}
             {pdfBatchProgress && (
               <div className="statement-batch-progress" role="status" aria-live="polite">
                 <div className="statement-batch-progress-copy">
-                  <strong>Statement {pdfBatchProgress.currentIndex} of {pdfBatchProgress.total}</strong>
+                  <strong>File {pdfBatchProgress.currentIndex} of {pdfBatchProgress.total}: {pdfBatchProgress.currentFileName}</strong>
                   <span>
                     {pdfBatchProgress.stage === 'reading'
-                      ? `Reading PDF${pdfBatchProgress.page ? ` — page ${pdfBatchProgress.page} of ${pdfBatchProgress.totalPages}` : ''}`
+                      ? `Reading PDF${pdfBatchProgress.page ? `, page ${pdfBatchProgress.page} of ${pdfBatchProgress.totalPages}` : ''}`
                       : pdfBatchProgress.stage === 'ocr'
-                        ? `Reading scanned page ${pdfBatchProgress.page} of ${pdfBatchProgress.totalPages} with OCR`
+                        ? `Reading image page ${pdfBatchProgress.page} of ${pdfBatchProgress.totalPages}`
                         : pdfBatchProgress.stage === 'interpreting'
-                          ? `Checking page ${pdfBatchProgress.page} of ${pdfBatchProgress.totalPages}`
+                          ? `Checking transactions, page ${pdfBatchProgress.page} of ${pdfBatchProgress.totalPages}${pdfBatchProgress.part ? `, part ${pdfBatchProgress.part} of ${pdfBatchProgress.totalParts}` : ''}`
                           : pdfBatchProgress.stage === 'ocr_choice'
-                            ? 'Scanned page found — choose how to continue'
-                      : pdfBatchProgress.stage === 'saving'
-                        ? 'Saving records and original PDF'
-                        : 'Ready for your review'}: {pdfBatchProgress.currentFileName}
+                            ? 'Image page found — choose how to continue'
+                          : pdfBatchProgress.stage === 'uploading'
+                            ? 'Saving original PDF'
+                            : pdfBatchProgress.stage === 'saving'
+                              ? 'Saving transactions'
+                              : 'Ready — review the rows below'}
                   </span>
+                  <span>{Math.max(0, pdfBatchProgress.currentIndex - 1)} of {pdfBatchProgress.total} files finished</span>
                 </div>
-                <div className="statement-batch-progress-track" aria-hidden="true">
+                <div className="statement-batch-progress-track" role="progressbar" aria-label="Statements finished" aria-valuemin={0} aria-valuemax={pdfBatchProgress.total} aria-valuenow={Math.max(0, pdfBatchProgress.currentIndex - 1)}>
                   <div
                     className="statement-batch-progress-fill"
-                    style={{ width: `${Math.max(8, (pdfBatchProgress.currentIndex / pdfBatchProgress.total) * 100)}%` }}
+                    style={{ width: `${((pdfBatchProgress.currentIndex - 1) / pdfBatchProgress.total) * 100}%` }}
                   />
                 </div>
+                {importing && <div className="scan-progress-bar" aria-hidden="true"><div className="scan-progress-fill" /></div>}
               </div>
             )}
             {ocrPending && (
@@ -1392,8 +1410,8 @@ export default function PaymentSources() {
                 </div>
               </div>
             )}
-            <p className="hint">Select CSV files freely; choose up to {MAX_PDF_FILES_PER_BATCH} PDFs at a time. PDF attempts are recorded immediately, then each file is read and reviewed one at a time before import.</p>
-            {importMsg && <p className={/import failed|could not read|no text found|couldn't recognize/i.test(importMsg) ? 'error-msg' : 'success-msg'}>{importMsg}</p>}
+            <p className="hint">Choose up to {MAX_PDF_FILES_PER_BATCH} PDFs at a time. We read them one by one, and you check each before saving.</p>
+            {importMsg && <p className={/import failed|could not read|could not be saved|no text found|couldn't recognize/i.test(importMsg) ? 'error-msg' : 'success-msg'}>{importMsg}</p>}
           </>
         )}
 
@@ -1404,7 +1422,7 @@ export default function PaymentSources() {
               <span className="hint">{pdfPreview.rows.filter(r => r.include).length} of {pdfPreview.rows.length} selected</span>
             </div>
             <p className="hint">
-              PDF table parsing is heuristic — uncheck any row that looks wrong before importing.
+              Check the rows before importing. You can re-check the saved PDF afterward.
               {pdfQueue.length > 0 && ` ${pdfQueue.length} more PDF${pdfQueue.length === 1 ? '' : 's'} queued after this one.`}
             </p>
             <div className={`statement-review-summary ${!pdfPreview.totalsCheck || pdfPreview.totalsCheck.consistent ? '' : 'statement-review-summary-warning'}`}>
@@ -1477,22 +1495,23 @@ export default function PaymentSources() {
         {imports.length > 0 && (
           <div style={{ marginTop: 16 }}>
             <div className="action-row" style={{ alignItems: 'center' }}>
-              <button className="btn-primary btn-small" disabled={verifyingAll || !!pdfPreview || verifyingImportId} onClick={verifyAllImports}>
-                {verifyingAll ? 'Verifying…' : 'Verify All Against PDFs'}
-              </button>
+              {imports.some(imp => imp.sourceType === 'pdf' && imp.importStatus === 'ready' && imp.sourceFileUrl) && (
+                <button className="btn-primary btn-small" disabled={verifyingAll || !!pdfPreview || verifyingImportId} onClick={verifyAllImports}>
+                  {verifyingAll ? 'Checking…' : 'Check saved PDFs'}
+                </button>
+              )}
               {verifyMsg && <span className="hint">{verifyMsg}</span>}
             </div>
             {verifyingAll && (
               <div className="scan-progress-bar"><div className="scan-progress-fill" /></div>
             )}
             <p className="hint">
-              Re-parses each PDF import's stored original file from scratch and checks it against what's recorded — catches a misread row or a parser fix that changes results, independent of the one-time review at import.
-              Fixing a mismatch always goes through the same review screen as a normal import — use "Fix from Stored PDF" on the row below.
+              Check compares saved transactions with a fresh reading of the original PDF. It can spot differences, but it does not replace your review of the statement.
             </p>
           <div className="table-wrap">
             <table className="expense-table">
               <thead>
-                <tr><th>File</th><th>Account</th><th>Period</th><th>Rows</th><th>Status</th><th>Verified</th><th>Actions</th></tr>
+                <tr><th>File</th><th>Account</th><th>Period</th><th>Rows</th><th>Status</th><th>Check</th><th>Actions</th></tr>
               </thead>
               <tbody>
                 {imports.map(imp => (
@@ -1515,15 +1534,17 @@ export default function PaymentSources() {
                             this row and shove every row below it up/down while
                             scrolling — the "bouncing" the badge text used to cause. */}
                         <div style={{ minHeight: 40 }}>
-                          {imp.sourceType !== 'pdf' ? '—' : !imp.verification ? (
-                            <span className="hint">Not yet checked</span>
+                          {imp.sourceType !== 'pdf' ? '—' : !imp.sourceFileUrl ? (
+                            <span className="hint">Original PDF missing</span>
+                          ) : !imp.verification ? (
+                            <span className="hint">Not checked yet</span>
                           ) : imp.verification.error ? (
                             <>
                               <span className="badge badge-warning"><WarningIcon size={12} strokeWidth={ICON_STROKE_WIDTH} aria-hidden="true" /> Couldn't re-check</span>
                               <div className="hint" style={{ maxWidth: 220 }}>{imp.verification.error}</div>
                             </>
                           ) : imp.verification.consistent ? (
-                            <span className="badge badge-office" title="Re-parsed statement matches the stored transactions and totals."><MatchedIcon size={12} strokeWidth={ICON_STROKE_WIDTH} aria-hidden="true" /> Verified</span>
+                            <span className="badge badge-office" title="A fresh PDF reading matches the saved transactions and totals."><MatchedIcon size={12} strokeWidth={ICON_STROKE_WIDTH} aria-hidden="true" /> Checked</span>
                           ) : (
                             <>
                               <span className="badge badge-warning"><WarningIcon size={12} strokeWidth={ICON_STROKE_WIDTH} aria-hidden="true" /> Mismatch</span>
@@ -1574,14 +1595,14 @@ export default function PaymentSources() {
                         {imp.sourceFileUrl
                           ? <a href={imp.sourceFileUrl} target="_blank" rel="noreferrer" className="btn-small">Original</a>
                           : <button className="btn-small" disabled={attachingImportId === imp.id} onClick={() => openAttachOriginal(imp)}>
-                              {attachingImportId === imp.id ? 'Uploading…' : 'Attach Original'}
+                              {attachingImportId === imp.id ? 'Saving…' : imp.sourceType === 'pdf' && imp.importStatus === 'ready' ? 'Attach original PDF to check' : 'Attach Original'}
                             </button>}
                         {imp.importStatus === 'error' && imp.sourceType === 'pdf' && (
                           <button className="btn-small" onClick={() => fileRef.current.click()}>Choose Retry PDF</button>
                         )}
-                        {imp.sourceType === 'pdf' && imp.sourceFileUrl && (
+                        {imp.sourceType === 'pdf' && imp.importStatus === 'ready' && imp.sourceFileUrl && (
                           <button className="btn-small" style={{ minWidth: 130, display: 'inline-block' }} disabled={verifyingImportId === imp.id || verifyingAll || !!pdfPreview} onClick={() => verifyImportAgainstSource(imp)}>
-                            {verifyingImportId === imp.id ? 'Checking…' : 'Verify Against PDF'}
+                            {verifyingImportId === imp.id ? 'Checking…' : 'Check saved PDF'}
                           </button>
                         )}
                         <button className="btn-small btn-danger" onClick={() => deleteImport(imp)}>Delete</button>

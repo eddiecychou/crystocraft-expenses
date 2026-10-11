@@ -98,16 +98,16 @@ some of these functions look the way they do, see [LESSONS_LEARNED.md](LESSONS_L
 
 | Function | Purpose |
 |---|---|
-| `parseStatementRowsWithGemini(page, pageNumber, anchorDate)` | Sends bounded sections of one page with source-line IDs and x positions; accepts rows only when the cited line contains the proposed amount. |
+| `parseStatementRowsWithGemini(page, pageNumber, anchorDate, onChunkProgress)` | Sends bounded sections of one page with source-line IDs and x positions; reports each section so the UI can show progress, and accepts rows only when the cited line contains the proposed amount. |
 
-### Statement OCR helpers
+### Statement helpers
 
 | File | Purpose |
 |---|---|
 | [statementOcr.js](src/lib/statementOcr.js) | Renders one PDF page to a bounded JPEG and calls the authenticated OCR endpoint. |
 | [statementOcrGeometry.js](src/lib/statementOcrGeometry.js) | Converts Vision word positions to the PDF-point lines consumed by the statement parser. |
 | [statementAiEvidence.js](src/lib/statementAiEvidence.js) | Grounds AI rows in cited printed amount lines and flags description/balance values that could not be confirmed nearby. |
-| `parseStatementRowsWithGemini(text)` | Tier-3 fallback called only by `parsePdfStatement` when tiers 1-2 find zero rows. Posts the statement's own pdf.js-extracted text to `/api/process-statement-text`, aborting after 30 seconds so one new bank layout cannot block the review queue indefinitely, then maps the response into the same row shape the other tiers produce. |
+| [statementImportOrder.js](src/lib/statementImportOrder.js) | Sorts statement imports newest period first, using the attempt start time when no period is available. |
 
 ### [pdfRedaction.js](src/lib/pdfRedaction.js)
 
@@ -282,7 +282,7 @@ No standalone named functions beyond small in-render helpers (`setPreset`, `acco
 |---|---|---|
 | `fetchWithTimeout(url, options, timeoutMs)` | 25 | Module-level — `AbortController`-based fetch timeout (30s default), wraps every `/api/download-receipt` call so one stalled request can't hang a batch operation. |
 | `createAccount()` | 132 | Creates a new bank/credit-card account. |
-| `commitRows(mapped, account, file, sourceType, statementTotals, reprocessImportId)` | 162 | **Core import writer.** Runs duplicate classification per row, writes every row unconditionally to `paymentTransactions`, uploads the original file via `statementStorage.js`, and marks the import `error` (not stuck `processing`) on any failure. For personal accounts, also looks up any matching `merchantRules` doc and calls `classifyTransaction` per row (see `expenseClassification.js`). |
+| `commitRows(mapped, account, file, sourceType, statementTotals, reprocessImportId, existingAttemptId)` | — | **Core import writer.** Runs duplicate classification per row, writes every row unconditionally to `paymentTransactions`, uploads the original file for both new and pre-recorded attempts, and marks row-writing failures as `error`. Reports a source-file upload failure separately so the client can attach the PDF later. For personal accounts, also applies merchant rules and classification. |
 | `resolveDuplicate(txn, newStatus)` | 375 | Applies Keep as Separate / Confirm Duplicate to a flagged transaction; restores `status: 'unmatched'` if it was previously `ignored`. |
 | `dismissDuplicateWarning(txn)` | 391 | Marks a duplicate warning as reviewed without changing its verdict. |
 | `renderDuplicateStatus(txn, imp)` | 411 | Shared render function for the duplicate-review UI (badge + reason + actions when expanded, collapsed "Resolved · Change" when already resolved) — used by both the desktop table cell and the mobile card. |

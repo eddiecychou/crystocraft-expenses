@@ -45,11 +45,13 @@ async function requestRows(text) {
 
 // Each model row must point back to the printed line containing its amount.
 // This catches invented numbers without relying on the model's own confidence.
-export async function parseStatementRowsWithGemini(page, pageNumber, anchorDate) {
+export async function parseStatementRowsWithGemini(page, pageNumber, anchorDate, onChunkProgress) {
   const rows = []
   const chunks = chunksForPage(page.lines)
   const header = page.lines.find(line => /date/i.test(line.text) && /debit|credit|amount|withdrawal|deposit/i.test(line.text))?.text || ''
-  for (const chunk of chunks) {
+  for (let index = 0; index < chunks.length; index++) {
+    const chunk = chunks[index]
+    onChunkProgress?.(index + 1, chunks.length)
     const candidates = await requestRows(`Statement date/period context: ${anchorDate || 'not found'}\nColumn header for context only: ${header}\n${chunk.join('')}`)
     const permittedLines = new Set(chunk.map(line => Number(line.match(/^L(\d+)/)?.[1])))
     rows.push(...mapGeminiStatementRows(candidates.filter(candidate => permittedLines.has(Number(String(candidate?.sourceLine).replace(/^L/i, '')))), page, pageNumber))

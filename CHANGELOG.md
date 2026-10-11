@@ -8,6 +8,15 @@ changes when it's bumped deliberately in `package.json`.
 
 ## V1.2 — 2026-10-11 (local build; deployment pending)
 
+**Statement list and checking follow-up.** Payment Sources now shows newer
+statement periods first (new attempts use their start time). V1.2's early
+attempt record accidentally skipped saving the original PDF after review, so
+the later check button was missing; this path now stores it. Older affected
+imports can attach the matching original PDF to enable a re-check. Progress
+now names the file, page, current step, and number of files finished, without
+pretending that reading and saving share an exact percentage. Long AI checks
+also show which part of the page is being processed.
+
 **Bank statement reading now has a scanned-page route and a completeness check.**
 Digital PDFs still start with local text and column positions. If a PDF page
 has no usable text layer, the client can explicitly choose Google Cloud Vision

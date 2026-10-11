@@ -660,7 +660,9 @@ export async function parsePdfStatement(file, options = {}) {
       }
       try {
         options.onProgress?.({ stage: 'interpreting', page: pageNumber, totalPages: pageCount })
-        const aiPageRows = await parseStatementRowsWithGemini(page, pageNumber, anchorDate.toISOString().slice(0, 10))
+        const aiPageRows = await parseStatementRowsWithGemini(page, pageNumber, anchorDate.toISOString().slice(0, 10), (part, totalParts) =>
+          options.onProgress?.({ stage: 'interpreting', page: pageNumber, totalPages: pageCount, part, totalParts })
+        )
         candidateRows.push(...(aiPageRows.length >= localPageRows.length ? aiPageRows : localPageRows))
       } catch (err) {
         aiFallbackError = err.message || 'AI reading unavailable'

@@ -306,6 +306,15 @@ re-read an already-stored file (statements, receipts) must go through
 
 ## PDF statement parsing is fragile — verify against real files
 
+**V1.2 follow-up:** Creating `paymentImports` before PDF review introduced a
+new `commitRows` branch. That branch wrote transactions but missed the old
+original-file upload, so `sourceFileUrl` stayed empty and the Verify action
+disappeared. Keep source-file persistence in every completed-import path,
+and show an explicit attach action for already-affected imports. A re-parse
+is a consistency check against stored rows, not proof that an OCR result is
+correct. Progress must count completed files, not mark the current file as
+finished while it is still being read or reviewed.
+
 **V1.2 extension:** A browser parser returning *some* rows does not prove the
 statement is complete. Page coverage, transaction-like line counts, running
 balances, and opening/closing totals now help decide whether a second page
