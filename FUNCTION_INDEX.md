@@ -282,6 +282,8 @@ No standalone named functions beyond small in-render helpers (`setPreset`, `acco
 
 ### [PaymentSources.jsx](src/pages/PaymentSources.jsx) — largest page, account + import + duplicate-review workspace
 
+The statement-list Actions cell groups View/Edit, Original/Attach, Check, and Delete in `.statement-actions`; `App.css` supplies consistent button widths and gaps. The attach-progress bar stays grouped with its upload button.
+
 | Function | Line | Purpose |
 |---|---|---|
 | `fetchWithTimeout(url, options, timeoutMs)` | 25 | Module-level — `AbortController`-based fetch timeout (30s default), wraps every `/api/download-receipt` call so one stalled request can't hang a batch operation. |

@@ -868,6 +868,8 @@ All emoji replaced with `lucide-react` components via the centralized `src/icons
 
 ### Mobile patterns
 
+The statement-list Actions cell uses `.statement-actions` (an 8px grid gap) and `.statement-attach-action` (a 4px button-to-progress gap). These reset `.btn-small`'s built-in margins within that cell so each action lines up evenly without changing the global button style.
+
 `.desktop-only`/`.mobile-only` toggle classes at `max-width: 640px`; card-based lists (`.expense-mob-card`, `.capture-cards`) as an alternative to compressed tables at phone widths; 44–48px touch targets; `input, select, textarea { font-size: 16px }` on mobile to prevent iOS Safari auto-zoom.
 
 **`table-layout: fixed` pitfall** (hit twice in this codebase — PDF review table, then transaction detail table): an unspecified column's width can silently collapse to near-zero while a neighbor absorbs the space. Every column needs an explicit percentage width summing to 100%; only genuinely variable-length columns (Description) get `white-space: normal; overflow-wrap: break-word` — everything else uses `white-space: nowrap; overflow: hidden; text-overflow: ellipsis`.

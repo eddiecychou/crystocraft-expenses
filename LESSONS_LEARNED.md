@@ -437,6 +437,12 @@ width, switch to a mobile card list instead of continuing to fight the table lay
 
 ---
 
+## Button margins plus container gaps can double-count spacing
+
+`.btn-small` carries its own right/bottom margins, while flex/grid action groups also declare a `gap`. For a dedicated button stack such as statement-list Actions, reset those margins inside the scoped group and let its gap be the single spacing source. Avoid changing `.btn-small` globally for a one-cell fix.
+
+---
+
 ## Gemini thinking-budget gotcha
 
 `gemini-2.5-flash` is a thinking model: with a modest `maxOutputTokens` and no

@@ -1668,26 +1668,28 @@ export default function PaymentSources() {
                         </div>
                       </td>
                       <td>
-                        <button className="btn-small" onClick={() => setViewingImportId(viewingImportId === imp.id ? null : imp.id)}>
-                          {viewingImportId === imp.id ? 'Hide' : 'View/Edit'}
-                        </button>
-                        {imp.sourceFileUrl
-                          ? <a href={imp.sourceFileUrl} target="_blank" rel="noreferrer" className="btn-small">Original</a>
-                          : <>
+                        <div className="statement-actions">
+                          <button className="btn-small" onClick={() => setViewingImportId(viewingImportId === imp.id ? null : imp.id)}>
+                            {viewingImportId === imp.id ? 'Hide' : 'View/Edit'}
+                          </button>
+                          {imp.sourceFileUrl
+                            ? <a href={imp.sourceFileUrl} target="_blank" rel="noreferrer" className="btn-small">Original</a>
+                            : <div className="statement-attach-action">
                               <button className="btn-small" disabled={!!attachingImportId} onClick={() => openAttachOriginal(imp)}>
                                 {attachingImportId === imp.id ? attachUploadPercent === 100 ? 'Finishing…' : `Uploading… ${attachUploadPercent}%` : imp.sourceType === 'pdf' && imp.importStatus === 'ready' ? 'Attach original PDF to check' : 'Attach Original'}
                               </button>
                               {attachingImportId === imp.id && <div className="statement-batch-progress-track" role="progressbar" aria-label="Original file uploaded" aria-valuemin={0} aria-valuemax={100} aria-valuenow={attachUploadPercent}><div className="statement-batch-progress-fill" style={{ width: `${attachUploadPercent}%` }} /></div>}
-                            </>}
-                        {imp.importStatus === 'error' && imp.sourceType === 'pdf' && (
-                          <button className="btn-small" onClick={() => fileRef.current.click()}>Choose Retry PDF</button>
-                        )}
-                        {imp.sourceType === 'pdf' && imp.importStatus === 'ready' && imp.sourceFileUrl && (
-                          <button className="btn-small" style={{ minWidth: 130, display: 'inline-block' }} disabled={!!verifyingImportId || !!pdfPreview || importing} onClick={() => verifyImportAgainstSource(imp)}>
-                            {verifyingImportId === imp.id ? 'Checking…' : 'Check saved PDF'}
-                          </button>
-                        )}
-                        <button className="btn-small btn-danger" onClick={() => deleteImport(imp)}>Delete</button>
+                              </div>}
+                          {imp.importStatus === 'error' && imp.sourceType === 'pdf' && (
+                            <button className="btn-small" onClick={() => fileRef.current.click()}>Choose Retry PDF</button>
+                          )}
+                          {imp.sourceType === 'pdf' && imp.importStatus === 'ready' && imp.sourceFileUrl && (
+                            <button className="btn-small" disabled={!!verifyingImportId || !!pdfPreview || importing} onClick={() => verifyImportAgainstSource(imp)}>
+                              {verifyingImportId === imp.id ? 'Checking…' : 'Check saved PDF'}
+                            </button>
+                          )}
+                          <button className="btn-small btn-danger" onClick={() => deleteImport(imp)}>Delete</button>
+                        </div>
                       </td>
                     </tr>
                     {viewingImportId === imp.id && (
