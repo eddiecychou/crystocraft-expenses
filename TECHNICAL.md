@@ -236,6 +236,9 @@ the project-list query ever runs against `memberUids`.
   openingBalance: number | null,
   closingBalance: number | null,
   ocrUsed: boolean | undefined,   // V1.2: stored after review preparation; enables later re-verification
+  reviewedExclusions: [{ transactionDate, merchantRaw, settlementAmount, direction }] | undefined, // user-selected PDF rows deliberately omitted; absent on older imports
+  reviewedExclusionsBy: string | null,
+  reviewedExclusionsAt: Timestamp | null,
   totalsCheck: object | null,
   createdAt: Timestamp
 }
@@ -677,6 +680,8 @@ Accounts (bank or credit-card) are created in **Payment Sources**, then CSV or P
 - **Statement list and re-check**: Completed imports sort by statement end date, newest first; attempts without a parsed period sort by their creation time. After review, the existing `paymentImports` attempt must store the original PDF as well as the transaction rows. Only a completed PDF import with a stored original can be checked again; older affected imports can attach that same PDF. Re-checking compares a fresh parse with saved rows, but is not independent proof that OCR was correct. The queue progress bar counts finished files; while an original is transferring, a separate percentage shows actual bytes uploaded. Parsing and transaction saving remain stage-only. A failed original-file save leaves the rows intact and persists a warning on the ready import until the file is attached.
 - **Re-check scope**: The Payment Sources UI checks one saved PDF at a time. There is no "check all" action; a second check cannot start while one is running.
 - **Check status**: While a single PDF re-check is running, the UI displays a temporary checking state; the stored verification result is not overwritten until the new comparison finishes. A completed discrepancy remains a Mismatch, never a successful Checked result.
+- **Reviewed exclusions**: The review screen persists exactly which parsed PDF rows the user unchecked. A later fresh comparison shows "Reviewed with exclusions" only when the saved transactions plus those reviewed rows match the PDF as a multiset and the full-PDF totals check does not fail. Older imports have no exclusion evidence; the user may explicitly acknowledge the currently missing row(s) after a fresh check and confirmation. `verification.consistent` remains reserved for an exact match. No transaction rows are changed by this acknowledgment. Editing or deleting a saved transaction clears its old check badge until the statement is checked again.
+- **Scanned re-checks**: A PDF with a weak text layer and no prior OCR consent presents "Read image and check"; the user opts into Cloud Vision OCR (and possible Gemini interpretation) before the comparison continues. Legacy `verification.error` records with the old scanned-page message get the same action. Image reading is not proof that the parsed rows are correct.
 
 **Other original-document uploads**: `receiptStorage.js`, `documentImport.js`, and the receipt save in `Upload.jsx` use resumable Firebase Storage transfers with a per-file byte percentage in the UI. `FileUploadProgress.jsx` shows that transfer separately from OCR/extraction and Firestore saving. The percentage is not an end-to-end processing estimate; at 100%, the download URL and record link may still be saving. Invoice/income saves report any source-file failures instead of an unqualified success message.
 

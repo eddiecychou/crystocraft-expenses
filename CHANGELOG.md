@@ -8,6 +8,8 @@ changes when it's bumped deliberately in `package.json`.
 
 ## V1.2 — 2026-10-11 (local build; deployment pending)
 
+**Reviewed PDF exclusions and scanned re-checks.** Intentionally unchecked statement rows are now saved as review decisions. A fresh PDF check shows "Reviewed with exclusions" only when those exact excluded rows account for every difference. Older mismatches can be acknowledged explicitly after a fresh comparison; no saved transactions change. Scanned re-checks now offer an image-reading action instead of stopping at the old error.
+
 **Statement check status.** A re-check now shows "Checking saved PDF…" while it runs instead of leaving the previous Mismatch badge on screen. A completed check still shows Mismatch when the PDF and saved rows differ.
 
 **Original-file upload progress.** New PDF imports and the Attach Original action now show the actual file-transfer percentage. If a PDF could not be saved, the completed import keeps a visible warning until the original is attached; transaction rows remain intact.

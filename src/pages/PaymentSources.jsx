@@ -10,7 +10,7 @@ import { isXTransferCsv, mapXTransferRecords } from '../lib/xtransferImport'
 import { parsePdfStatement } from '../lib/pdfStatementParser'
 import { sortStatementImports } from '../lib/statementImportOrder'
 import { uploadStatementFile, deleteStatementFile } from '../statementStorage'
-import { annotateBalanceSequence, classifyFingerprintCollision, validateStatementTotals, diffTransactionSets, DUPLICATE_STATUS_LABELS } from '../lib/duplicateDetection'
+import { annotateBalanceSequence, classifyFingerprintCollision, validateStatementTotals, diffTransactionSets, reviewedExclusionsMatch, DUPLICATE_STATUS_LABELS } from '../lib/duplicateDetection'
 import { classifyTransaction, computeVisibleToMembers } from '../lib/expenseClassification'
 import { paymentTransactionsQuery } from '../lib/projectAccess'
 import { MatchedIcon, WarningIcon, ICON_STROKE_WIDTH } from '../icons'
@@ -23,6 +23,13 @@ const SOURCE_TYPES = [
 // PDF parsing is review-gated and sequential. Three files keep an
 // unrecognised bank layout from turning one selection into a long, opaque wait.
 const MAX_PDF_FILES_PER_BATCH = 3
+
+const reviewedRow = row => ({
+  transactionDate: row.transactionDate,
+  merchantRaw: row.merchantRaw,
+  settlementAmount: Number(row.settlementAmount),
+  direction: row.direction,
+})
 
 const IMPORT_STATUS_LABELS = {
   reading: 'Reading PDF',
@@ -283,7 +290,7 @@ export default function PaymentSources() {
   // re-upload from their computer, this replaces the existing import's
   // transactions in place: same import record, same stored file, freshly
   // parsed rows.
-  async function commitRows(mapped, account, file, sourceType, statementTotals, reprocessImportId, existingAttemptId) {
+  async function commitRows(mapped, account, file, sourceType, statementTotals, reprocessImportId, existingAttemptId, reviewedExclusions = []) {
     let importRef
     let sourceFileError = null
     if (reprocessImportId) {
@@ -605,6 +612,9 @@ export default function PaymentSources() {
       importStatus: 'ready',
       lineCount: rowsToWrite.length,
       totalsCheck,
+      reviewedExclusions,
+      reviewedExclusionsBy: reviewedExclusions.length ? auth.currentUser.uid : null,
+      reviewedExclusionsAt: reviewedExclusions.length ? serverTimestamp() : null,
       errorMessage: sourceFileError ? `Original ${sourceType === 'pdf' ? 'PDF' : 'file'} could not be saved. Attach it again below.` : null,
       updatedAt: serverTimestamp(),
     })
@@ -712,9 +722,10 @@ export default function PaymentSources() {
   // one-time import review forever. CSV imports are skipped: their parsing
   // is a direct structured mapping, not the heuristic table-layout guessing
   // a PDF import depends on, so there's nothing here for it to catch.
-  async function verifyImportAgainstSource(imp) {
+  async function verifyImportAgainstSource(imp, forceOcr = false) {
     if (imp.sourceType !== 'pdf' || imp.importStatus !== 'ready' || !imp.sourceFileUrl) return null
     setVerifyingImportId(imp.id)
+    const allowOcr = forceOcr || imp.ocrUsed === true || imp.verification?.ocrUsed === true
     try {
       // Firebase Storage download URLs don't allow a direct cross-origin
       // fetch() from the browser (same reason receipts are downloaded
@@ -727,8 +738,12 @@ export default function PaymentSources() {
       })
       if (!resp.ok) throw new Error(`could not re-fetch the stored file (HTTP ${resp.status})`)
       const blob = await resp.blob()
-      const { rows: reparsedRows, openingBalance, closingBalance, needsOcr } = await parsePdfStatement(blob, { allowOcr: imp.ocrUsed === true })
-      if (needsOcr) throw new Error('This scanned PDF needs image reading before it can be checked')
+      const { rows: reparsedRows, openingBalance, closingBalance, needsOcr } = await parsePdfStatement(blob, { allowOcr })
+      if (needsOcr) {
+        const verification = { verifiedAt: serverTimestamp(), needsOcr: true, consistent: false }
+        await updateDoc(doc(db, 'paymentImports', imp.id), { verification })
+        return { ...verification, fileName: imp.sourceFileName }
+      }
       if (!reparsedRows.length) throw new Error('No transactions could be read from the original PDF')
 
       const storedSnap = await getDocs(query(
@@ -741,6 +756,8 @@ export default function PaymentSources() {
       const { missingFromRecords, extraInRecords, missingRows, extraRows } = diffTransactionSets(reparsedRows, storedRows)
       const totalsCheck = validateStatementTotals({ openingBalance, closingBalance, rows: reparsedRows })
       const consistent = missingFromRecords === 0 && extraInRecords === 0 && (totalsCheck === null || totalsCheck.consistent)
+      const reviewedConsistent = totalsCheck?.consistent !== false &&
+        reviewedExclusionsMatch(reparsedRows, storedRows, imp.reviewedExclusions)
 
       const verification = {
         verifiedAt: serverTimestamp(),
@@ -752,16 +769,48 @@ export default function PaymentSources() {
         extraRows,
         totalsCheck,
         consistent,
+        reviewedConsistent,
+        reviewedExclusionCount: reviewedConsistent ? imp.reviewedExclusions.length : 0,
+        ocrUsed: allowOcr,
       }
       await updateDoc(doc(db, 'paymentImports', imp.id), { verification })
       return { ...verification, fileName: imp.sourceFileName }
     } catch (err) {
-      const verification = { verifiedAt: serverTimestamp(), error: err.message || 'unknown error', consistent: false }
+      const verification = { verifiedAt: serverTimestamp(), error: err.message || 'unknown error', consistent: false, ocrUsed: allowOcr }
       await updateDoc(doc(db, 'paymentImports', imp.id), { verification })
       return { ...verification, fileName: imp.sourceFileName }
     } finally {
       setVerifyingImportId(null)
     }
+  }
+
+  async function reviewMissingPdfRows(imp) {
+    const result = await verifyImportAgainstSource(imp)
+    if (!result || result.needsOcr || result.error) return
+    if (!result.missingFromRecords || result.extraInRecords || result.missingRows.length !== result.missingFromRecords || result.totalsCheck?.consistent === false) {
+      alert('The statement changed or has other differences. Check the latest result before reviewing exclusions.')
+      return
+    }
+    const rows = result.missingRows.map(reviewedRow)
+    setConfirmDialog({
+      message: `Mark these ${rows.length} PDF row${rows.length === 1 ? '' : 's'} as intentionally excluded? ${rows.map(r => `${r.transactionDate} · ${r.merchantRaw} · ${r.settlementAmount.toFixed(2)}`).join('; ')}. This records your decision but does not change saved transactions.`,
+      confirmLabel: 'Record review decision',
+      confirmClassName: 'btn-primary',
+      onConfirm: async () => {
+        try {
+          await updateDoc(doc(db, 'paymentImports', imp.id), {
+            reviewedExclusions: rows,
+            reviewedExclusionsBy: auth.currentUser.uid,
+            reviewedExclusionsAt: serverTimestamp(),
+            'verification.reviewedConsistent': true,
+            'verification.reviewedExclusionCount': rows.length,
+          })
+        } catch (err) {
+          alert('Could not save your review: ' + (err.message || 'unknown error'))
+        }
+        setConfirmDialog(null)
+      },
+    })
   }
 
   // Editing or deleting a transaction that's already confirmed against an
@@ -843,6 +892,7 @@ export default function PaymentSources() {
       matchReasons: [],
       updatedAt: serverTimestamp(),
     })
+    if (txn.importId) await updateDoc(doc(db, 'paymentImports', txn.importId), { verification: null })
     setEditTxnId(null)
   }
 
@@ -852,6 +902,7 @@ export default function PaymentSources() {
       onConfirm: async () => {
         await unlinkTransaction(txn)
         await deleteDoc(doc(db, 'paymentTransactions', txn.id))
+        if (txn.importId) await updateDoc(doc(db, 'paymentImports', txn.importId), { verification: null })
         setConfirmDialog(null)
       },
     })
@@ -1105,7 +1156,7 @@ export default function PaymentSources() {
       const { written, flagged, sourceFileError } = await commitRows(toImport, account, pdfPreview.file, 'pdf', {
         openingBalance: pdfPreview.openingBalance,
         closingBalance: pdfPreview.closingBalance,
-      }, reprocessImportId, existingAttemptId)
+      }, reprocessImportId, existingAttemptId, pdfPreview.rows.filter(r => !r.include).map(reviewedRow))
       let recheckNote = ''
       // Re-verify immediately so the Mismatch badge clears (or shows what,
       // if anything, is still off) without a separate manual step — and say
@@ -1115,9 +1166,11 @@ export default function PaymentSources() {
       if (reprocessImportId) {
         const imp = imports.find(i => i.id === reprocessImportId)
         if (imp) {
-          const result = await verifyImportAgainstSource({ ...imp, sourceFileName: pdfPreview.fileName })
+          const result = await verifyImportAgainstSource({ ...imp, sourceFileName: pdfPreview.fileName, reviewedExclusions: pdfPreview.rows.filter(r => !r.include).map(reviewedRow) })
           recheckNote = result?.consistent
             ? ' Re-checked: now matches the PDF.'
+            : result?.reviewedConsistent
+              ? ` Re-checked: matches your reviewed selection (${result.reviewedExclusionCount} excluded).`
             : result?.error
               ? ` Re-checked: couldn't confirm (${result.error}).`
               : ` Re-checked: still ${(result?.missingFromRecords || 0) + (result?.extraInRecords || 0)} row(s) differ — see the Mismatch details below.`
@@ -1172,7 +1225,7 @@ export default function PaymentSources() {
       if (!resp.ok) throw new Error(`could not re-fetch the stored file (HTTP ${resp.status})`)
       const blob = await resp.blob()
       const file = new File([blob], imp.sourceFileName || 'statement.pdf', { type: blob.type })
-      const { rows, lineCount, pageCount, openingBalance, closingBalance, parseWarnings, aiFallbackError } = await parsePdfStatement(file, { allowOcr: imp.ocrUsed === true })
+      const { rows, lineCount, pageCount, openingBalance, closingBalance, parseWarnings, aiFallbackError } = await parsePdfStatement(file, { allowOcr: imp.ocrUsed === true || imp.verification?.ocrUsed === true })
       if (!rows.length) {
         setImportMsg(`${imp.sourceFileName}: re-parsing the stored PDF found ${lineCount === 0 ? 'no text' : `${lineCount} lines across ${pageCount} page(s) but no recognizable transaction rows`} — this can't be auto-fixed. Try Delete and a manual re-upload instead.`)
         setImporting(false)
@@ -1411,6 +1464,7 @@ export default function PaymentSources() {
             </p>
             <div className={`statement-review-summary ${!pdfPreview.totalsCheck || pdfPreview.totalsCheck.consistent ? '' : 'statement-review-summary-warning'}`}>
               <strong>{pdfReviewSummary.includedRows} rows ready to import</strong>
+              {pdfPreview.rows.length > pdfReviewSummary.includedRows && <span>{pdfPreview.rows.length - pdfReviewSummary.includedRows} excluded row(s) will be recorded as your review decision.</span>}
               <span>
                 {pdfPreview.totalsCheck
                   ? pdfPreview.totalsCheck.consistent ? 'Totals match the statement.' : 'Totals need attention.'
@@ -1514,6 +1568,12 @@ export default function PaymentSources() {
                             </>
                           ) : !imp.verification ? (
                             <span className="hint">Not checked yet</span>
+                          ) : imp.verification.needsOcr || imp.verification.error === 'This scanned PDF needs image reading before it can be checked' ? (
+                            <>
+                              <span className="badge badge-warning"><WarningIcon size={12} strokeWidth={ICON_STROKE_WIDTH} aria-hidden="true" /> Needs image reading</span>
+                              <div className="hint" style={{ maxWidth: 220 }}>This PDF has a scanned page. Image reading sends that page to Google Cloud Vision; Gemini may help interpret its text.</div>
+                              <button className="btn-small" disabled={!!verifyingImportId || !!pdfPreview || importing} onClick={() => verifyImportAgainstSource(imp, true)}>Read image and check</button>
+                            </>
                           ) : imp.verification.error ? (
                             <>
                               <span className="badge badge-warning"><WarningIcon size={12} strokeWidth={ICON_STROKE_WIDTH} aria-hidden="true" /> Couldn't re-check</span>
@@ -1526,6 +1586,11 @@ export default function PaymentSources() {
                             </>
                           ) : imp.verification.consistent ? (
                             <span className="badge badge-office" title="A fresh PDF reading matches the saved transactions and totals."><MatchedIcon size={12} strokeWidth={ICON_STROKE_WIDTH} aria-hidden="true" /> Checked</span>
+                          ) : imp.verification.reviewedConsistent ? (
+                            <>
+                              <span className="badge badge-office" title="The saved transactions and deliberately excluded rows account for the PDF reading."><MatchedIcon size={12} strokeWidth={ICON_STROKE_WIDTH} aria-hidden="true" /> Reviewed with exclusions</span>
+                              <div className="hint" style={{ maxWidth: 220 }}>{imp.verification.reviewedExclusionCount} PDF row(s) intentionally left out. Saved transactions were not changed by this check.</div>
+                            </>
                           ) : (
                             <>
                               <span className="badge badge-warning"><WarningIcon size={12} strokeWidth={ICON_STROKE_WIDTH} aria-hidden="true" /> Mismatch</span>
@@ -1558,6 +1623,9 @@ export default function PaymentSources() {
                                     </div>
                                   )}
                                 </details>
+                              )}
+                              {imp.verification.missingFromRecords > 0 && imp.verification.extraInRecords === 0 && imp.verification.missingRows?.length === imp.verification.missingFromRecords && imp.verification.totalsCheck?.consistent !== false && (
+                                <button className="btn-small" style={{ marginTop: 4 }} disabled={importing || !!pdfPreview || !!verifyingImportId} onClick={() => reviewMissingPdfRows(imp)}>Review excluded row(s)</button>
                               )}
                               <button className="btn-small" style={{ marginTop: 4, minWidth: 140 }} disabled={importing || !!pdfPreview || !!verifyingImportId} onClick={() => reprocessFromStoredPdf(imp)}>
                                 {reprocessingImportId === imp.id ? 'Reading PDF…' : 'Fix from Stored PDF'}
@@ -1723,6 +1791,8 @@ export default function PaymentSources() {
           message={confirmDialog.message}
           onConfirm={confirmDialog.onConfirm}
           onCancel={() => setConfirmDialog(null)}
+          confirmLabel={confirmDialog.confirmLabel}
+          confirmClassName={confirmDialog.confirmClassName}
         />
       )}
     </div>

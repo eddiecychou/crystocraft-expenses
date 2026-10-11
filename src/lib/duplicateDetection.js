@@ -7,7 +7,7 @@
 // callers decide what to write and how to render review actions — no
 // Firestore access here.
 
-import { normalizeMerchant } from './paymentMatching'
+import { normalizeMerchant } from './paymentMatching.js'
 
 export const DUPLICATE_STATUS_LABELS = {
   verified_separate: 'Verified Separate',
@@ -187,6 +187,17 @@ export function diffTransactionSets(reparsedRows, storedRows) {
     for (let i = 0; i < n && extraRows.length < 20; i++) extraRows.push({ transactionDate, merchantRaw: merchantNormalized, settlementAmount: parseFloat(settlementAmount), direction })
   }
   return { missingFromRecords, extraInRecords, missingRows, extraRows }
+}
+
+// An intentional exclusion is only resolved if the fresh PDF read contains
+// exactly the saved rows plus the explicitly reviewed exclusions. Comparing
+// multisets also preserves repeated identical transactions.
+export function reviewedExclusionsMatch(reparsedRows, storedRows, exclusions) {
+  if (!exclusions?.length) return false
+  const originalDiff = diffTransactionSets(reparsedRows, storedRows)
+  if (originalDiff.missingFromRecords !== exclusions.length || originalDiff.extraInRecords !== 0) return false
+  const reviewedDiff = diffTransactionSets(reparsedRows, [...storedRows, ...exclusions])
+  return reviewedDiff.missingFromRecords === 0 && reviewedDiff.extraInRecords === 0
 }
 
 export function validateStatementTotals({ openingBalance, closingBalance, rows, tolerance = 0.02 }) {
