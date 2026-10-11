@@ -8,6 +8,8 @@ changes when it's bumped deliberately in `package.json`.
 
 ## V1.2 — 2026-10-11 (local build; deployment pending)
 
+**UI audit follow-ups.** Shared action groups now use their container gap without adding each small button's margins. The statement list switches to labeled cards on narrow screens while retaining its check, attach, edit, and delete actions. Navigation, tables, touch targets, reconciliation, and type scaling now share a 767px compact-screen breakpoint; the dashboard keeps its wider sidebar-aware stacking point.
+
 **Statement action spacing.** The action buttons and original-PDF link in each statement row now share one vertical layout with consistent gaps and widths; the attach-upload progress stays directly below its button.
 
 **Find older statements.** A top-of-page shortcut jumps to the statement list, which now has account and period-date filters, a matching count, and a clear action. Date ranges include statements whose periods overlap the selected dates; the newest-first order is unchanged.

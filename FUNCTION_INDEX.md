@@ -282,7 +282,7 @@ No standalone named functions beyond small in-render helpers (`setPreset`, `acco
 
 ### [PaymentSources.jsx](src/pages/PaymentSources.jsx) — largest page, account + import + duplicate-review workspace
 
-The statement-list Actions cell groups View/Edit, Original/Attach, Check, and Delete in `.statement-actions`; `App.css` supplies consistent button widths and gaps. The attach-progress bar stays grouped with its upload button.
+The statement-list Actions cell groups View/Edit, Original/Attach, Check, and Delete in `.statement-actions`; `App.css` supplies consistent button widths and gaps. The attach-progress bar stays grouped with its upload button. At 767px and below, the same table rows render as labeled cards so the existing check and transaction-detail actions remain available without a horizontal scroll.
 
 | Function | Line | Purpose |
 |---|---|---|

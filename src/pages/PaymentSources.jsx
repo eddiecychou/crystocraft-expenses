@@ -1566,19 +1566,20 @@ export default function PaymentSources() {
           </div>
           <p className="hint" role="status">{invalidStatementPeriod ? '“Period from” must be before “Period to”.' : `Showing ${visibleImports.length} of ${imports.length} statements${statementPeriodFrom || statementPeriodTo ? ' whose periods overlap the selected dates' : ''}.`}</p>
           <div className="table-wrap">
-            <table className="expense-table">
+            <table className="expense-table statement-list-table">
               <thead>
                 <tr><th>File</th><th>Account</th><th>Period</th><th>Rows</th><th>Status</th><th>Check</th><th>Actions</th></tr>
               </thead>
               <tbody>
                 {visibleImports.map(imp => (
                   <Fragment key={imp.id}>
-                    <tr id={`import-row-${imp.id}`} style={imp.lineCount === 0 ? { opacity: 0.55 } : undefined}>
-                      <td>{imp.sourceFileName}{imp.lineCount === 0 && <span className="hint"> (empty — safe to delete)</span>}</td>
-                      <td>{accounts.find(a => a.id === imp.paymentAccountId)?.label || '—'}</td>
-                      <td>{imp.periodStart && imp.periodEnd ? `${imp.periodStart} – ${imp.periodEnd}` : '—'}</td>
-                      <td>{imp.lineCount}</td>
+                    <tr className="statement-record-row" id={`import-row-${imp.id}`} style={imp.lineCount === 0 ? { opacity: 0.55 } : undefined}>
+                      <td><span className="mobile-only statement-mobile-label">File</span>{imp.sourceFileName}{imp.lineCount === 0 && <span className="hint"> (empty — safe to delete)</span>}</td>
+                      <td><span className="mobile-only statement-mobile-label">Account</span>{accounts.find(a => a.id === imp.paymentAccountId)?.label || '—'}</td>
+                      <td><span className="mobile-only statement-mobile-label">Period</span>{imp.periodStart && imp.periodEnd ? `${imp.periodStart} – ${imp.periodEnd}` : '—'}</td>
+                      <td><span className="mobile-only statement-mobile-label">Rows</span>{imp.lineCount}</td>
                       <td>
+                        <span className="mobile-only statement-mobile-label">Status</span>
                         {IMPORT_STATUS_LABELS[imp.importStatus] || imp.importStatus}
                         {(imp.importStatus === 'error' || (imp.importStatus === 'ready' && !imp.sourceFileUrl)) && imp.errorMessage && (
                           <div className="hint" style={{ maxWidth: 160 }}>{imp.errorMessage}</div>
@@ -1586,6 +1587,7 @@ export default function PaymentSources() {
                         {imp.importStatus === 'cancelled' && <div className="hint" style={{ maxWidth: 160 }}>Retry by selecting the file again.</div>}
                       </td>
                       <td>
+                        <span className="mobile-only statement-mobile-label">Check</span>
                         {/* Keep the check result's height stable so updating a
                             badge doesn't bounce the surrounding rows. */}
                         <div style={{ minHeight: 40 }}>
@@ -1668,6 +1670,7 @@ export default function PaymentSources() {
                         </div>
                       </td>
                       <td>
+                        <span className="mobile-only statement-mobile-label">Actions</span>
                         <div className="statement-actions">
                           <button className="btn-small" onClick={() => setViewingImportId(viewingImportId === imp.id ? null : imp.id)}>
                             {viewingImportId === imp.id ? 'Hide' : 'View/Edit'}
@@ -1693,7 +1696,7 @@ export default function PaymentSources() {
                       </td>
                     </tr>
                     {viewingImportId === imp.id && (
-                      <tr key={imp.id + '-txns'}>
+                      <tr className="statement-detail-row" key={imp.id + '-txns'}>
                         <td colSpan={7} style={{ background: '#eef2ef', padding: 12 }}>
                           {/* A visually distinct, self-contained box — not just an
                               expanded table row blending into the page — with its
@@ -1812,7 +1815,7 @@ export default function PaymentSources() {
                   </Fragment>
                 ))}
                 {visibleImports.length === 0 && (
-                  <tr><td colSpan={7} className="hint">No statements match these filters. Try a different account or period.</td></tr>
+                  <tr className="statement-empty-row"><td colSpan={7} className="hint">No statements match these filters. Try a different account or period.</td></tr>
                 )}
               </tbody>
             </table>

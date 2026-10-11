@@ -607,6 +607,7 @@ body {
 .btn-small.btn-danger:hover { background: var(--color-danger-bg); }
 
 .action-row { display: flex; gap: 12px; margin-top: 24px; }
+.action-row > .btn-small, .mob-card-actions > .btn-small, .preset-btns > .btn-small, .filter-row > .btn-small { margin: 0; }
 /* Desktop base for the primary action pinned below a secondary one (e.g.
    Reconciliation's "Not Related" action-row followed by "Link Settlement")
    — without this, the two button groups had no rule between them at all
@@ -814,7 +815,7 @@ body {
 .txn-table-compact th:nth-child(5), .txn-table-compact td:nth-child(5) { width: 28%; }
 .txn-table-compact th:nth-child(6), .txn-table-compact td:nth-child(6) { width: 13%; }
 
-@media (max-width: 640px) {
+@media (max-width: 767px) {
   /* Type/Balance is the least essential column on a phone-width review —
      dropped so Description and Duplicate (the two columns that actually
      need room) don't get squeezed into unreadable slivers. */
@@ -843,7 +844,7 @@ body {
 .review-compact-table th:nth-child(4), .review-compact-table td:nth-child(4) { width: 17%; }
 .review-compact-table th:nth-child(5), .review-compact-table td:nth-child(5) { width: 17%; }
 
-@media (max-width: 640px) {
+@media (max-width: 767px) {
   /* Balance is "—" for the vast majority of rows (only bank statements
      with a per-row printed balance ever populate it) — dropped on mobile
      so Date/Description/Amount get enough width to render on one line
@@ -945,6 +946,22 @@ body {
 .statement-actions { display: grid; gap: var(--space-2); min-width: 180px; }
 .statement-attach-action { display: grid; gap: var(--space-1); }
 .statement-actions .btn-small { display: flex; align-items: center; justify-content: center; width: 100%; margin: 0; text-align: center; }
+
+@media (max-width: 767px) {
+  .statement-list-table { display: block; box-shadow: none; background: transparent; overflow: visible; }
+  .statement-list-table thead { display: none; }
+  .statement-list-table tbody { display: grid; gap: var(--space-3); }
+  .statement-list-table .statement-record-row, .statement-list-table .statement-detail-row { display: block; background: #fff; border-radius: var(--radius-md); box-shadow: var(--shadow-sm); overflow: hidden; }
+  .statement-list-table .statement-record-row > td { display: block; position: relative; padding: var(--space-2) var(--space-4) var(--space-2) 112px; border: 0; overflow-wrap: anywhere; }
+  .statement-list-table .statement-record-row > td:first-child { padding-top: var(--space-4); font-weight: 600; }
+  .statement-list-table .statement-record-row > td:last-child { padding-bottom: var(--space-4); }
+  .statement-list-table .statement-record-row > td:nth-child(6) { min-width: 0; }
+  .statement-list-table .statement-record-row > td .statement-mobile-label { position: absolute; left: var(--space-4); top: var(--space-2); width: 80px; color: #718096; font-size: var(--type-caption-size); font-weight: 500; }
+  .statement-list-table .statement-actions { min-width: 0; }
+  .statement-list-table .statement-detail-row > td { display: block; }
+  .statement-list-table .statement-empty-row { display: block; background: #fff; border-radius: var(--radius-md); }
+  .statement-list-table .statement-empty-row > td { display: block; }
+}
 
 .expense-search input[type="text"] { width: 100%; }
 .expense-search-results {
@@ -1225,7 +1242,7 @@ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
 .capture-card-sub { display: block; color: #6b8577; font-size: 12px; margin-top: 2px; }
 
 /* ── Mobile ── */
-@media (max-width: 640px) {
+@media (max-width: 767px) {
   .desktop-only { display: none; }
   .mobile-only { display: block; }
   .mobile-bottom-nav { display: flex; }
@@ -1384,7 +1401,7 @@ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
   border: 3px solid transparent; cursor: pointer; padding: 0;
   transition: transform 0.1s;
 }
-@media (max-width: 640px) {
+@media (max-width: 767px) {
   /* Identity color is a small accent, but picking it is still a real tap
      target — matches the 44px minimum used for buttons on mobile. */
   .color-swatch { width: 44px; height: 44px; }
@@ -1421,12 +1438,9 @@ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
 
 /* ── Reconciliation: master-detail layout ──
    The list pane was a fixed 340px, squeezing .recon-detail hard on
-   mid-width viewports (a small tablet, or a laptop window with the
-   sidebar eating ~264px) — .recon-layout's only breakpoint is a full
-   stack at 640px, so everything between ~640–1000px kept the full
-   340px list regardless of how little room that left the detail pane.
-   minmax() lets the list shrink down to 260px before the detail pane
-   has to give up any more space, without adding a new breakpoint. */
+   mid-width viewports with the sidebar eating ~264px. minmax() lets
+   the list shrink to 260px until the shared 767px compact breakpoint
+   stacks the panes. */
 .recon-layout {
   display: grid;
   grid-template-columns: minmax(260px, 340px) 1fr;
@@ -1494,7 +1508,7 @@ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
 .meta-field { display: flex; flex-direction: column; }
 .meta-field-label { font-size: var(--type-caption-size); line-height: var(--type-caption-line); color: #6b8577; margin-bottom: var(--space-2); }
 .meta-field-value { font-size: var(--type-body-small-size); line-height: var(--type-body-small-line); color: var(--t-dark); }
-@media (max-width: 640px) {
+@media (max-width: 767px) {
   .meta-grid { grid-template-columns: 1fr; }
 }
 .recon-receipt-thumb {
@@ -1506,7 +1520,7 @@ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
   border: 1px solid #e2ede4;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 767px) {
   .recon-layout { grid-template-columns: 1fr; }
   .recon-list.has-selection { display: none; }
   .recon-detail:not(.has-selection) { display: none; }

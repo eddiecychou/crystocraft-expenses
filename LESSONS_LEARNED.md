@@ -441,6 +441,8 @@ width, switch to a mobile card list instead of continuing to fight the table lay
 
 `.btn-small` carries its own right/bottom margins, while flex/grid action groups also declare a `gap`. For a dedicated button stack such as statement-list Actions, reset those margins inside the scoped group and let its gap be the single spacing source. Avoid changing `.btn-small` globally for a one-cell fix.
 
+The same rule applies to shared `.action-row`, `.mob-card-actions`, `.preset-btns`, and `.filter-row` direct children: their gaps now own spacing, while ungrouped buttons keep the original margin behavior.
+
 ---
 
 ## Gemini thinking-budget gotcha
