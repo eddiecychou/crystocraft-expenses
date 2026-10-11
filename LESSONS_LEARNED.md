@@ -306,6 +306,20 @@ re-read an already-stored file (statements, receipts) must go through
 
 ## PDF statement parsing is fragile — verify against real files
 
+**V1.2 extension:** A browser parser returning *some* rows does not prove the
+statement is complete. Page coverage, transaction-like line counts, running
+balances, and opening/closing totals now help decide whether a second page
+reading is needed. A scanned page's Vision OCR words must retain positions;
+plain text cannot be fed to a coordinate-calibrated column parser unchanged.
+Vision boxes use a top-left pixel origin, whereas this parser uses bottom-left
+PDF points. OCR word centres are also not PDF text baselines, so OCR-derived
+rows must never reuse the existing PDF redaction-mask calculation. The AI
+reader receives bounded page sections with line IDs and must cite a printed
+line containing its proposed amount. A cited amount is useful evidence, but
+it does not by itself prove that every row or column was interpreted right;
+the reviewed source PDF remains decisive. Validate this path visually and
+against real statements before claiming OCR accuracy.
+
 [pdfStatementParser.js](src/lib/pdfStatementParser.js) went through many rounds of
 real bugs that hand-written synthetic test lines never would have caught:
 

@@ -92,13 +92,22 @@ some of these functions look the way they do, see [LESSONS_LEARNED.md](LESSONS_L
 | `parseSection(lines, columns, anchorDate, pageNumber, balanceMarkers)` | 330 | Internal — parses one page/section's lines into transaction row objects. |
 | `parseFallback(lines)` | 458 | Internal — best-effort parse when column detection fails entirely. |
 | `extractBalanceMarkersFromRawLines(lines)` | 493 | Internal — pulls opening/closing balance text from statement boilerplate lines. |
-| `parsePdfStatement(file)` | 515 | **Entry point.** Loads a PDF via `pdfjs-dist`, extracts text-position data, and returns parsed transaction rows + statement totals. Three tiers, falling through only on zero rows: column-position parsing, `parseFallback`, then (real text but no recognized table) `parseStatementRowsWithGemini` (`geminiStatementParser.js`) — those rows are tagged `extractionMethod: 'ai_assisted'` and have no `maskRect` (redaction callers already tolerate that). Column-parser/fallback rows also get `extractionMethod` set (`'column_parser'`), and each row carries a `maskRect` (page + point-space bounding box, asymmetrically padded for baseline-vs-glyph-height — see LESSONS_LEARNED.md) used by `pdfRedaction.js` to black it out on the original PDF for personal-account exports. |
+| `parsePdfStatement(file, options)` | — | **Entry point.** Reads PDF text/positions, optionally OCRs pages with weak text layers after consent, runs the local column parser, then checks missing pages, suspicious row coverage, statement totals, and running balances. Uses page-level Gemini interpretation when those checks indicate a gap or a page came from OCR. Returns rows, totals, `needsOcr`, progress/warnings, and AI error. OCR/AI rows carry no redaction mask. |
 
 ### [geminiStatementParser.js](src/lib/geminiStatementParser.js)
 
 | Function | Purpose |
 |---|---|
-| `parseStatementRowsWithGemini(text)` | Tier-3 fallback called only by `parsePdfStatement` when tiers 1-2 find zero rows. Posts the statement's own pdf.js-extracted text to `/api/process-statement-text`, maps the response into the same row shape the other tiers produce. |
+| `parseStatementRowsWithGemini(page, pageNumber, anchorDate)` | Sends bounded sections of one page with source-line IDs and x positions; accepts rows only when the cited line contains the proposed amount. |
+
+### Statement OCR helpers
+
+| File | Purpose |
+|---|---|
+| [statementOcr.js](src/lib/statementOcr.js) | Renders one PDF page to a bounded JPEG and calls the authenticated OCR endpoint. |
+| [statementOcrGeometry.js](src/lib/statementOcrGeometry.js) | Converts Vision word positions to the PDF-point lines consumed by the statement parser. |
+| [statementAiEvidence.js](src/lib/statementAiEvidence.js) | Grounds AI rows in cited printed amount lines and flags description/balance values that could not be confirmed nearby. |
+| `parseStatementRowsWithGemini(text)` | Tier-3 fallback called only by `parsePdfStatement` when tiers 1-2 find zero rows. Posts the statement's own pdf.js-extracted text to `/api/process-statement-text`, aborting after 30 seconds so one new bank layout cannot block the review queue indefinitely, then maps the response into the same row shape the other tiers produce. |
 
 ### [pdfRedaction.js](src/lib/pdfRedaction.js)
 
@@ -406,7 +415,8 @@ Rebuilt from a previously-orphaned page (no route/nav link existed; its old sing
 |---|---|
 | [process-receipt.js](netlify/edge-functions/process-receipt.js) | Deno edge function. Receives a receipt image/PDF, optionally runs Cloud Vision OCR first (`callVisionOCR`, when `GOOGLE_VISION_API_KEY` is set), then calls Gemini (`gemini-3.6-flash` → `gemini-2.5-pro` fallback) to extract structured JSON fields. Also extracts `subtotal`/`tax`/`serviceCharge` (nullable) purely to compute `validation: { arithmeticMismatch, ungroundedFields }` via local `checkArithmetic`/`isGrounded` helpers before returning — never trusts the extraction blindly. |
 | [process-invoice.js](netlify/edge-functions/process-invoice.js) | Deno edge function, same OCR+Gemini pipeline as `process-receipt.js`. Takes a `docKind` (`'invoice'`\|`'po'`\|`'income'`) and extracts `{ number, counterpartyName, date, amount, currency, notes }` (plus `subtotal`/`tax`, same validation purpose as process-receipt.js's extra fields) — used for customer invoices, supplier POs, and (MVP-2) non-OC income documents, whose arbitrary per-counterparty layouts rule out a positional parser like `pdfStatementParser.js`. |
-| [process-statement-text.js](netlify/edge-functions/process-statement-text.js) | Deno edge function. Tier-3 fallback for bank/credit-card statement parsing — takes already-extracted statement text (not an image) and a schema describing a statement transaction table, calls Gemini for structured `{ rows: [...] }` extraction. Same ID-token auth pattern as `process-receipt.js`/`process-invoice.js`. Called only from `pdfStatementParser.js` via `geminiStatementParser.js` when the column-position parser and its regex fallback both find zero rows. |
+| [process-statement-text.js](netlify/edge-functions/process-statement-text.js) | Deno edge function. Interprets bounded bank-statement text sections with line IDs and x positions; returns structured rows including a cited source line. Called when local reading is absent or suspicious and for OCR pages. |
+| [ocr-statement-page.js](netlify/edge-functions/ocr-statement-page.js) | Authenticated Deno edge function. Sends one bounded rendered page to Cloud Vision and returns OCR words with pixel positions. Requires `GOOGLE_VISION_API_KEY`. |
 | [download-receipt.js](netlify/edge-functions/download-receipt.js) | Deno edge function. CORS proxy — accepts `{ url }`, fetches a Firebase Storage file server-side, returns the raw bytes with permissive CORS headers. Used generically for both receipt images and statement files despite the name. |
 | [sync-operation-center.js](netlify/edge-functions/sync-operation-center.js) | Deno edge function (Finance repositioning MVP-5). Real gate is a server-side connector registry (`OPERATION_CENTER_CONNECTORS` env var, keyed by `projectId`) checked before anything else; also verifies the caller's own Firebase ID token and their project's `operationCenterSyncEnabled` (secondary check). Signs in as the matched entry's dedicated service account on costing-tool (a different Firebase project). Two request shapes: the default (recurring sync) calls `/api/finance-po-sync` and `/api/uc` (`op:'list_invoices'`); `action:'import_legacy'` instead pages (via the new `offset` param) through `/api/erp` for the frozen JES archive (`entity: 'purchase'`/`'sales_invoice'`), a one-time pull. No Firestore writes here — see TECHNICAL.md's "Operation Center Sync" section. |
 

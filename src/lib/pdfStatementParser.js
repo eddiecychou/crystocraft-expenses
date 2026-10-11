@@ -16,25 +16,18 @@
 // accumulate description text under the current date until an amount
 // column is populated, which closes out one transaction.
 //
-// This only works on text-based PDFs (the normal case for a statement
-// downloaded from online banking). A scanned/photographed PDF has no text
-// layer and will extract nothing — callers must handle that and tell the
-// user, not guess at numbers from an image.
+// Digital PDFs use their text layer. Scanned pages need the user's consent
+// before Cloud Vision supplies positioned words for the same parsing path.
 //
-// Because layout varies bank-to-bank, this is heuristic. If no header row
-// is recognized on a page, we fall back to a simpler date-line + trailing
-// amount heuristic. If BOTH of those find zero rows on real extracted text
-// (a layout genuinely new to this app, e.g. a new customer's own bank),
-// parsePdfStatement falls back once more to Gemini structured extraction on
-// that same text (geminiStatementParser.js) — marked extractionMethod:
-// 'ai_assisted' so it's visibly distinct. None of these three tiers is
-// trusted blindly: callers MUST show parsed rows to the user for review
-// before writing anything, and validateStatementTotals() (duplicateDetection.js)
-// checks opening+net=closing independently of which tier produced the rows.
+// Layout varies bank-to-bank. Missing or suspicious rows trigger a bounded
+// Gemini second reading; scanned pages first need explicit cloud OCR consent.
+// AI rows are marked 'ai_assisted' and all results remain review-gated.
 
 import * as pdfjsLib from 'pdfjs-dist'
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import { parseStatementRowsWithGemini } from './geminiStatementParser'
+import { ocrStatementPage } from './statementOcr'
+import { annotateBalanceSequence, validateStatementTotals } from './duplicateDetection'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl
 
@@ -42,12 +35,13 @@ const Y_TOLERANCE = 2.5 // points; items within this y-distance are the same lin
 
 // ---- Low-level extraction: page -> lines of {x, text} items ------------
 
-async function extractStructuredLines(file) {
+async function extractStructuredLines(file, { allowOcr = false, onProgress } = {}) {
   const buf = await file.arrayBuffer()
   const pdf = await pdfjsLib.getDocument({ data: buf }).promise
   const pages = []
 
   for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+    onProgress?.({ stage: 'reading', page: pageNum, totalPages: pdf.numPages })
     const page = await pdf.getPage(pageNum)
     const viewport = page.getViewport({ scale: 1 })
     const content = await page.getTextContent()
@@ -64,13 +58,21 @@ async function extractStructuredLines(file) {
     clusters.sort((a, b) => b.y - a.y) // top to bottom
     for (const c of clusters) c.items.sort((a, b) => a.x - b.x) // left to right
 
-    const lines = clusters.map(c => ({
+    let lines = clusters.map(c => ({
       y: c.y,
       items: c.items,
       text: c.items.map(it => it.text).join(' ').replace(/\s+/g, ' ').trim(),
     })).filter(l => l.text)
 
-    pages.push({ lines, width: viewport.width, height: viewport.height })
+    const weakTextLayer = lines.reduce((count, line) => count + line.text.length, 0) < 40
+    let source = 'pdf_text'
+    if (weakTextLayer && allowOcr) {
+      if (pdf.numPages > 20) throw new Error('Scanned PDFs over 20 pages need a CSV export or a smaller statement')
+      onProgress?.({ stage: 'ocr', page: pageNum, totalPages: pdf.numPages })
+      lines = await ocrStatementPage(page)
+      source = 'ocr'
+    }
+    pages.push({ lines, width: viewport.width, height: viewport.height, source, weakTextLayer })
   }
   return pages
 }
@@ -491,6 +493,19 @@ function parseSection(lines, columns, anchorDate, pageNumber, balanceMarkers, xR
 const DATE_START = /^(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4}|[A-Za-z]{3,9}\s+\d{1,2},?\s+\d{2,4})\b/
 const MONEY_TRAILING = /-?\(?[\d,]+\.\d{2}\)?\s*(CR|DR)?/gi
 
+function parseFullDate(text) {
+  const numeric = text.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/)
+  const named = text.match(/^([A-Za-z]{3,9})\s+(\d{1,2}),?\s+(\d{2,4})$/)
+  const yearText = numeric?.[3] || named?.[3]
+  if (!yearText) return null
+  const year = yearText.length === 2 ? 2000 + Number(yearText) : Number(yearText)
+  const month = numeric ? Number(numeric[2]) : (MONTHS[named[1].slice(0, 3).toLowerCase()] ?? -1) + 1
+  const day = Number(numeric?.[1] || named?.[2])
+  if (year < 1 || year > 9999 || month < 1 || month > 12 || day < 1 || day > 31) return null
+  const date = new Date(Date.UTC(year, month - 1, day)).toISOString().slice(0, 10)
+  return date === `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}` ? date : null
+}
+
 function parseFallback(lines) {
   const rows = []
   for (const { text } of lines) {
@@ -507,7 +522,7 @@ function parseFallback(lines) {
       sourceRowIndex: rows.length,
       rawRowText: text,
       rawDateText: dateMatch[1],
-      transactionDate: null, // no year-bearing anchor available in fallback mode without a header
+      transactionDate: parseFullDate(dateMatch[1]),
       postDate: null,
       merchantRaw,
       settlementAmount: first.amount,
@@ -515,7 +530,7 @@ function parseFallback(lines) {
       balanceAfter: null, // no column-aware balance in single-line fallback mode
     })
   }
-  return rows.filter(r => r.transactionDate) // dropped below if date unresolved — see note
+  return rows.filter(r => r.transactionDate)
 }
 
 // Catches an opening/closing balance restatement that sits OUTSIDE any
@@ -548,11 +563,14 @@ function extractBalanceMarkersFromRawLines(lines) {
 // per-row parsing (see validateStatementTotals in duplicateDetection.js).
 // openingBalance/closingBalance are null when no restatement line was found
 // anywhere in the document — never guessed.
-export async function parsePdfStatement(file) {
-  const pages = await extractStructuredLines(file)
+export async function parsePdfStatement(file, options = {}) {
+  const pages = await extractStructuredLines(file, options)
   const allLines = pages.flatMap(p => p.lines)
   const lineCount = allLines.length
   const pageCount = pages.length
+  if (!options.allowOcr && pages.some(page => page.weakTextLayer)) {
+    return { rows: [], lineCount, pageCount, openingBalance: null, closingBalance: null, aiFallbackError: null, parseWarnings: [], needsOcr: true }
+  }
   const anchorDate = findAnchorDate(allLines.map(l => l.text).join(' '))
 
   // Whole-document scan first, so its entries come first in the array for
@@ -567,6 +585,7 @@ export async function parsePdfStatement(file) {
   const MASK_MARGIN = 20
 
   const rows = []
+  let aiFallbackError = null
   let pageNum = 0
   for (const page of pages) {
     pageNum++
@@ -604,29 +623,67 @@ export async function parsePdfStatement(file) {
   if (!rows.length) {
     // No table with a recognizable header anywhere — try the simpler
     // single-line fallback in case this is a plainer statement format.
-    rows.push(...parseFallback(allLines))
+    pages.forEach((page, index) => rows.push(...parseFallback(page.lines).map(row => ({ ...row, pageNumber: index + 1 }))))
   }
   rows.forEach(r => { if (!r.extractionMethod) r.extractionMethod = 'column_parser' })
 
-  if (!rows.length && lineCount > 0) {
-    // Tiers 1-2 both work off this statement's own printed table layout,
-    // which varies bank-to-bank — real text was found, but no recognizable
-    // transaction shape in it, which means a genuinely new layout rather
-    // than a scanned/empty PDF. Tier 3 (Gemini, on the same extracted text)
-    // is tried only here, and its rows are marked ai_assisted so the review
-    // panel can flag them — see geminiStatementParser.js and
-    // process-statement-text.js for why this still isn't a blind-trust
-    // path: validateStatementTotals() below is computed independently of
-    // which tier produced the rows.
-    try {
-      const aiRows = await parseStatementRowsWithGemini(allLines.map(l => l.text).join('\n'))
-      rows.push(...aiRows)
-    } catch {
-      // AI fallback failing (offline, quota, etc.) just leaves rows empty —
-      // the caller already handles "zero rows found" as a clear message,
-      // never as a silent gap.
+  // OCR word-centre y is not a PDF glyph baseline. The existing redaction
+  // mask calculation is only safe for pdf.js text; omit masks for scanned
+  // pages so personal exports use the CSV-only safe path.
+  rows.forEach(row => {
+    if (pages[row.pageNumber - 1]?.source === 'ocr') row.maskRect = null
+  })
+
+  const openingMarkers = balanceMarkers.filter(m => m.type === 'opening')
+  const closingMarkers = balanceMarkers.filter(m => m.type === 'closing')
+  const openingBalance = openingMarkers.length ? openingMarkers[0].amount : null
+  const closingBalance = closingMarkers.length ? closingMarkers[closingMarkers.length - 1].amount : null
+  const localTotals = validateStatementTotals({ openingBalance, closingBalance, rows })
+  const missingPages = pages.map((page, index) => page.lines.length && !rows.some(row => row.pageNumber === index + 1) ? index + 1 : null).filter(Boolean)
+  const suspiciousPages = pages.map((page, index) => {
+    const apparentRows = page.lines.filter(line => DATE_TOKEN.test(line.text) && AMOUNT_TOKEN.test(line.text) && !NON_TRANSACTION_LABELS.test(line.text)).length
+    return apparentRows > rows.filter(row => row.pageNumber === index + 1).length + 1 ? index + 1 : null
+  }).filter(Boolean)
+  const badBalanceSequence = annotateBalanceSequence(rows).some(row => row.balanceSequenceValid === false)
+  const needsSecondRead = lineCount > 0 && (!rows.length || missingPages.length || suspiciousPages.length || localTotals?.consistent === false || badBalanceSequence || pages.some(page => page.source === 'ocr'))
+  const parseWarnings = []
+  if (needsSecondRead) {
+    const candidateRows = []
+    for (let index = 0; index < pages.length; index++) {
+      const page = pages[index]
+      const pageNumber = index + 1
+      const localPageRows = rows.filter(row => row.pageNumber === pageNumber)
+      if (!page.lines.length) continue
+      if (localPageRows.length && page.source !== 'ocr' && localTotals?.consistent !== false && !badBalanceSequence && !missingPages.includes(pageNumber) && !suspiciousPages.includes(pageNumber)) {
+        candidateRows.push(...localPageRows)
+        continue
+      }
+      try {
+        options.onProgress?.({ stage: 'interpreting', page: pageNumber, totalPages: pageCount })
+        const aiPageRows = await parseStatementRowsWithGemini(page, pageNumber, anchorDate.toISOString().slice(0, 10))
+        candidateRows.push(...(aiPageRows.length >= localPageRows.length ? aiPageRows : localPageRows))
+      } catch (err) {
+        aiFallbackError = err.message || 'AI reading unavailable'
+        candidateRows.push(...localPageRows)
+      }
+    }
+    const candidateTotals = validateStatementTotals({ openingBalance, closingBalance, rows: candidateRows })
+    const improvedTotals = localTotals?.consistent === false && candidateTotals?.consistent === true
+    if (candidateRows.length && (rows.length === 0 || improvedTotals || (candidateRows.length > rows.length && candidateTotals?.consistent !== false))) {
+      rows.splice(0, rows.length, ...candidateRows)
+      parseWarnings.push('AI helped interpret this statement; check the rows against the PDF.')
+    } else if (candidateRows.length && candidateRows.length !== rows.length) {
+      parseWarnings.push('Two reading methods found different row counts; check the statement carefully.')
     }
   }
+  const finalTotals = validateStatementTotals({ openingBalance, closingBalance, rows })
+  if (finalTotals?.consistent === false) parseWarnings.push('The transaction rows do not match the printed opening and closing balances.')
+  if (annotateBalanceSequence(rows).some(row => row.balanceSequenceValid === false)) parseWarnings.push('Some running balances do not match the transaction rows.')
+  if (pages.some((page, index) => page.lines.length && !rows.some(row => row.pageNumber === index + 1))) parseWarnings.push('At least one page with text has no recognized transactions; check it for missing rows.')
+  if (pages.some((page, index) => page.lines.filter(line => DATE_TOKEN.test(line.text) && AMOUNT_TOKEN.test(line.text) && !NON_TRANSACTION_LABELS.test(line.text)).length > rows.filter(row => row.pageNumber === index + 1).length + 1)) {
+    parseWarnings.push('Some pages show more transaction-like lines than parsed rows; check for omissions.')
+  }
+  if (rows.some(row => row.evidenceWarning)) parseWarnings.push('Some AI fields could not be confirmed against nearby printed text; check those rows.')
 
   // sourceRowIndex is assigned per-section above (so it resets per table),
   // which isn't a reliable global position — reassign it here as the row's
@@ -635,14 +692,14 @@ export async function parsePdfStatement(file) {
   // validated in.
   rows.forEach((r, i) => { r.sourceRowIndex = i })
 
-  const openingMarkers = balanceMarkers.filter(m => m.type === 'opening')
-  const closingMarkers = balanceMarkers.filter(m => m.type === 'closing')
-
   return {
     rows,
     lineCount,
     pageCount,
-    openingBalance: openingMarkers.length ? openingMarkers[0].amount : null,
-    closingBalance: closingMarkers.length ? closingMarkers[closingMarkers.length - 1].amount : null,
+    openingBalance,
+    closingBalance,
+    aiFallbackError,
+    parseWarnings,
+    needsOcr: !options.allowOcr && pages.some(page => page.weakTextLayer),
   }
 }

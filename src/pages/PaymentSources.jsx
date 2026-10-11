@@ -19,6 +19,19 @@ const SOURCE_TYPES = [
   { value: 'credit_card', label: 'Credit Card' },
 ]
 
+// PDF parsing is review-gated and sequential. Three files keep an
+// unrecognised bank layout from turning one selection into a long, opaque wait.
+const MAX_PDF_FILES_PER_BATCH = 3
+
+const IMPORT_STATUS_LABELS = {
+  reading: 'Reading PDF',
+  needs_review: 'Ready for review',
+  processing: 'Saving import',
+  ready: 'Imported',
+  error: 'Failed',
+  cancelled: 'Cancelled',
+}
+
 // A sequential batch (Verify All / Fix All Mismatches) awaits one fetch at
 // a time — with no timeout, a single stalled request (slow cold start,
 // dropped connection) hangs the whole batch indefinitely with no visible
@@ -58,6 +71,7 @@ export default function PaymentSources() {
   // PDF's rows are heuristically parsed and must be checked before write,
   // so a batch can't just import every PDF's rows unattended.
   const [pdfQueue, setPdfQueue] = useState([])
+  const [ocrPending, setOcrPending] = useState(null)
   // This is deliberately a statement-level queue, rather than a pretend
   // byte-progress indicator: parsing happens in the browser and an original
   // PDF is only uploaded after the user has reviewed its rows. Telling the
@@ -281,7 +295,7 @@ export default function PaymentSources() {
   // re-upload from their computer, this replaces the existing import's
   // transactions in place: same import record, same stored file, freshly
   // parsed rows.
-  async function commitRows(mapped, account, file, sourceType, statementTotals, reprocessImportId) {
+  async function commitRows(mapped, account, file, sourceType, statementTotals, reprocessImportId, existingAttemptId) {
     let importRef
     if (reprocessImportId) {
       importRef = doc(db, 'paymentImports', reprocessImportId)
@@ -296,6 +310,20 @@ export default function PaymentSources() {
         oldSnap.docs.slice(i, i + 400).forEach(d => batch.delete(d.ref))
         await batch.commit()
       }
+      await updateDoc(importRef, {
+        periodStart: mapped.reduce((min, t) => !min || (t.transactionDate && t.transactionDate < min) ? t.transactionDate : min, null),
+        periodEnd: mapped.reduce((max, t) => !max || (t.transactionDate && t.transactionDate > max) ? t.transactionDate : max, null),
+        importStatus: 'processing',
+        lineCount: mapped.length,
+        updatedAt: serverTimestamp(),
+        errorMessage: null,
+        openingBalance: statementTotals?.openingBalance ?? null,
+        closingBalance: statementTotals?.closingBalance ?? null,
+        totalsCheck: null,
+        verification: null,
+      })
+    } else if (existingAttemptId) {
+      importRef = doc(db, 'paymentImports', existingAttemptId)
       await updateDoc(importRef, {
         periodStart: mapped.reduce((min, t) => !min || (t.transactionDate && t.transactionDate < min) ? t.transactionDate : min, null),
         periodEnd: mapped.reduce((max, t) => !max || (t.transactionDate && t.transactionDate > max) ? t.transactionDate : max, null),
@@ -693,7 +721,7 @@ export default function PaymentSources() {
       })
       if (!resp.ok) throw new Error(`could not re-fetch the stored file (HTTP ${resp.status})`)
       const blob = await resp.blob()
-      const { rows: reparsedRows, openingBalance, closingBalance } = await parsePdfStatement(blob)
+      const { rows: reparsedRows, openingBalance, closingBalance } = await parsePdfStatement(blob, { allowOcr: imp.ocrUsed === true })
 
       const storedSnap = await getDocs(query(
         collection(db, 'paymentTransactions'),
@@ -893,22 +921,40 @@ export default function PaymentSources() {
 
   // Parses one PDF and either shows it for review or, if nothing came out
   // of it, records why and moves on to the next queued file.
-  async function loadPdfPreview(file, accountId, remainingQueue) {
+  async function loadPdfPreview(item, accountId, remainingQueue, allowOcr = false) {
+    const { file, attemptId } = item
     setPdfBatchProgress(prev => prev && {
       ...prev,
       currentIndex: prev.total - remainingQueue.length,
       currentFileName: file.name,
       stage: 'reading',
+      page: null,
+      totalPages: null,
     })
     setImporting(true)
     try {
-      const { rows, lineCount, pageCount, openingBalance, closingBalance } = await parsePdfStatement(file)
+      const { rows, lineCount, pageCount, openingBalance, closingBalance, aiFallbackError, parseWarnings, needsOcr } = await parsePdfStatement(file, {
+        allowOcr,
+        onProgress: progress => setPdfBatchProgress(prev => prev && { ...prev, ...progress }),
+      })
+      if (needsOcr) {
+        setOcrPending({ item, accountId, remainingQueue })
+        setPdfBatchProgress(prev => prev && { ...prev, stage: 'ocr_choice' })
+        setImporting(false)
+        return
+      }
       if (!rows.length) {
-        setImportMsg(prev => (prev ? prev + ' ' : '') + `${file.name}: ` + (
-          lineCount === 0
-            ? 'no text found — it may be a scanned image rather than a digital statement. Try exporting a CSV from your bank instead.'
-            : `found ${lineCount} lines across ${pageCount} page(s) but couldn't recognize any transaction rows — this bank's PDF layout may not be supported yet. Try CSV export instead.`
-        ))
+        const reason = (lineCount === 0
+          ? 'no text found — it may be a scanned image rather than a digital statement. Try exporting a CSV from your bank instead.'
+          : `found ${lineCount} lines across ${pageCount} page(s) but couldn't recognize any transaction rows — this bank's PDF layout may not be supported yet. Try CSV export instead.`) +
+          (aiFallbackError ? ` AI fallback: ${aiFallbackError}.` : '')
+        await updateDoc(doc(db, 'paymentImports', attemptId), {
+          importStatus: 'error',
+          lineCount: 0,
+          errorMessage: reason,
+          updatedAt: serverTimestamp(),
+        }).catch(() => {})
+        setImportMsg(prev => (prev ? prev + ' ' : '') + `${file.name}: ${reason}`)
         setImporting(false)
         await advancePdfQueue(remainingQueue, accountId)
         return
@@ -917,11 +963,26 @@ export default function PaymentSources() {
       // anything — this is a signal of whether OUR extraction of this PDF
       // is correct, independent of what gets committed.
       const totalsCheck = validateStatementTotals({ openingBalance, closingBalance, rows })
-      setPdfPreview({ file, fileName: file.name, accountId, openingBalance, closingBalance, totalsCheck, rows: rows.map(r => ({ ...r, include: true })) })
+      await updateDoc(doc(db, 'paymentImports', attemptId), {
+        importStatus: 'needs_review',
+        lineCount: rows.length,
+        openingBalance: openingBalance ?? null,
+        closingBalance: closingBalance ?? null,
+        ocrUsed: allowOcr,
+        updatedAt: serverTimestamp(),
+      }).catch(() => {})
+      setPdfPreview({ file, fileName: file.name, accountId, attemptId, openingBalance, closingBalance, totalsCheck, parseWarnings, aiFallbackError, rows: rows.map(r => ({ ...r, include: true })) })
       setPdfQueue(remainingQueue)
       setPdfBatchProgress(prev => prev && { ...prev, stage: 'review' })
     } catch (err) {
-      setImportMsg(prev => (prev ? prev + ' ' : '') + `${file.name}: could not read PDF — ${err.message || 'unknown error'}`)
+      const reason = `could not read PDF — ${err.message || 'unknown error'}`
+      await updateDoc(doc(db, 'paymentImports', attemptId), {
+        importStatus: 'error',
+        lineCount: 0,
+        errorMessage: reason,
+        updatedAt: serverTimestamp(),
+      }).catch(() => {})
+      setImportMsg(prev => (prev ? prev + ' ' : '') + `${file.name}: ${reason}`)
       setImporting(false)
       await advancePdfQueue(remainingQueue, accountId)
       return
@@ -940,6 +1001,23 @@ export default function PaymentSources() {
     await loadPdfPreview(next, accountId, rest)
   }
 
+  async function useOcrForPendingPdf() {
+    const pending = ocrPending
+    if (!pending) return
+    setOcrPending(null)
+    await loadPdfPreview(pending.item, pending.accountId, pending.remainingQueue, true)
+  }
+
+  async function skipPendingOcr() {
+    const pending = ocrPending
+    if (!pending) return
+    setOcrPending(null)
+    await updateDoc(doc(db, 'paymentImports', pending.item.attemptId), {
+      importStatus: 'cancelled', errorMessage: 'Scanned PDF was skipped; cloud OCR was not used', updatedAt: serverTimestamp(),
+    }).catch(() => {})
+    await advancePdfQueue(pending.remainingQueue, pending.accountId)
+  }
+
   async function handleFileSelected(e) {
     const files = Array.from(e.target.files)
     e.target.value = ''
@@ -947,6 +1025,11 @@ export default function PaymentSources() {
     const account = accounts.find(a => a.id === importAccountId)
     const pdfFiles = files.filter(f => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'))
     const csvFiles = files.filter(f => !pdfFiles.includes(f))
+
+    if (pdfFiles.length > MAX_PDF_FILES_PER_BATCH) {
+      setImportMsg(`Choose up to ${MAX_PDF_FILES_PER_BATCH} PDFs at a time. Each PDF is reviewed separately, and a smaller batch prevents one unsupported layout from holding up the rest.`)
+      return
+    }
 
     setImporting(true)
     setImportMsg('')
@@ -979,8 +1062,37 @@ export default function PaymentSources() {
     setImporting(false)
 
     if (pdfFiles.length) {
-      setPdfBatchProgress({ total: pdfFiles.length, currentIndex: 1, currentFileName: pdfFiles[0].name, stage: 'reading' })
-      await advancePdfQueue(pdfFiles, account.id)
+      let pdfItems
+      try {
+        pdfItems = await Promise.all(pdfFiles.map(async file => {
+          const attempt = await addDoc(collection(db, 'paymentImports'), {
+            userId: auth.currentUser.uid,
+            projectId: activeProject.id,
+            paymentAccountId: account.id,
+            sourceType: 'pdf',
+            sourceFileName: file.name,
+            sourceFileUrl: null,
+            sourceFilePath: null,
+            periodStart: null,
+            periodEnd: null,
+            importStatus: 'reading',
+            lineCount: null,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+            errorMessage: null,
+            openingBalance: null,
+            closingBalance: null,
+            totalsCheck: null,
+            verification: null,
+          })
+          return { file, attemptId: attempt.id }
+        }))
+      } catch (err) {
+        setImportMsg(`Could not record the PDF upload attempt — ${err.message || 'unknown error'}. No PDF was processed.`)
+        return
+      }
+      setPdfBatchProgress({ total: pdfItems.length, currentIndex: 1, currentFileName: pdfItems[0].file.name, stage: 'reading' })
+      await advancePdfQueue(pdfItems, account.id)
     }
   }
 
@@ -994,13 +1106,14 @@ export default function PaymentSources() {
     const accountId = pdfPreview.accountId
     const queueAfter = pdfQueue
     const reprocessImportId = pdfPreview.reprocessImportId || null
+    const existingAttemptId = pdfPreview.attemptId || null
     if (!reprocessImportId) setPdfBatchProgress(prev => prev && { ...prev, stage: 'saving' })
     setImporting(true)
     try {
       const { written, flagged } = await commitRows(toImport, account, pdfPreview.file, 'pdf', {
         openingBalance: pdfPreview.openingBalance,
         closingBalance: pdfPreview.closingBalance,
-      }, reprocessImportId)
+      }, reprocessImportId, existingAttemptId)
       let recheckNote = ''
       // Re-verify immediately so the Mismatch badge clears (or shows what,
       // if anything, is still off) without a separate manual step — and say
@@ -1066,7 +1179,7 @@ export default function PaymentSources() {
       if (!resp.ok) throw new Error(`could not re-fetch the stored file (HTTP ${resp.status})`)
       const blob = await resp.blob()
       const file = new File([blob], imp.sourceFileName || 'statement.pdf', { type: blob.type })
-      const { rows, lineCount, pageCount, openingBalance, closingBalance } = await parsePdfStatement(file)
+      const { rows, lineCount, pageCount, openingBalance, closingBalance, parseWarnings, aiFallbackError } = await parsePdfStatement(file, { allowOcr: imp.ocrUsed === true })
       if (!rows.length) {
         setImportMsg(`${imp.sourceFileName}: re-parsing the stored PDF found ${lineCount === 0 ? 'no text' : `${lineCount} lines across ${pageCount} page(s) but no recognizable transaction rows`} — this can't be auto-fixed. Try Delete and a manual re-upload instead.`)
         setImporting(false)
@@ -1076,7 +1189,7 @@ export default function PaymentSources() {
       const totalsCheck = validateStatementTotals({ openingBalance, closingBalance, rows })
       setPdfPreview({
         file, fileName: imp.sourceFileName, accountId: imp.paymentAccountId,
-        openingBalance, closingBalance, totalsCheck,
+        openingBalance, closingBalance, totalsCheck, parseWarnings, aiFallbackError,
         rows: rows.map(r => ({ ...r, include: true })),
         reprocessImportId: imp.id,
       })
@@ -1087,9 +1200,16 @@ export default function PaymentSources() {
     setReprocessingImportId(null)
   }
 
-  function skipPdfPreview() {
+  async function skipPdfPreview() {
     if (pdfPreview.reprocessImportId) setPdfPreview(null)
-    else advancePdfQueue(pdfQueue, pdfPreview.accountId)
+    else {
+      await updateDoc(doc(db, 'paymentImports', pdfPreview.attemptId), {
+        importStatus: 'cancelled',
+        errorMessage: 'Cancelled before import',
+        updatedAt: serverTimestamp(),
+      }).catch(() => {})
+      await advancePdfQueue(pdfQueue, pdfPreview.accountId)
+    }
   }
 
   if (!activeProject) return <div className="page page-standard"><p className="loading">Loading…</p></div>
@@ -1225,7 +1345,7 @@ export default function PaymentSources() {
               </select>
               <button
                 className="btn-primary"
-                disabled={!importAccountId || importing}
+                disabled={!importAccountId || importing || !!ocrPending || !!pdfPreview}
                 onClick={() => fileRef.current.click()}
               >
                 {importing ? 'Reading…' : '+ Import Statements'}
@@ -1242,7 +1362,13 @@ export default function PaymentSources() {
                   <strong>Statement {pdfBatchProgress.currentIndex} of {pdfBatchProgress.total}</strong>
                   <span>
                     {pdfBatchProgress.stage === 'reading'
-                      ? 'Reading PDF'
+                      ? `Reading PDF${pdfBatchProgress.page ? ` — page ${pdfBatchProgress.page} of ${pdfBatchProgress.totalPages}` : ''}`
+                      : pdfBatchProgress.stage === 'ocr'
+                        ? `Reading scanned page ${pdfBatchProgress.page} of ${pdfBatchProgress.totalPages} with OCR`
+                        : pdfBatchProgress.stage === 'interpreting'
+                          ? `Checking page ${pdfBatchProgress.page} of ${pdfBatchProgress.totalPages}`
+                          : pdfBatchProgress.stage === 'ocr_choice'
+                            ? 'Scanned page found — choose how to continue'
                       : pdfBatchProgress.stage === 'saving'
                         ? 'Saving records and original PDF'
                         : 'Ready for your review'}: {pdfBatchProgress.currentFileName}
@@ -1256,7 +1382,17 @@ export default function PaymentSources() {
                 </div>
               </div>
             )}
-            <p className="hint">Select multiple CSV/PDF files at once for a batch import. CSV needs Date, Description, and Amount columns (or separate Debit/Credit). PDF must be a digital statement (not a scanned image) — each PDF's parsed rows are shown for review before import, one file at a time.</p>
+            {ocrPending && (
+              <div className="card" style={{ marginTop: 12 }}>
+                <strong>This statement contains a scanned page</strong>
+                <p className="hint">The browser found no selectable text on at least one page. To read it, the app will send page images to Google Cloud Vision OCR; Gemini may then interpret the recognised text. You will review the rows before import.</p>
+                <div className="action-row">
+                  <button className="btn-primary" onClick={useOcrForPendingPdf}>Read scanned pages with OCR</button>
+                  <button className="btn-ghost" onClick={skipPendingOcr}>Skip this statement</button>
+                </div>
+              </div>
+            )}
+            <p className="hint">Select CSV files freely; choose up to {MAX_PDF_FILES_PER_BATCH} PDFs at a time. PDF attempts are recorded immediately, then each file is read and reviewed one at a time before import.</p>
             {importMsg && <p className={/import failed|could not read|no text found|couldn't recognize/i.test(importMsg) ? 'error-msg' : 'success-msg'}>{importMsg}</p>}
           </>
         )}
@@ -1283,15 +1419,13 @@ export default function PaymentSources() {
               )}
               {pdfReviewSummary.aiRows > 0 && <span>{pdfReviewSummary.aiRows} row{pdfReviewSummary.aiRows === 1 ? '' : 's'} read by AI — check dates and amounts.</span>}
             </div>
+            {pdfPreview.parseWarnings?.map((warning, index) => <p key={index} className="error-msg">{warning}</p>)}
+            {pdfPreview.aiFallbackError && <p className="error-msg">AI check could not finish: {pdfPreview.aiFallbackError}. Review the rows against the PDF.</p>}
             {pdfPreview.rows.some(r => r.extractionMethod === 'ai_assisted') && (
-              // This statement's layout wasn't recognized by the normal column
-              // parser — these rows came from the AI fallback instead (see
-              // pdfStatementParser.js). The totals check below still applies
-              // and is the real safeguard; this just tells the user why these
-              // particular rows deserve extra scrutiny.
+              // AI rows may come from an unfamiliar layout or a scanned page;
+              // the printed totals and source evidence still need review.
               <p className="hint" style={{ color: 'var(--warning, #b45309)' }}>
-                This statement's layout wasn't recognized — rows marked "AI" below were read by AI instead of the
-                usual parser. Check them carefully, especially amounts and dates.
+                Rows marked "AI" below were interpreted from the statement text after a local check. Check their amounts and dates carefully.
               </p>
             )}
             {pdfPreview.totalsCheck && (
@@ -1316,7 +1450,7 @@ export default function PaymentSources() {
                     <tr key={i} style={{ opacity: r.include ? 1 : 0.4 }}>
                       <td><input type="checkbox" checked={r.include} onChange={() => togglePreviewRow(i)} /></td>
                       <td>{r.transactionDate}</td>
-                      <td>{r.merchantRaw}{r.extractionMethod === 'ai_assisted' && <span className="hint"> (AI)</span>}</td>
+                      <td>{r.merchantRaw}{r.extractionMethod === 'ai_assisted' && <span className="hint"> (AI{r.evidenceWarning ? ' — check source' : ''})</span>}{r.evidenceWarning && <div className="hint">Printed line: {r.rawRowText}</div>}</td>
                       <td data-amount="true">{r.direction === 'debit' ? '-' : '+'}{r.settlementAmount.toFixed(2)}</td>
                       <td data-amount="true">{r.balanceAfter != null ? r.balanceAfter.toFixed(2) : '—'}</td>
                     </tr>
@@ -1369,10 +1503,11 @@ export default function PaymentSources() {
                       <td>{imp.periodStart && imp.periodEnd ? `${imp.periodStart} – ${imp.periodEnd}` : '—'}</td>
                       <td>{imp.lineCount}</td>
                       <td>
-                        {imp.importStatus}
+                        {IMPORT_STATUS_LABELS[imp.importStatus] || imp.importStatus}
                         {imp.importStatus === 'error' && imp.errorMessage && (
                           <div className="hint" style={{ maxWidth: 160 }}>{imp.errorMessage}</div>
                         )}
+                        {imp.importStatus === 'cancelled' && <div className="hint" style={{ maxWidth: 160 }}>Retry by selecting the file again.</div>}
                       </td>
                       <td>
                         {/* Fixed min-height regardless of content, so a check landing
@@ -1441,6 +1576,9 @@ export default function PaymentSources() {
                           : <button className="btn-small" disabled={attachingImportId === imp.id} onClick={() => openAttachOriginal(imp)}>
                               {attachingImportId === imp.id ? 'Uploading…' : 'Attach Original'}
                             </button>}
+                        {imp.importStatus === 'error' && imp.sourceType === 'pdf' && (
+                          <button className="btn-small" onClick={() => fileRef.current.click()}>Choose Retry PDF</button>
+                        )}
                         {imp.sourceType === 'pdf' && imp.sourceFileUrl && (
                           <button className="btn-small" style={{ minWidth: 130, display: 'inline-block' }} disabled={verifyingImportId === imp.id || verifyingAll || !!pdfPreview} onClick={() => verifyImportAgainstSource(imp)}>
                             {verifyingImportId === imp.id ? 'Checking…' : 'Verify Against PDF'}

@@ -6,7 +6,22 @@ in `vite.config.js`. The build hash next to it (`__APP_VERSION__`) is the git sh
 SHA of the deployed commit and changes on every deploy; the release number below only
 changes when it's bumped deliberately in `package.json`.
 
-## Unreleased (still V1.1)
+## V1.2 — 2026-10-11 (local build; deployment pending)
+
+**Bank statement reading now has a scanned-page route and a completeness check.**
+Digital PDFs still start with local text and column positions. If a PDF page
+has no usable text layer, the client can explicitly choose Google Cloud Vision
+OCR for that page; its word positions are converted into the same coordinates
+the statement parser uses. Gemini receives bounded page sections with line
+IDs and positions when the local result is empty, appears incomplete, fails a
+balance check, or comes from OCR. AI rows must cite a source line containing
+their amount, and remaining gaps and disagreements are shown before import.
+Scanned-page OCR requires `GOOGLE_VISION_API_KEY` in the deployed environment.
+Receipt and invoice extraction paths are unchanged.
+
+**Release label bumped to V1.2.** The Settings page reads `package.json` via
+the existing build-time release label. Signed-in, real-statement OCR accuracy
+has not yet been verified in production.
 
 **Statement imports now show exact batch status and focused review signals.**
 When several PDF statements are selected, Payment Sources identifies the current
@@ -14,6 +29,13 @@ statement number and filename and says whether it is being read, awaiting review
 or saved. The review panel condenses the human decision to row count, statement-total
 result, available running-balance checks, and AI-assisted-row count; the full editable
 row list remains available before any financial records are written.
+
+**PDF statement attempts are now auditable before review.**
+Selecting a PDF immediately creates an import record and moves it through
+Reading, Ready for review, Imported, Failed, or Cancelled. The AI fallback is
+limited to 30 seconds in the browser and PDF selections are capped at three
+files, preventing an unsupported bank layout from holding a large batch in an
+unexplained wait. Failed rows retain their reason and offer a choose-file retry.
 
 **Upgraded AI extraction model: gemini-2.5-flash → gemini-3.6-flash.**
 All three Gemini-calling edge functions (`process-receipt.js`,

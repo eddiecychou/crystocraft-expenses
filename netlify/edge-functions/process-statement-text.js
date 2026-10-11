@@ -1,22 +1,13 @@
-// Tier-3 fallback for bank/credit-card statement PDFs: pdfStatementParser.js's
-// column-position parser (tier 1) and its single-line regex fallback (tier 2)
-// both work off the statement's own printed table layout, which varies
-// bank-to-bank — a customer's statement from a bank this app has never seen
-// can legitimately produce zero rows from either. Rather than dead-end there,
-// this takes the same page text pdf.js already extracted (no image, no
-// second OCR pass — the PDF is digital-text by definition if tier 1/2 even
-// got this far) and asks Gemini to read it as a transaction table, the same
-// docKind-driven structured-extraction pattern process-invoice.js already
-// uses for invoices/POs (chosen there specifically because customer document
-// layouts vary; the same reasoning applies here once a statement's layout is
-// unrecognized).
+// Reads one bounded statement section after PDF text extraction or OCR.
+// Line IDs and x positions let the browser ground proposed rows in the
+// printed source and compare them with local parsing and balance checks.
 //
 // Deliberately NOT a blind-trust path: parsePdfStatement() marks every row
 // this produces with extractionMethod: 'ai_assisted', and the caller (same as
 // tier 1/2) still runs it through validateStatementTotals() and the existing
 // mandatory review-before-import panel in PaymentSources.jsx — the
-// opening+net=closing arithmetic check is what actually catches a wrong
-// answer, not which method produced the rows. See LESSONS_LEARNED.md.
+// opening+net=closing arithmetic check still applies when available; the
+// source-line evidence and mandatory review cover other failure modes.
 export default async function handler(req) {
   if (req.method === 'OPTIONS') {
     return new Response(null, {
@@ -46,10 +37,10 @@ export default async function handler(req) {
     const verData = await verRes.json()
     if (!verRes.ok || !verData.users?.[0]) return json({ error: 'Unauthorized' }, 401)
 
-    // Text-only extraction, no image round-trip — cheaper, and the input is
-    // already a clean text layer pdf.js pulled from a digital PDF.
+    if (text.length > 12000) return json({ error: 'Statement section is too long' }, 413)
+    // Input is one bounded page section with x positions and source-line IDs.
     const raw = await callGemini(
-      [{ text: `Statement text:\n\n${text.slice(0, 30000)}\n\n${EXTRACTION_PROMPT}` }],
+      [{ text: `Statement text with PDF/OCR x positions:\n\n${text}\n\n${EXTRACTION_PROMPT}` }],
       { temperature: 0.1, maxOutputTokens: 4096, responseMimeType: 'application/json', thinkingConfig: { thinkingBudget: 0 } },
       GEMINI_API_KEY
     )
@@ -87,7 +78,8 @@ const EXTRACTION_PROMPT = `You are an expert bank/credit-card statement parser. 
       "description": "the transaction's merchant/description text, as printed",
       "amount": <the transaction's settlement amount as a positive number>,
       "direction": "credit if money came IN (payment received, refund, deposit) or debit if money went OUT (purchase, withdrawal, fee) — from the account holder's point of view",
-      "balanceAfter": <the running balance printed immediately after this transaction, as a number, or null if no balance column is printed>
+      "balanceAfter": <the running balance printed immediately after this transaction, as a number, or null if no balance column is printed>,
+      "sourceLine": <the L-number containing the transaction amount; required>
     }
   ]
 }
@@ -95,6 +87,7 @@ const EXTRACTION_PROMPT = `You are an expert bank/credit-card statement parser. 
 Rules:
 - One entry per real transaction line. Skip headers, page totals, "minimum payment due" boxes, marketing text, and opening/closing balance restatement lines (those are not transactions).
 - If a description spans multiple printed lines before its amount, merge it into one "description" string.
+- The bracketed numbers are horizontal positions; use them to distinguish debit, credit, amount, and balance columns. The L-number identifies the printed line with the amount. The column header is context, not a transaction.
 - Never invent a transaction that isn't printed. If you can't confidently parse a line, omit it rather than guessing.`
 
 async function fetchWithTimeout(url, options, ms) {
@@ -146,7 +139,7 @@ async function callGemini(parts, generationConfig, GEMINI_API_KEY) {
       }
       break
     }
-    if (!res.ok) continue
+    if (!res?.ok) continue
     const responseParts = data.candidates?.[0]?.content?.parts || []
     const part = responseParts.find(p => p.text && !p.thought) || responseParts[responseParts.length - 1]
     const responseText = part?.text?.trim() || ''

@@ -1,6 +1,6 @@
 # Finance / Bookkeeping Center — Technical Documentation
 
-_Current release: **V1.1** (see [CHANGELOG.md](CHANGELOG.md)). Repositioned from a narrow "Expense Center" into a **Finance / Bookkeeping Center** that treats Income and Expense as same-level objects, with Account Codes, bank reconciliation, and a live (Crystocraft-only) Operation Center API connector — see the spec `Claude 执行规格：将 Expense Center 修订为 Finance／Bookkeeping Center.md` and the MVP sequence below (MVP-1 through MVP-6 all done — the original repositioning roadmap is complete). Since then, V1.1 has also picked up a round of security hardening (auth on every AI/OCR endpoint, atomic multi-document writes, version-controlled Firestore/Storage rules), a generalized per-project connector visibility model ahead of onboarding non-Crystocraft customers, a third AI-assisted fallback tier for bank statement parsing, and a per-document-type extraction validation framework for receipts/invoices/POs/income docs — see CHANGELOG.md's V1.1 entry for the full list. Earlier names ("Expense Organiser", "Expense Operations Center") persist in some historical docs, `.claude/skills/expense-ops-center/`, and Firebase project names (`crystocraft-expenses`); the running app now displays "Finance / Bookkeeping Workspace". Internal route/module preference for new work: `finance`._
+_Current local release: **V1.2** (see [CHANGELOG.md](CHANGELOG.md)); deployment pending. Repositioned from a narrow "Expense Center" into a **Finance / Bookkeeping Center** that treats Income and Expense as same-level objects, with Account Codes, bank reconciliation, and a live (Crystocraft-only) Operation Center API connector — see the spec `Claude 执行规格：将 Expense Center 修订为 Finance／Bookkeeping Center.md` and the MVP sequence below (MVP-1 through MVP-6 all done — the original repositioning roadmap is complete). V1.1 added security hardening, per-project connector visibility, and extraction validation. V1.2 adds a consented OCR route for scanned bank statements and page-level AI checks for incomplete parsing. Earlier names ("Expense Organiser", "Expense Operations Center") persist in some historical docs, `.claude/skills/expense-ops-center/`, and Firebase project names (`crystocraft-expenses`); the running app now displays "Finance / Bookkeeping Workspace". Internal route/module preference for new work: `finance`._
 
 **Repositioning MVP sequence** (incremental, approval-gated): MVP-1 rename + `recordType` data foundation (done); MVP-2 Income as a first-class object + Income Upload (done); MVP-3 Account Codes (done); MVP-4 unified reconciliation + a dedicated Bank Transactions page (done); MVP-5 Operation Center API, Crystocraft-only optional connector (done — live PO/Invoice sync only, see "Operation Center Sync" below); MVP-6 Month-End Report export (done — see "Month-End Report" below). The original repositioning roadmap is now complete.
 
@@ -221,7 +221,7 @@ the project-list query ever runs against `memberUids`.
 }
 ```
 
-**`paymentImports`** — one doc per import attempt (including failed/empty re-attempts; see LESSONS_LEARNED.md on why these are never deleted automatically)
+**`paymentImports`** — one doc per import attempt (including a PDF selected for parsing but never confirmed, and failed/empty re-attempts; see LESSONS_LEARNED.md on why these are never deleted automatically)
 ```
 {
   userId: string,
@@ -229,11 +229,14 @@ the project-list query ever runs against `memberUids`.
   paymentAccountId: string,
   sourceFileName: string,
   sourceFileUrl: string | null,   // Firebase Storage download URL for the original file
-  sourceStoragePath: string | null,
-  lineCount: number,
-  importStatus: string,           // 'processing' | 'complete' | 'error' | 'verified' | 'needs_review'
+  sourceFilePath: string | null,
+  lineCount: number | null,
+  importStatus: string,           // 'reading' | 'needs_review' | 'processing' | 'ready' | 'error' | 'cancelled'
   errorMessage: string | null,
-  statementTotals: { openingBalance, closingBalance } | null,
+  openingBalance: number | null,
+  closingBalance: number | null,
+  ocrUsed: boolean | undefined,   // V1.2: stored after review preparation; enables later re-verification
+  totalsCheck: object | null,
   createdAt: Timestamp
 }
 ```
@@ -660,10 +663,17 @@ Reuses the exact JSZip + ExcelJS + CSV pattern already proven in `CompanyReview.
 
 ### Payment Source Import & Duplicate Detection
 
+For the shared parsing workflow, whose bank-statement route is implemented in
+V1.2 while receipt/invoice PDF work remains proposed, see
+[PARSING-PIPELINE-PLAN.md](PARSING-PIPELINE-PLAN.md).
+
+For the proposed multi-client, privacy-preserving parser-profile architecture
+(not yet implemented), see [STATEMENT-PARSER-ARCHITECTURE.md](STATEMENT-PARSER-ARCHITECTURE.md).
+
 Accounts (bank or credit-card) are created in **Payment Sources**, then CSV or PDF statements are uploaded and parsed:
 
 - **CSV**: `parseCSV` + `mapCsvRecords` in `paymentMatching.js` handle header-alias detection and column mapping. One CSV shape needs a dedicated mapper instead: X Transfer's export (`isXTransferCsv`/`mapXTransferRecords` in `xtransferImport.js`) splits every real payment across a `'Service fee'` row and a same-timestamp settlement row with no Date/Debit/Credit-style columns at all — detected from its distinctive payer/recipient/bank columns and routed to the dedicated mapper before falling back to `mapCsvRecords`, in `PaymentSources.jsx`'s CSV import. It folds the fee into the settlement's `settlementAmount` (same handling-charge treatment as `Upload.jsx`) and maps the recipient's Chinese name to a bookkeeping label via `XTRANSFER_RECIPIENT_LABELS` — an unmapped name is still imported with its raw Chinese name, never dropped.
-- **PDF**: `parsePdfStatement` in `pdfStatementParser.js` extracts a transaction table from PDF text-position data (via `pdfjs-dist`), calibrating column boundaries from the *data's* x-clustering rather than trusting header label positions — see [LESSONS_LEARNED.md](LESSONS_LEARNED.md#pdf-statement-parsing-is-fragile) for why this matters. Three tiers, tried in order, only falling through when the previous one finds zero rows: (1) the column-position parser above, (2) a simpler single-line date+trailing-amount regex fallback (`parseFallback`, for plainer statement formats with no recognizable header row), (3) Gemini structured extraction on the same pdf.js-extracted text (`geminiStatementParser.js` → `process-statement-text.js`), tried only when real text was found but neither of the first two tiers recognized a transaction shape in it — the case a genuinely new customer's own bank produces. Tier-3 rows are tagged `extractionMethod: 'ai_assisted'` and flagged visibly in the PaymentSources.jsx review panel. None of the three tiers is trusted blindly: every row from any tier still goes through the mandatory review-before-import panel below, and `validateStatementTotals` (opening + net of all rows = closing, both balance figures read straight off the statement's own printed text independent of which tier produced the rows) is what actually catches a wrong extraction — the same deterministic check, regardless of whether a human-coded parser or Gemini produced the rows. Multi-file PDFs stay deliberately sequential: one is parsed in the browser, reviewed, and saved before the next begins; the UI reports its exact queue position and stage instead of claiming a misleading byte percentage for that mixed workflow.
+- **PDF**: `parsePdfStatement` first reads text and positions locally through `pdfjs-dist`. For pages with no usable text layer, the import pauses and offers cloud OCR. If accepted, `statementOcr.js` renders each needed page to a bounded JPEG and `/api/ocr-statement-page` uses Cloud Vision `DOCUMENT_TEXT_DETECTION` to return words and boxes; `statementOcrGeometry.js` converts these to the parser's PDF coordinate system. The existing column-position parser runs on that evidence. If rows are absent, appear incomplete, fail statement totals/running balances, or come from OCR, `geminiStatementParser.js` sends bounded page sections with line IDs and x positions to `/api/process-statement-text`. AI rows must cite a source line whose printed text contains the proposed amount. The app compares candidate row counts and printed balance checks, surfaces remaining warnings, and requires human review before import. OCR-derived and AI rows have no safe PDF redaction mask, so personal-account exports use the CSV-only safe path for them. Multi-file PDFs remain sequential, with per-file/page stage progress. Scanned-page OCR requires the deployed `GOOGLE_VISION_API_KEY`; an unreadable page can still fail and must not be treated as an empty valid statement.
 
 Every parsed row is written to `paymentTransactions` **unconditionally** — duplicate detection only annotates rows with a `duplicateStatus`, it never withholds or silently drops them (this is a hard accounting-correctness requirement; see [LESSONS_LEARNED.md](LESSONS_LEARNED.md#duplicates-must-surface-never-silently-skip)). `classifyFingerprintCollision` in `duplicateDetection.js` is the classifier:
 
