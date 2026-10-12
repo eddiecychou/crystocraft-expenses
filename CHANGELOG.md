@@ -8,6 +8,8 @@ changes when it's bumped deliberately in `package.json`.
 
 ## V1.2 — 2026-10-11 (local build; deployment pending)
 
+**Account-code CSV guidance.** The import panel now shows a headed CSV example using `Account NO,ACCOUNT NAME,Type`, explains that Type defaults to Expense (bank accounts should use `asset`), and states how extra columns and existing codes are handled. A missing-header error names the accepted headings; importer behavior is unchanged.
+
 **Clearer document navigation.** Desktop Add and mobile Add now open the same receipt-or-statement choice. The menu calls the statement workspace “Statements & Accounts” and its imported rows “Imported Transactions.” The statement page leads a new client directly into bank/card account setup; receipt upload points statement users to the correct page. Invoice and PO PDF parsing and their existing page are unchanged.
 
 **UI audit follow-ups.** Shared action groups now use their container gap without adding each small button's margins. The statement list switches to labeled cards on narrow screens while retaining its check, attach, edit, and delete actions. Navigation, tables, touch targets, reconciliation, and type scaling now share a 767px compact-screen breakpoint; the dashboard keeps its wider sidebar-aware stacking point.

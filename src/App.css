@@ -1241,6 +1241,17 @@ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
 .capture-card-title { display: block; font-weight: 600; color: var(--t-dark); font-size: 15px; }
 .capture-card-sub { display: block; color: #6b8577; font-size: 12px; margin-top: 2px; }
 
+.account-code-csv-example {
+  margin: var(--space-3) 0;
+  padding: var(--space-3);
+  overflow-x: auto;
+  border: 1px solid #e2e5e3;
+  border-radius: var(--radius-sm);
+  background: #f7f8f7;
+  color: var(--t-dark);
+  font: 13px/1.5 var(--font-mono);
+}
+
 /* ── Mobile ── */
 @media (max-width: 767px) {
   .desktop-only { display: none; }

@@ -837,6 +837,10 @@ An import review checkbox is a financial decision, not just a temporary filter. 
 
 For long statement histories, filtering the already-fetched list by account and overlapping statement period is enough to find an older file without changing Firestore queries or sort order. Do not apply a date range to attempt-creation time when no statement period was parsed; show those attempts again when the date filter is cleared.
 
+# Account-code CSV instructions (2026-10-12)
+
+The importer treats the first CSV row as headings, not data. A two-column file is valid, but an omitted or unrecognized Type silently defaults every code to Expense; that is incorrect for an asset such as a bank account. Show a headed three-column example in the panel and spell out accepted aliases and defaults before upload. A headerless toggle is unnecessary for the documented format unless a real customer needs headerless exports.
+
 # Document upload navigation (2026-10-12)
 
 A generic “Upload” menu item that opens only receipt extraction can send a bank statement PDF to the wrong parser: both accept PDF, but only the statement flow creates an import attempt and transaction-row review. Lead desktop and mobile users through the same explicit receipt-or-statement choice. Call the destination “Statements & Accounts,” and when there is no account, offer account setup directly in that page instead of leaving an unavailable import action. Invoice/PO PDF options remain outside this choice until their extraction has been validated separately.

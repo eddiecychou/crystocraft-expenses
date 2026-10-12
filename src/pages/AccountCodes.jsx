@@ -118,7 +118,7 @@ export default function AccountCodes() {
       const nameCol = findColumn(headers, NAME_ALIASES)
       const typeCol = findColumn(headers, TYPE_ALIASES)
       if (!codeCol || !nameCol) {
-        setImportMessage(`Could not find Code and Name columns in "${file.name}".`)
+        setImportMessage(`Could not find the required headings in "${file.name}". Put Account NO and ACCOUNT NAME (or Code and Name) in the first row.`)
         setImporting(false)
         if (csvRef.current) csvRef.current.value = ''
         return
@@ -184,8 +184,13 @@ export default function AccountCodes() {
       <div className="card">
         <h3>Import from CSV</h3>
         <p className="hint">
-          For a company that already has a chart of accounts in a spreadsheet — needs Code and Name columns, Type
-          optional (defaults to Expense). A code already in this list is skipped, never duplicated or overwritten.
+          Save your spreadsheet as a CSV file. The first row must contain headings: Account NO and ACCOUNT NAME
+          (or Code and Name). Type is optional; missing or unrecognized types become Expense.
+        </p>
+        <pre className="account-code-csv-example">{'Account NO,ACCOUNT NAME,Type\nA0001,HSBC CURRENT AC,asset'}</pre>
+        <p className="hint">
+          Use asset for bank accounts. Other accepted types are income, expense, liability, equity, and other.
+          Extra columns are ignored; existing codes are skipped, not overwritten.
         </p>
         <input ref={csvRef} type="file" accept=".csv,text/csv" onChange={handleCsvImport} disabled={importing} />
         {importing && <p className="hint">Importing…</p>}
