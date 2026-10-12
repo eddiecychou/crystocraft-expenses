@@ -6,6 +6,12 @@ Each entry says what happened, why it matters, and how to apply it going forward
 
 ---
 
+## An optional migration must not gate an already-loaded project
+
+Tiffany's existing Default project was present in Firestore but absent from Settings, while Statements & Accounts showed "Loading…". `ProjectContext` awaited a legacy-expense query before calling `setProjects`. The project-scoped expense rules can reject a query filtered only by `userId`, so a first-visit browser could lose the already-received project snapshot when that migration threw. Publish the project list first; run the optional backfill separately and do not mark a failed migration complete. A project-list listener error should be visible, not indistinguishable from zero projects.
+
+---
+
 ## A recurring series needs chronological pairing, not per-item nearest-match
 
 Fixing the tiebreaker for recurring same-amount charges (previous entry)

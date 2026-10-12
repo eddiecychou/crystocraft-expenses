@@ -7,7 +7,7 @@ import ConfirmDialog from '../components/ConfirmDialog'
 import { CATEGORIES, DEFAULT_PAYMENT_METHODS, DEFAULT_ACCOUNT_CODES, projectCategories, projectPaymentMethods, projectIncomeCategories } from '../constants'
 
 export default function Settings() {
-  const { projects, activeProject, selectProject, updateProject, reloadProjects } = useProject()
+  const { projects, activeProject, selectProject, updateProject, reloadProjects, loading, projectError } = useProject()
   const [newCategoryText, setNewCategoryText] = useState('')
   const [newIncomeCategoryText, setNewIncomeCategoryText] = useState('')
   const [newPaymentMethodText, setNewPaymentMethodText] = useState('')
@@ -186,6 +186,8 @@ export default function Settings() {
       <div className="settings-section">
         <h3 className="settings-section-title">Projects</h3>
         <p className="hint">Create a project for each company to keep expenses separate.</p>
+        {loading && <p className="hint">Loading your projects…</p>}
+        {projectError && <p role="alert">Could not load your projects. Please refresh this page. Do not create a new project yet.</p>}
 
         <div className="project-list">
           {projects.map(p => {
@@ -297,7 +299,7 @@ export default function Settings() {
             </div>
           </div>
         ) : (
-          <button onClick={() => setCreating(true)} className="btn-ghost" style={{ marginTop: 12 }}>+ New Project</button>
+          <button onClick={() => setCreating(true)} disabled={loading || projectError} className="btn-ghost" style={{ marginTop: 12 }}>+ New Project</button>
         )}
       </div>
 

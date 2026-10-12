@@ -174,8 +174,8 @@ Re-exports `lucide-react` icons under semantic names (`NavOverviewIcon`, `Receip
 
 | Function | Line | Purpose |
 |---|---|---|
-| `ProjectProvider({ children })` | 52 | Context provider — owns project list, active project (persisted to `localStorage`), and runs both migration guards on mount. |
-| `migrateExpenses(uid, projectId)` | 113 | Idempotent one-time backfill of `projectId` onto legacy expenses, guarded by an `expenses_migrated_{uid}` localStorage flag. |
+| `ProjectProvider({ children })` | 52 | Context provider — owns project list, active project (persisted to `localStorage`), and runs both migration guards on mount. Shows an existing project before optional expense backfill; exposes project-list read errors. |
+| `migrateExpenses(uid, projectId)` | 113 | Idempotent one-time backfill of `projectId` onto legacy expenses, guarded by an `expenses_migrated_{uid}` localStorage flag. A failure is logged without hiding the project or marking migration complete. |
 | `migrateProjectMembership(uid, email)` | — | Idempotent one-time backfill of `memberUids`/`members` onto a user's pre-sharing projects, guarded by `projects_membership_migrated_{uid}`. Must complete before the project list is queried by `memberUids` (see the effect's ordering), or a not-yet-migrated user would transiently see zero projects and trigger an unwanted Default-project creation. |
 | `persistActiveId(id)` | 123 | Internal — writes the active project id to `localStorage`. |
 | `updateProject(id, changes)` | 130 | Optimistic local update + background Firestore write for project edits. |

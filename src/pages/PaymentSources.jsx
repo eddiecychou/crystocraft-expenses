@@ -56,7 +56,7 @@ async function fetchWithTimeout(url, options, timeoutMs = 30000) {
 }
 
 export default function PaymentSources() {
-  const { activeProject } = useProject()
+  const { activeProject, loading: projectsLoading, projectError } = useProject()
   const [accounts, setAccounts] = useState([])
   const [imports, setImports] = useState([])
   const [statementAccountFilter, setStatementAccountFilter] = useState('')
@@ -1269,7 +1269,7 @@ export default function PaymentSources() {
     }
   }
 
-  if (!activeProject) return <div className="page page-standard"><p className="loading">Loading…</p></div>
+  if (!activeProject) return <div className="page page-standard"><p className="loading" role={projectError ? 'alert' : undefined}>{projectError ? 'Could not load your project. Please refresh this page.' : projectsLoading ? 'Loading your project…' : 'No project available. Open Settings to create one.'}</p></div>
 
   return (
     <div className="page page-standard">

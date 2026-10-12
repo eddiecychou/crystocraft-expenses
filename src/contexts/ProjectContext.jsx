@@ -53,6 +53,7 @@ export function ProjectProvider({ children }) {
   const [projects, setProjects] = useState([])
   const [activeProjectId, setActiveProjectId] = useState(() => localStorage.getItem('activeProjectId'))
   const [loading, setLoading] = useState(true)
+  const [projectError, setProjectError] = useState(false)
 
   useEffect(() => {
     let projectUnsub = null
@@ -61,9 +62,10 @@ export function ProjectProvider({ children }) {
       // Clean up previous project listener when user changes
       if (projectUnsub) { projectUnsub(); projectUnsub = null }
 
-      if (!user) { setProjects([]); setLoading(false); return }
+      if (!user) { setProjects([]); setProjectError(false); setLoading(false); return }
 
       setLoading(true)
+      setProjectError(false)
 
       // Project sharing added a memberUids array as the actual access/query
       // key (see TECHNICAL.md's "Project sharing" section) — existing
@@ -103,22 +105,32 @@ export function ProjectProvider({ children }) {
             const saved = localStorage.getItem('activeProjectId')
             if (!saved || !list.find(p => p.id === saved)) persistActiveId(list[0].id)
 
+            // Legacy expense backfill can fail under current project-scoped rules;
+            // it must never hide a project that the member query already returned.
+            setProjects(list)
+            setProjectError(false)
+            setLoading(false)
+
             // Migrate expenses that have no projectId — only run once per user per browser
             const migKey = `expenses_migrated_${user.uid}`
             if (!localStorage.getItem(migKey)) {
               const defaultProject = list.find(p => p.name === 'Default') || list[0]
-              await migrateExpenses(user.uid, defaultProject.id)
-              localStorage.setItem(migKey, '1')
+              try {
+                await migrateExpenses(user.uid, defaultProject.id)
+                localStorage.setItem(migKey, '1')
+              } catch (err) {
+                console.error('Expense migration error:', err.message)
+              }
             }
-
-            setProjects(list)
           } catch (err) {
             console.error('ProjectContext error:', err.message)
+            setProjectError(true)
           }
           setLoading(false)
         },
         err => {
           console.error('ProjectContext error:', err.message)
+          setProjectError(true)
           setLoading(false)
         }
       )
@@ -172,6 +184,7 @@ export function ProjectProvider({ children }) {
       updateProject,
       reloadProjects: () => {}, // onSnapshot keeps projects in sync automatically
       loading,
+      projectError,
     }}>
       {children}
     </ProjectContext.Provider>

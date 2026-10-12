@@ -912,7 +912,7 @@ On a warm cache, steps 2–3 resolve in milliseconds from IndexedDB.
 
 ### Migration Guard
 
-On first load `ProjectContext` runs `migrateExpenses` to backfill `projectId` on legacy expenses, guarded by a `localStorage` flag (`expenses_migrated_{uid}`) so it only runs once per user per browser.
+On first load `ProjectContext` runs `migrateExpenses` to backfill `projectId` on legacy expenses, guarded by a `localStorage` flag (`expenses_migrated_{uid}`) so it only runs once per user per browser. The project list becomes visible before this optional backfill runs; a rejected migration cannot hide an existing project. A failed backfill is logged and is not marked complete. A project-list read error is shown in Settings instead of looking like an empty account.
 
 ---
 
