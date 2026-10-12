@@ -137,7 +137,7 @@ export default function BankTransactions() {
   return (
     <div className="page page-wide">
       <ProjectBanner />
-      <h2>Bank Transactions</h2>
+      <h2>Imported Transactions</h2>
       <p className="hint" style={{ marginTop: -8, marginBottom: 16 }}>
         Every imported statement row, browsable independent of any specific matching workflow. Select "Open in Reconciliation" to act on one.
       </p>

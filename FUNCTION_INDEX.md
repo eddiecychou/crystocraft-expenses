@@ -229,7 +229,7 @@ Also exports `PROJECT_COLORS` (24 color identities) and `COLOR_KEYS`.
 Renders the `.dashboard-grid`: Expenses (By Category `span-4` / list `span-8`, unchanged) plus, added so Overview reflects the full picture instead of Expense-only — Income (By Category `span-4` / list `span-8`, full treatment mirroring Expenses) and two compact "Business (Operation Center)" stat cards (`span-6` each) for Sales Invoices/Purchase Orders totals only (no row-list — they have their own detail page, `Invoices.jsx`). Every section keeps its own explicit label and total, never summed together — `expenses`/`income`/`salesInvoices`/`purchaseOrders` never share a line item, so summing is safe, but blending an OC-covered figure into a Finance-only one under one label wouldn't be. Also the KPI `.stat-row`.
 
 ### [Capture.jsx](src/pages/Capture.jsx)
-No functions — a pure dispatcher component (three link cards routing to Upload / Payment Sources). See its header comment for why it exists (mobile bottom-nav slot capacity).
+No functions — a pure dispatcher with receipt and bank/card-statement choices routing to Upload / Payment Sources. Both desktop and mobile Add navigation use it; invoice/PO options remain on their existing page.
 
 ### [BankTransactions.jsx](src/pages/BankTransactions.jsx) — statement-row browsing view (Finance repositioning MVP-4)
 

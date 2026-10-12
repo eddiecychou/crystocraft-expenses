@@ -689,7 +689,7 @@ export default function CompanyReview() {
       </p>
 
       {personalAccountIds.length === 0 ? (
-        <p className="empty">No personal accounts yet. Mark an account as personal in Payment Sources to start reviewing its transactions here.</p>
+        <p className="empty">No personal accounts yet. Mark an account as personal in Statements &amp; Accounts to start reviewing its transactions here.</p>
       ) : (
         <>
           <div className="filter-row">
@@ -774,12 +774,12 @@ export default function CompanyReview() {
             {groups.length === 0 && (
               <p className="empty">
                 {allGroups.length === 0
-                  ? 'No transactions yet — import a statement for a personal account in Payment Sources.'
+                  ? 'No transactions yet — import a statement for a personal account in Statements & Accounts.'
                   : groupTab === 'attention'
                     ? 'Nothing needs attention right now — everything is classified and resolved.'
                     : groupTab === 'sent'
                       ? 'Nothing has been sent to the accountant yet.'
-                      : 'No transactions yet — import a statement for a personal account in Payment Sources.'}
+                      : 'No transactions yet — import a statement for a personal account in Statements & Accounts.'}
               </p>
             )}
 

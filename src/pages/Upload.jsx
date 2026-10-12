@@ -1,4 +1,5 @@
 import { useState, useRef } from 'react'
+import { Link } from 'react-router-dom'
 import { collection, addDoc, updateDoc, doc, serverTimestamp } from 'firebase/firestore'
 import { ref, uploadBytesResumable, getDownloadURL } from 'firebase/storage'
 import { db, auth, storage } from '../firebase'
@@ -366,6 +367,7 @@ export default function Upload() {
     <div className="page page-narrow">
       <ProjectBanner />
       <h2>Upload Receipts</h2>
+      <p className="hint">Have a bank or credit card statement? <Link to="/payment-sources">Upload it under Statements &amp; Accounts</Link>.</p>
 
       {results.length === 0 && (
         <>

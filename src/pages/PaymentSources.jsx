@@ -1274,16 +1274,21 @@ export default function PaymentSources() {
   return (
     <div className="page page-standard">
       <ProjectBanner />
-      <h2>Payment Sources</h2>
+      <h2>Statements &amp; Accounts</h2>
       {imports.length > 0 && <a className="btn-small" href="#statement-list">Find a statement</a>}
 
       <div className="card">
         <div className="card-header">
-          <h3>Accounts</h3>
-          {!creating && <button className="btn-ghost btn-small" onClick={() => setCreating(true)}>+ Add Account</button>}
+          <h3>Bank &amp; Card Accounts</h3>
+          {!creating && accounts.length > 0 && <button className="btn-ghost btn-small" onClick={() => setCreating(true)}>+ Add Account</button>}
         </div>
 
-        {accounts.length === 0 && !creating && <p className="empty">No payment accounts yet — add one to start importing statements.</p>}
+        {accounts.length === 0 && !creating && (
+          <div className="empty">
+            <p>Add a bank or credit card account before uploading a statement.</p>
+            <button className="btn-primary" onClick={() => setCreating(true)}>Add your first account</button>
+          </div>
+        )}
 
         <div className="project-list">
           {accounts.map(a => (
@@ -1391,9 +1396,9 @@ export default function PaymentSources() {
       </div>
 
       <div className="card">
-        <h3>Import Statement</h3>
+        <h3>Upload Bank or Card Statements</h3>
         {accounts.length === 0 ? (
-          <p className="hint">Add a payment account first.</p>
+          <p className="hint">Add an account above to upload its statements.</p>
         ) : (
           <>
             <div className="filter-row">

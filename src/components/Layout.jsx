@@ -31,11 +31,11 @@ export default function Layout() {
       <nav className="sidebar desktop-only" style={{ borderTop: `4px solid ${identity.dot}` }}>
         <div className="logo">Finance<br /><span className="logo-sub">Bookkeeping Workspace</span></div>
         <NavLink to="/" end>Overview</NavLink>
-        <NavLink to="/upload">Upload</NavLink>
-        <NavLink to="/bank-transactions">Bank Transactions</NavLink>
+        <NavLink to="/capture">Add</NavLink>
+        <NavLink to="/bank-transactions">Imported Transactions</NavLink>
         <NavLink to="/expenses">Expenses</NavLink>
         <NavLink to="/income">Income</NavLink>
-        <NavLink to="/payment-sources">Payments</NavLink>
+        <NavLink to="/payment-sources">Statements &amp; Accounts</NavLink>
         <NavLink to="/invoices">Invoices & POs</NavLink>
         <NavLink to="/reconciliation">Reconcile</NavLink>
         <NavLink to="/company-review">Reimbursable Expenses</NavLink>
@@ -60,7 +60,7 @@ export default function Layout() {
         </NavLink>
         <NavLink to="/capture" className={navItemClass} onClick={() => setMoreOpen(false)}>
           <NavCaptureIcon className="mobile-nav-icon" size={20} strokeWidth={ICON_STROKE_WIDTH} aria-hidden="true" />
-          <span>Capture</span>
+          <span>Add</span>
         </NavLink>
         <NavLink to="/reconciliation" className={navItemClass} onClick={() => setMoreOpen(false)}>
           <NavReconcileIcon className="mobile-nav-icon" size={20} strokeWidth={ICON_STROKE_WIDTH} aria-hidden="true" />
@@ -82,10 +82,10 @@ export default function Layout() {
         <>
           <div className="mobile-sheet-backdrop" onClick={() => setMoreOpen(false)} />
           <div className="mobile-sheet" role="menu">
-            <NavLink to="/bank-transactions" className="mobile-sheet-item" onClick={() => setMoreOpen(false)}>Bank Transactions</NavLink>
+            <NavLink to="/bank-transactions" className="mobile-sheet-item" onClick={() => setMoreOpen(false)}>Imported Transactions</NavLink>
             <NavLink to="/expenses" className="mobile-sheet-item" onClick={() => setMoreOpen(false)}>Expenses</NavLink>
             <NavLink to="/income" className="mobile-sheet-item" onClick={() => setMoreOpen(false)}>Income</NavLink>
-            <NavLink to="/payment-sources" className="mobile-sheet-item" onClick={() => setMoreOpen(false)}>Payments</NavLink>
+            <NavLink to="/payment-sources" className="mobile-sheet-item" onClick={() => setMoreOpen(false)}>Statements &amp; Accounts</NavLink>
             <NavLink to="/invoices" className="mobile-sheet-item" onClick={() => setMoreOpen(false)}>Invoices & POs</NavLink>
             <NavLink to="/company-review" className="mobile-sheet-item" onClick={() => setMoreOpen(false)}>Reimbursable Expenses</NavLink>
             <NavLink to="/account-codes" className="mobile-sheet-item" onClick={() => setMoreOpen(false)}>Account Codes</NavLink>
