@@ -16,3 +16,10 @@ test('uses a printed negative adjustment without hiding other differences', () =
 test('skips arithmetic when the base subtotal is uncertain', () => {
   assert.equal(checkArithmetic({ subtotal: null, serviceCharge: 25, amount: 275 }), null)
 })
+
+test('flags the Beans receipt: printed subtotal and service charge exceed printed total', () => {
+  const result = checkArithmetic({ subtotal: 246, serviceCharge: 24.6, amount: 270 })
+  assert.equal(result.consistent, false)
+  assert.ok(Math.abs(result.expected - 270.6) < 0.001)
+  assert.ok(Math.abs(result.difference + 0.6) < 0.001)
+})
