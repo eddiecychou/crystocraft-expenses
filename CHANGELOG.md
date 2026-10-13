@@ -8,6 +8,8 @@ changes when it's bumped deliberately in `package.json`.
 
 ## V1.2 — 2026-10-11 (local build; deployment pending)
 
+**Receipt service-charge review.** Clarified that subtotal must precede separately printed service charge and tax, included explicitly printed rounding/discount adjustments in the arithmetic check, and changed the misleading red "subtotal + tax" banner to an amber breakdown review prompt. Unexplained differences remain visible; saving remains possible.
+
 **Existing-project loading fix.** Settings now shows a loading or access-error state instead of a misleading empty project list, and blocks creating a new project while the list has not loaded. Statement import no longer waits indefinitely for a missing active project. Legacy expense backfill runs only after an existing project is shown; a denied backfill is logged without hiding the project or marking migration complete.
 
 **Account-code CSV guidance.** The import panel now shows a headed CSV example using `Account NO,ACCOUNT NAME,Type`, explains that Type defaults to Expense (bank accounts should use `asset`), and states how extra columns and existing codes are handled. A missing-header error names the accepted headings; importer behavior is unchanged.

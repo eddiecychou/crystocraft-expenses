@@ -833,6 +833,10 @@ transcript; the client never does) and surface as an advisory banner
 Invoices.jsx) — never blocking save, same as the statement panel's own
 non-blocking totals-check message.
 
+# Receipt arithmetic warnings (2026-10-13)
+
+Service charge was already included in the server-side sum, but the shared warning incorrectly described that sum as "subtotal + tax" and displayed it as an error. Ask the extractor only for a base subtotal before separately printed charges; when that is unclear, skip arithmetic instead of double-counting. Include only explicitly printed signed rounding/discount adjustments. A remaining difference stays visible as an amber review prompt, never silently accepted or blocking save. Without the full receipt image, a specific difference cannot be attributed to rounding versus OCR error.
+
 # Statement original-file progress (2026-10-12)
 
 Keep reading/parsing and file transfer as separate progress stages: only the latter has a reliable byte percentage. A successful transaction import can still lack its original PDF if Storage fails, so retain a visible warning on the import row and clear it only after the original is attached successfully. The same distinction applies to receipt, invoice, purchase-order, and income PDFs: Storage transfer progress does not measure extraction or the final record-link write.

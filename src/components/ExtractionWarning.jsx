@@ -17,11 +17,11 @@ export default function ExtractionWarning({ validation }) {
   if (!hasMismatch && !hasUngrounded) return null
 
   return (
-    <div className="error-msg" style={{ marginTop: 8 }}>
+    <div className="extraction-warning" style={{ marginTop: 8 }}>
       {hasMismatch && (
         <p style={{ margin: 0 }}>
-          Extracted total ({arithmeticMismatch.extracted.toFixed(2)}) doesn't match the printed subtotal + tax
-          ({arithmeticMismatch.expected.toFixed(2)}) — check before saving.
+          Total ({arithmeticMismatch.extracted.toFixed(2)}) differs from the extracted breakdown
+          ({arithmeticMismatch.expected.toFixed(2)}) by {Math.abs(arithmeticMismatch.difference).toFixed(2)}. Check the printed charges and adjustments before saving.
         </p>
       )}
       {hasUngrounded && (

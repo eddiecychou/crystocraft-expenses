@@ -105,15 +105,16 @@ const EXTRACTION_PROMPT = `You are an expert receipt parser. Extract expense det
   "category": "one of: Travel, Meals, Office, Software, Utilities, Development, Marketing, Professional Services, Equipment, Bank Charges, Production, Other",
   "notes": "brief description of what was purchased (items or service), or null",
   "paymentMethod": "one of: Credit Card HK, Bank Account HK, Alipay, WeChat Pay, Bank Account CN, Cash, or null if not shown",
-  "subtotal": <the subtotal/pre-tax amount, only if separately printed on the receipt, as a number or null — used only to double-check the total, not shown to the user>,
+  "subtotal": <the subtotal BEFORE separately listed tax and service charge, only if clearly printed on the receipt, as a number or null — do not reuse a subtotal that already includes a charge>,
   "tax": <the tax amount, only if separately printed, as a number or null>,
-  "serviceCharge": <the service charge amount, only if separately printed, as a number or null>
+  "serviceCharge": <the service charge amount, only if separately printed, as a number or null>,
+  "adjustment": <signed cash rounding or discount, only if separately printed, as a number or null; discounts are negative; never repeat tax or service charge here>
 }
 
 Currency rules: HK$ or HKD = HKD | ¥ or RMB or CNY or 人民币 = RMB | $ or USD = USD | € = EUR | JP¥ or JPY = JPY | A$ = AUD | £ = GBP | S$ = SGD | C$ = CAD | ₩ = KRW. Default to HKD if unclear.
 Category rules: flights/trains/taxis/hotels = Travel | restaurants/cafes/food = Meals | stationery/supplies = Office | apps/subscriptions/SaaS = Software | electricity/internet/phone = Utilities | coding/tech tools/hosting/domains = Development | ads/promotions/print materials = Marketing | accounting/legal/consulting fees = Professional Services | hardware/machinery/tools = Equipment | bank fees/wire transfer/FX fees = Bank Charges | production materials/props/sets/costumes/crew/studio hire = Production | anything else = Other.
 Payment method rules: Visa/Mastercard/AMEX/credit card with HKD or HK address = Credit Card HK | 支付宝 or Alipay = Alipay | 微信支付 or WeChat Pay = WeChat Pay | bank transfer/wire in HKD = Bank Account HK | bank transfer/wire in RMB/CNY = Bank Account CN | 现金 or cash = Cash | default to null if unclear.
-Amount rules: use the line labelled "Total", "Grand Total", "Amount Due", or "Total Paid". Ignore subtotals, tax lines shown separately, and individual item prices.`
+Amount rules: use the line labelled "Total", "Grand Total", "Amount Due", or "Total Paid". Ignore subtotals, tax lines shown separately, and individual item prices. Do not invent a missing charge or adjustment to make the numbers add up. If it is unclear whether a printed subtotal already includes service charge or tax, set subtotal to null rather than guessing.`
 
 // fetch with a hard timeout so a hung upstream fails fast with a clear error,
 // instead of hanging until Netlify's 40s response deadline kills it opaquely.
@@ -220,9 +221,9 @@ async function callGemini(parts, generationConfig, GEMINI_API_KEY) {
 // to one document. Returns null (nothing to check) when no subtotal was
 // extracted — most receipts only print a final total, not a breakdown,
 // and that's not itself a problem.
-function checkArithmetic({ subtotal, tax, serviceCharge, amount }) {
+export function checkArithmetic({ subtotal, tax, serviceCharge, adjustment, amount }) {
   if (subtotal == null || amount == null) return null
-  const expected = Number(subtotal) + (Number(tax) || 0) + (Number(serviceCharge) || 0)
+  const expected = Number(subtotal) + (Number(tax) || 0) + (Number(serviceCharge) || 0) + (Number(adjustment) || 0)
   const difference = Number(amount) - expected
   return { consistent: Math.abs(difference) <= 0.02, expected, extracted: Number(amount), difference }
 }
