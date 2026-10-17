@@ -233,7 +233,7 @@ No functions — a pure dispatcher with receipt and bank/card-statement choices 
 
 ### [BankTransactions.jsx](src/pages/BankTransactions.jsx) — statement-row browsing view (Finance repositioning MVP-4)
 
-No standalone named functions beyond small in-render helpers (`setPreset`, `accountOf`, `importOf`) — a **read-only** table over every `paymentTransactions` row for the project (every spec-listed column, filterable by date/account/direction/status/source), built from `resolveMatchedRecord()` + `reconciliationStatusLabel()` (`src/lib/`). Its only action is a per-row link to `/reconciliation?txn=<id>`; all match/confirm/ignore/link actions stay in `Reconciliation.jsx`.
+`setPreset`, `accountOf`, and `importOf` support the **read-only** table over project-visible `paymentTransactions`, filtered by date/account/direction/status/source. `downloadExcel()` exports those same filtered rows after all page subscriptions have loaded, using `statementExportRow()` from `src/lib/statementTransactionExport.js`; it does not include source-file URLs. The per-row link to `/reconciliation?txn=<id>` remains the only action that changes workflow; all match/confirm/ignore/link actions stay in `Reconciliation.jsx`.
 
 ### [Upload.jsx](src/pages/Upload.jsx)
 

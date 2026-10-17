@@ -6,6 +6,12 @@ Each entry says what happened, why it matters, and how to apply it going forward
 
 ---
 
+## Export the authorized view, not a second transaction query
+
+The Imported Transactions Excel export uses the page's existing filtered rows. A collaborator's `paymentTransactionsQuery` already restricts personal-account rows that are not visible to members; a separate broad export query would bypass that UI constraint. Wait for all related subscriptions before exporting so account names and reconciliation statuses do not reflect a partially loaded page. Keep original-file token URLs out of the workbook; filenames and transaction IDs are enough to trace a row.
+
+---
+
 ## An optional migration must not gate an already-loaded project
 
 Tiffany's existing Default project was present in Firestore but absent from Settings, while Statements & Accounts showed "Loading…". `ProjectContext` awaited a legacy-expense query before calling `setProjects`. The project-scoped expense rules can reject a query filtered only by `userId`, so a first-visit browser could lose the already-received project snapshot when that migration threw. Publish the project list first; run the optional backfill separately and do not mark a failed migration complete. A project-list listener error should be visible, not indistinguishable from zero projects.

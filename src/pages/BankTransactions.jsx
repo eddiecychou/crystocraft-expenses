@@ -5,6 +5,7 @@
 // this page does not duplicate that logic.
 import { useState, useEffect, useMemo } from 'react'
 import { Link } from 'react-router-dom'
+import ExcelJS from 'exceljs'
 import { collection, query, where, onSnapshot } from 'firebase/firestore'
 import { db, auth } from '../firebase'
 import { useProject } from '../contexts/ProjectContext'
@@ -13,6 +14,7 @@ import { paymentTransactionsQuery } from '../lib/projectAccess'
 import { resolveMatchedRecord } from '../lib/financeRecords'
 import { reconciliationStatusLabel } from '../lib/paymentMatching'
 import { CLASSIFICATION_LABELS } from '../lib/expenseClassification'
+import { STATEMENT_EXPORT_COLUMNS, statementExportRow } from '../lib/statementTransactionExport'
 
 function isoDate(d) { return d.toISOString().slice(0, 10) }
 function firstOfMonth() {
@@ -47,6 +49,9 @@ export default function BankTransactions() {
   const [purchaseOrders, setPurchaseOrders] = useState([])
   const [income, setIncome] = useState([])
   const [loading, setLoading] = useState(true)
+  const [loadedSources, setLoadedSources] = useState({})
+  const [exporting, setExporting] = useState(false)
+  const [exportError, setExportError] = useState('')
 
   const [from, setFrom] = useState(firstOfMonth)
   const [to, setTo] = useState(() => isoDate(new Date()))
@@ -58,34 +63,38 @@ export default function BankTransactions() {
   useEffect(() => {
     if (!activeProject) return
     setLoading(true)
+    setExportError('')
+    setLoadedSources({ projectId: activeProject.id })
+    const markLoaded = key => setLoadedSources(prev => ({ ...(prev.projectId === activeProject.id ? prev : { projectId: activeProject.id }), [key]: true }))
+    const loadFailed = () => setExportError('Could not load all the information needed for Excel. Reload the page and try again.')
     const uid = auth.currentUser.uid
     const unsubT = onSnapshot(
       paymentTransactionsQuery(query(collection(db, 'paymentTransactions'), where('projectId', '==', activeProject.id)), activeProject, uid),
-      snap => { setTransactions(snap.docs.map(d => ({ id: d.id, ...d.data() }))); setLoading(false) }
+      snap => { setTransactions(snap.docs.map(d => ({ id: d.id, ...d.data() }))); setLoading(false); markLoaded('transactions') }, loadFailed
     )
     const unsubA = onSnapshot(
       query(collection(db, 'paymentAccounts'), where('projectId', '==', activeProject.id)),
-      snap => setAccounts(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+      snap => { setAccounts(snap.docs.map(d => ({ id: d.id, ...d.data() }))); markLoaded('accounts') }, loadFailed
     )
     const unsubImp = onSnapshot(
       query(collection(db, 'paymentImports'), where('projectId', '==', activeProject.id)),
-      snap => setImports(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+      snap => { setImports(snap.docs.map(d => ({ id: d.id, ...d.data() }))); markLoaded('imports') }, loadFailed
     )
     const unsubE = onSnapshot(
       query(collection(db, 'expenses'), where('projectId', '==', activeProject.id)),
-      snap => setExpenses(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+      snap => { setExpenses(snap.docs.map(d => ({ id: d.id, ...d.data() }))); markLoaded('expenses') }, loadFailed
     )
     const unsubI = onSnapshot(
       query(collection(db, 'salesInvoices'), where('projectId', '==', activeProject.id)),
-      snap => setInvoices(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+      snap => { setInvoices(snap.docs.map(d => ({ id: d.id, ...d.data() }))); markLoaded('invoices') }, loadFailed
     )
     const unsubP = onSnapshot(
       query(collection(db, 'purchaseOrders'), where('projectId', '==', activeProject.id)),
-      snap => setPurchaseOrders(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+      snap => { setPurchaseOrders(snap.docs.map(d => ({ id: d.id, ...d.data() }))); markLoaded('purchaseOrders') }, loadFailed
     )
     const unsubInc = onSnapshot(
       query(collection(db, 'income'), where('projectId', '==', activeProject.id)),
-      snap => setIncome(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+      snap => { setIncome(snap.docs.map(d => ({ id: d.id, ...d.data() }))); markLoaded('income') }, loadFailed
     )
     return () => { unsubT(); unsubA(); unsubImp(); unsubE(); unsubI(); unsubP(); unsubInc() }
   }, [activeProject?.id])
@@ -132,6 +141,39 @@ export default function BankTransactions() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rows, from, to, accountFilter, directionFilter, statusFilter, sourceFilter, accounts])
 
+  const exportReady = loadedSources.projectId === activeProject?.id &&
+    ['transactions', 'accounts', 'imports', 'expenses', 'invoices', 'purchaseOrders', 'income'].every(key => loadedSources[key])
+
+  async function downloadExcel() {
+    if (!exportReady || !filteredRows.length || exporting) return
+    setExporting(true)
+    setExportError('')
+    try {
+      const workbook = new ExcelJS.Workbook()
+      const sheet = workbook.addWorksheet('Statement Transactions')
+      sheet.columns = STATEMENT_EXPORT_COLUMNS
+      sheet.getRow(1).font = { bold: true }
+      sheet.views = [{ state: 'frozen', ySplit: 1 }]
+      sheet.autoFilter = { from: 'A1', to: `Q${filteredRows.length + 1}` }
+      for (const row of filteredRows) {
+        sheet.addRow(statementExportRow(row, accountOf(row.txn.paymentAccountId), importOf(row.txn.importId), CLASSIFICATION_LABELS))
+      }
+      const buffer = await workbook.xlsx.writeBuffer()
+      const url = URL.createObjectURL(new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }))
+      const link = document.createElement('a')
+      link.href = url
+      link.download = `statement-transactions_${(activeProject.name || 'project').replace(/[^a-zA-Z0-9-]+/g, '-')}_${from || 'all'}_${to || 'time'}.xlsx`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 1000)
+    } catch (err) {
+      setExportError(`Could not create Excel file: ${err.message}`)
+    } finally {
+      setExporting(false)
+    }
+  }
+
   if (!activeProject) return <div className="page page-wide"><p className="loading">Loading…</p></div>
 
   return (
@@ -176,6 +218,14 @@ export default function BankTransactions() {
           <option value="credit_card">Credit Card</option>
         </select>
       </div>
+
+      <div className="filter-row" style={{ marginBottom: 12 }}>
+        <button className="btn-small btn-ghost" onClick={downloadExcel} disabled={!exportReady || !filteredRows.length || exporting}>
+          {exporting ? 'Preparing Excel…' : `Download Excel (${filteredRows.length} rows)`}
+        </button>
+        <span className="hint">Downloads the rows matching these filters. Personal-account transactions may be included; keep the file private.</span>
+      </div>
+      {exportError && <p className="error-msg">{exportError}</p>}
 
       {loading ? (
         <p className="loading">Loading…</p>

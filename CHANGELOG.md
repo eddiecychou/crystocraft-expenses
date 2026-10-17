@@ -8,6 +8,8 @@ changes when it's bumped deliberately in `package.json`.
 
 ## V1.2 — 2026-10-11 (local build; deployment pending)
 
+**Statement transaction Excel download.** Imported Transactions now downloads the currently filtered, visible rows as `.xlsx`, with account and statement names, amounts, classification and reconciliation status. It waits for related records to load and omits original-file access links; the page warns that personal-account data may be present.
+
 **Receipt service-charge review.** Clarified that subtotal must precede separately printed service charge and tax, included explicitly printed rounding/discount adjustments in the arithmetic check, and changed the misleading red "subtotal + tax" banner to an amber breakdown review prompt. Unexplained differences remain visible; saving remains possible.
 
 **Existing-project loading fix.** Settings now shows a loading or access-error state instead of a misleading empty project list, and blocks creating a new project while the list has not loaded. Statement import no longer waits indefinitely for a missing active project. Legacy expense backfill runs only after an existing project is shown; a denied backfill is logged without hiding the project or marking migration complete.
