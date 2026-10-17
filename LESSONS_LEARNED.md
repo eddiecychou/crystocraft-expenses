@@ -360,6 +360,10 @@ real bugs that hand-written synthetic test lines never would have caught:
 - **The same bank uses different date formats across statements**: "23 Jul" vs
   "18JUL", full vs. abbreviated month names for the statement-date anchor used to
   infer missing years.
+- **A date-shaped address is not a statement date.** HSBC Business Direct's
+  address text yields `38 UNIT 1905` before the real `21 March 2025` date.
+  Test every candidate's month and calendar validity, keep scanning, and never
+  use today's year when no printed full date can anchor year-less rows.
 - **Page furniture pollutes detection** — a sidebar summary box or footer address
   block can share the transaction table's y-range, or even start at the exact same
   left margin as the Date column. Filtering by "does this line contain a date/money

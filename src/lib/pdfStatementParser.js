@@ -28,6 +28,7 @@ import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import { parseStatementRowsWithGemini } from './geminiStatementParser'
 import { ocrStatementPage } from './statementOcr'
 import { annotateBalanceSequence, validateStatementTotals } from './duplicateDetection'
+import { findStatementAnchorDate } from './statementDateAnchor'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl
 
@@ -275,17 +276,6 @@ function bucketLine(line, columns) {
 
 const MONTHS = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 }
 
-function findAnchorDate(allText) {
-  // Matches both full ("22 August 2026") and abbreviated ("17 AUG 2026")
-  // month names — different statement templates use different forms.
-  const m = allText.match(/(\d{1,2})\s+([A-Za-z]{3,9})\s+(\d{4})/)
-  if (m) {
-    const month = MONTHS[m[2].slice(0, 3).toLowerCase()]
-    if (month !== undefined) return new Date(Date.UTC(parseInt(m[3]), month, parseInt(m[1])))
-  }
-  return new Date()
-}
-
 // Parses year-less day+month text, inferring the year from an anchor date
 // (the statement's own printed date) — a transaction can't postdate the
 // statement, so if the naive same-year candidate falls after the anchor
@@ -293,6 +283,7 @@ function findAnchorDate(allText) {
 // both "23 Jul" (space, one statement format) and "18JUL" (no space,
 // another statement's format) — verified against two real banks' PDFs.
 function parseShortDate(text, anchorDate) {
+  if (!anchorDate) return null
   const m = text.trim().match(/^(\d{1,2})\s*([A-Za-z]{3,9})\.?$/)
   if (!m) return null
   const month = MONTHS[m[2].slice(0, 3).toLowerCase()]
@@ -304,6 +295,7 @@ function parseShortDate(text, anchorDate) {
     year -= 1
     candidate = new Date(Date.UTC(year, month, day))
   }
+  if (candidate.getUTCFullYear() !== year || candidate.getUTCMonth() !== month || candidate.getUTCDate() !== day) return null
   return candidate.toISOString().slice(0, 10)
 }
 
@@ -571,7 +563,10 @@ export async function parsePdfStatement(file, options = {}) {
   if (!options.allowOcr && pages.some(page => page.weakTextLayer)) {
     return { rows: [], lineCount, pageCount, openingBalance: null, closingBalance: null, aiFallbackError: null, parseWarnings: [], needsOcr: true }
   }
-  const anchorDate = findAnchorDate(allLines.map(l => l.text).join(' '))
+  const anchorDate = findStatementAnchorDate(allLines.map(l => l.text).join(' '))
+  if (!anchorDate && !allLines.some(line => DATE_START.test(line.text))) {
+    throw new Error('Could not find the statement year. Check that the PDF shows a full date, then try again.')
+  }
 
   // Whole-document scan first, so its entries come first in the array for
   // any marker also independently found inside a table section below (both
@@ -647,7 +642,7 @@ export async function parsePdfStatement(file, options = {}) {
   const badBalanceSequence = annotateBalanceSequence(rows).some(row => row.balanceSequenceValid === false)
   const needsSecondRead = lineCount > 0 && (!rows.length || missingPages.length || suspiciousPages.length || localTotals?.consistent === false || badBalanceSequence || pages.some(page => page.source === 'ocr'))
   const parseWarnings = []
-  if (needsSecondRead) {
+  if (needsSecondRead && anchorDate) {
     const candidateRows = []
     for (let index = 0; index < pages.length; index++) {
       const page = pages[index]

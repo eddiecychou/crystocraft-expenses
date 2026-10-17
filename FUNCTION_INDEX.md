@@ -86,13 +86,13 @@ some of these functions look the way they do, see [LESSONS_LEARNED.md](LESSONS_L
 | `clusterXs(xs, tolerance)` | 146 | Internal — clusters x-coordinates into column positions (calibrated from data, not header labels — see LESSONS_LEARNED). |
 | `resolveColumns(headerCols, sectionLines, tolerance)` | 157 | Internal — resolves final column boundaries for a statement section. |
 | `bucketLine(line, columns)` | 248 | Internal — assigns each text item on a line to its column bucket. |
-| `findAnchorDate(allText)` | 268 | Internal — locates the statement's reference date, used to infer missing years in row dates. |
+| `findStatementAnchorDate(text)` in [statementDateAnchor.js](src/lib/statementDateAnchor.js) | — | Finds the first valid printed full date, skipping date-shaped address fragments; never guesses the current year. |
 | `parseShortDate(text, anchorDate)` | 285 | Internal — parses a short/partial date string using the anchor date for year inference. |
 | `parseMoneyText(str)` | 302 | Internal — parses a money string (handles currency symbols, thousands separators, parens-as-negative). |
 | `parseSection(lines, columns, anchorDate, pageNumber, balanceMarkers)` | 330 | Internal — parses one page/section's lines into transaction row objects. |
 | `parseFallback(lines)` | 458 | Internal — best-effort parse when column detection fails entirely. |
 | `extractBalanceMarkersFromRawLines(lines)` | 493 | Internal — pulls opening/closing balance text from statement boilerplate lines. |
-| `parsePdfStatement(file, options)` | — | **Entry point.** Reads PDF text/positions, optionally OCRs pages with weak text layers after consent, runs the local column parser, then checks missing pages, suspicious row coverage, statement totals, and running balances. Uses page-level Gemini interpretation when those checks indicate a gap or a page came from OCR. Returns rows, totals, `needsOcr`, progress/warnings, and AI error. OCR/AI rows carry no redaction mask. |
+| `parsePdfStatement(file, options)` | — | **Entry point.** Reads PDF text/positions, optionally OCRs pages with weak text layers after consent, runs the local column parser, then checks missing pages, suspicious row coverage, statement totals, and running balances. Uses page-level Gemini interpretation when those checks indicate a gap or a page came from OCR and a valid year anchor is available. Without an anchor or fully dated rows, stops with a clear error instead of inventing a year. Returns rows, totals, `needsOcr`, progress/warnings, and AI error. OCR/AI rows carry no redaction mask. |
 
 ### [geminiStatementParser.js](src/lib/geminiStatementParser.js)
 
