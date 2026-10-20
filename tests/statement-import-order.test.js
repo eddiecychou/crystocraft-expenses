@@ -23,3 +23,10 @@ test('account and date range filters include overlapping statement periods', () 
   assert.deepEqual(filterStatementImports(imports, 'red', '', ''), [imports[0], imports[2], imports[3]])
   assert.deepEqual(filterStatementImports(imports, '', '2026-10-01', '2026-09-01'), [])
 })
+
+test('an account filter finds a secondary account inside one combined PDF', () => {
+  const combined = { paymentAccountId: 'current', accountSections: [
+    { paymentAccountId: 'current' }, { paymentAccountId: 'savings' },
+  ] }
+  assert.deepEqual(filterStatementImports([combined], 'savings', '', ''), [combined])
+})

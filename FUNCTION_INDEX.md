@@ -92,7 +92,7 @@ some of these functions look the way they do, see [LESSONS_LEARNED.md](LESSONS_L
 | `parseSection(lines, columns, anchorDate, pageNumber, balanceMarkers)` | 330 | Internal — parses one page/section's lines into transaction row objects. |
 | `parseFallback(lines)` | 458 | Internal — best-effort parse when column detection fails entirely. |
 | `extractBalanceMarkersFromRawLines(lines)` | 493 | Internal — pulls opening/closing balance text from statement boilerplate lines. |
-| `parsePdfStatement(file, options)` | — | **Entry point.** Reads PDF text/positions, optionally OCRs pages with weak text layers after consent, runs the local column parser, then checks missing pages, suspicious row coverage, statement totals, and running balances. Uses page-level Gemini interpretation when those checks indicate a gap or a page came from OCR and a valid year anchor is available. Without an anchor or fully dated rows, stops with a clear error instead of inventing a year. Returns rows, totals, `needsOcr`, progress/warnings, and AI error. OCR/AI rows carry no redaction mask. |
+| `parsePdfStatement(file, options)` | — | **Entry point.** Reads PDF text/positions, optionally OCRs weak pages after consent, and parses activity tables. Returns account `sections` and section-keyed rows when a PDF combines ledgers; section totals are checked separately, and AI rows never replace multi-account rows without known attribution. Legacy single-account return fields remain. |
 
 ### [geminiStatementParser.js](src/lib/geminiStatementParser.js)
 
@@ -108,6 +108,7 @@ some of these functions look the way they do, see [LESSONS_LEARNED.md](LESSONS_L
 | [statementOcrGeometry.js](src/lib/statementOcrGeometry.js) | Converts Vision word positions to the PDF-point lines consumed by the statement parser. |
 | [statementAiEvidence.js](src/lib/statementAiEvidence.js) | Grounds AI rows in cited printed amount lines and flags description/balance values that could not be confirmed nearby. |
 | [statementImportOrder.js](src/lib/statementImportOrder.js) | Sorts statement imports newest period first and filters by account and overlapping statement-date range; attempts without a period appear only with date filters cleared. |
+| [statementAccountSections.js](src/lib/statementAccountSections.js) | Detects account headings, validates distinct same-currency/type company mappings, checks balances per section, and compares saved rows plus reviewed exclusions within their original account sections. |
 
 ### [pdfRedaction.js](src/lib/pdfRedaction.js)
 
@@ -288,11 +289,11 @@ The statement-list Actions cell groups View/Edit, Original/Attach, Check, and De
 |---|---|---|
 | `fetchWithTimeout(url, options, timeoutMs)` | 25 | Module-level — `AbortController`-based fetch timeout (30s default), wraps every `/api/download-receipt` call so one stalled request can't hang a batch operation. |
 | `createAccount()` | 132 | Creates a new bank/credit-card account. |
-| `commitRows(mapped, account, file, sourceType, statementTotals, reprocessImportId, existingAttemptId)` | — | **Core import writer.** Runs duplicate classification per row, writes every row unconditionally to `paymentTransactions`, uploads the original file for both new and pre-recorded attempts, and marks row-writing failures as `error`. Reports a source-file upload failure separately so the client can attach the PDF later. For personal accounts, also applies merchant rules and classification. |
+| `commitRows(mapped, account, file, sourceType, statementTotals, reprocessImportId, existingAttemptId, reviewedExclusions, accountSections)` | — | **Core import writer.** Keeps one original/import record; for multi-account PDFs, uses each row's reviewed section mapping for account, currency, fingerprints, duplicate query, and visibility. Rejects personal multi-account mapping and automatic multi-account replacement. Single-account CSV/PDF behavior stays compatible. |
 | `resolveDuplicate(txn, newStatus)` | 375 | Applies Keep as Separate / Confirm Duplicate to a flagged transaction; restores `status: 'unmatched'` if it was previously `ignored`. |
 | `dismissDuplicateWarning(txn)` | 391 | Marks a duplicate warning as reviewed without changing its verdict. |
 | `renderDuplicateStatus(txn, imp)` | 411 | Shared render function for the duplicate-review UI (badge + reason + actions when expanded, collapsed "Resolved · Change" when already resolved) — used by both the desktop table cell and the mobile card. |
-| `verifyImportAgainstSource(imp, forceOcr)` | 461 | Re-downloads and re-parses the stored original file, diffs against saved rows, and distinguishes exact matches, exact reviewed exclusions, unexplained differences, and scanned pages needing an image-reading choice. |
+| `verifyImportAgainstSource(imp, forceOcr)` | 461 | Re-downloads and re-parses the original; for multi-account PDFs, also compares section identity, account mapping, currency, and per-section balances so a correctly read row in the wrong account cannot show Checked. |
 | `reviewMissingPdfRows(imp)` | — | Re-checks an older import, then asks the user to confirm the exact missing PDF rows as deliberate exclusions; records the decision without changing transactions. |
 | `unlinkTransaction(txn)` | 538 | Detaches a transaction from its matched expense. |
 | `startEditTxn(txn)` | 561 | Enters inline edit mode for a transaction row. |

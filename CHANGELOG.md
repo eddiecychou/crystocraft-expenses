@@ -8,6 +8,10 @@ changes when it's bumped deliberately in `package.json`.
 
 ## V1.2 — 2026-10-11 (local build; deployment pending)
 
+**Combined-account statement support.** Current, Savings, and currency-specific activity tables in one PDF now remain separate through review and saving. The user maps each table to a distinct company account, sees row counts and balance checks for each, and confirms the PDF is company-only. Saved rows retain their section/account/currency; re-check verifies these assignments. Old checks are labelled “Rows checked” until account attribution is checked; legacy combined PDFs then ask for guarded account repair rather than falsely showing Checked. The February 2025 HSBC sample parses as six Current rows and one Savings row with both section totals matching. The code change does not automatically migrate existing records.
+
+**2026-10-20 live data repair, separate from deployment.** With approval, Tiffany's February 2025 HSBC import was matched byte-for-byte to its stored PDF, then repaired in Firestore with update-time preconditions in one atomic commit. A distinct company HKD Savings account was created; six Current rows retained their existing account, and the one Savings row was reassigned. All seven rows received statement-section keys, the import received both section balances, and its old non-account-aware check was cleared. The Savings row remained ignored; amounts, dates, and reconciliation links were unchanged. All nine written documents were read back successfully. The parser/UI changes had not yet been deployed at the time of this repair.
+
 **Statement year detection.** The PDF reader now skips invalid date-shaped
 address text before the printed statement date. HSBC Business Direct March
 and July 2025 examples resolve to 2025 instead of the upload year's 2026.

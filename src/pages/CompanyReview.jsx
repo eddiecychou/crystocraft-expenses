@@ -532,7 +532,7 @@ export default function CompanyReview() {
         const imp = imports.find(i => i.id === importId)
         if (!imp) continue
 
-        if (accountOf(imp.paymentAccountId)?.ownershipType === 'personal') {
+        if (accountOf(imp.paymentAccountId)?.ownershipType === 'personal' || imp.accountSections?.some(section => accountOf(section.paymentAccountId)?.ownershipType === 'personal')) {
           const includedForImport = included.filter(t => t.importId === importId)
           if (includedForImport.length === 0) continue
           const safeName = (imp.sourceFileName || importId).replace(/\.[a-zA-Z0-9]+$/, '').replace(/[^a-zA-Z0-9_-]/g, '_')

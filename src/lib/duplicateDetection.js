@@ -39,7 +39,9 @@ export function annotateBalanceSequence(rows, tolerance = 0.02) {
       balanceSequenceValid = Math.abs(expectedBalance - r.balanceAfter) <= tolerance
     }
     out.push({ ...r, balanceSequenceValid, expectedBalance })
-    if (r.balanceAfter != null) prevBalance = r.balanceAfter
+    // A gap of rows without printed balances can contain real movements;
+    // the next printed balance cannot be checked against the older one.
+    prevBalance = r.balanceAfter ?? null
   }
   return out
 }

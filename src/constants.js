@@ -1,5 +1,5 @@
 export const CATEGORIES = ['Travel', 'Meals', 'Office', 'Software', 'Utilities', 'Development', 'Marketing', 'Professional Services', 'Equipment', 'Bank Charges', 'Production', 'Other']
-export const CURRENCIES = ['HKD', 'RMB', 'USD', 'EUR', 'JPY', 'AUD', 'GBP', 'SGD', 'CAD', 'KRW', 'Other']
+export const CURRENCIES = ['HKD', 'RMB', 'CNY', 'USD', 'EUR', 'JPY', 'AUD', 'GBP', 'SGD', 'CAD', 'KRW', 'CHF', 'NZD', 'Other']
 // This app is now shared across companies — Categories and Payment
 // Methods are per-project (projects.categories / projects.paymentMethods,
 // editable in Settings), not one global list. PAYMENT_METHODS below is

@@ -19,8 +19,10 @@
 // Digital PDFs use their text layer. Scanned pages need the user's consent
 // before Cloud Vision supplies positioned words for the same parsing path.
 //
-// Layout varies bank-to-bank. Missing or suspicious rows trigger a bounded
-// Gemini second reading; scanned pages first need explicit cloud OCR consent.
+// Layout varies bank-to-bank. Missing or suspicious single-account rows can
+// trigger a bounded Gemini second reading; multi-account AI rows cannot yet
+// be attributed safely, so they never replace locally sectioned rows.
+// Scanned pages first need explicit cloud OCR consent.
 // AI rows are marked 'ai_assisted' and all results remain review-gated.
 
 import * as pdfjsLib from 'pdfjs-dist'
@@ -29,6 +31,7 @@ import { parseStatementRowsWithGemini } from './geminiStatementParser'
 import { ocrStatementPage } from './statementOcr'
 import { annotateBalanceSequence, validateStatementTotals } from './duplicateDetection'
 import { findStatementAnchorDate } from './statementDateAnchor'
+import { accountHeading, checkAccountSections } from './statementAccountSections'
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl
 
@@ -306,9 +309,9 @@ function parseMoneyText(str) {
   // "7,820.57CR" has no word-boundary between digit and letter, so \bCR\b
   // never matches — CR is a suffix directly on the number, not a separate word.
   const isCr = /CR\s*$/i.test(str.trim())
-  const isNegative = /^\(.*\)$/.test(str.trim()) || str.trim().startsWith('-')
+  const isNegative = /^\(.*\)$/.test(str.trim()) || str.trim().startsWith('-') || /DR\s*$/i.test(str.trim())
   const num = parseFloat(str.replace(/[(),A-Za-z]/g, ''))
-  if (isNaN(num) || num === 0) return null
+  if (isNaN(num)) return null
   return { amount: Math.abs(num), isCredit: isCr, isNegative }
 }
 
@@ -329,7 +332,7 @@ const INSTALMENT_NOTE = /(\d+)(?:st|nd|rd|th)\s+of\s+(\d+)\s+instal?ments?/i
 // from — the caller uses the first opening marker and the last closing
 // marker across the whole document as the statement's overall totals
 // checkpoints.
-function parseSection(lines, columns, anchorDate, pageNumber, balanceMarkers, xRange) {
+function parseSection(lines, columns, anchorDate, pageNumber, balanceMarkers, xRange, sectionKey) {
   const rows = []
   let currentDate = null
   let pendingDesc = []
@@ -415,6 +418,7 @@ function parseSection(lines, columns, anchorDate, pageNumber, balanceMarkers, xR
           type: OPENING_BALANCE_LABELS.test(line.text) ? 'opening' : 'closing',
           amount: markerAmount.amount * (markerAmount.isNegative ? -1 : 1),
           pageNumber,
+          sectionKey,
         })
       }
       continue
@@ -431,7 +435,7 @@ function parseSection(lines, columns, anchorDate, pageNumber, balanceMarkers, xR
     else if (debit) { settlementAmount = debit.amount; direction = 'debit' }
     else if (single) { settlementAmount = single.amount; direction = (single.isCredit || single.isNegative) ? 'credit' : 'debit' }
 
-    if (settlementAmount != null && currentDate) {
+    if (settlementAmount > 0 && currentDate) {
       const merchantRaw = pendingDesc.join(' ').replace(/\s+/g, ' ').trim()
       pendingDesc = []
       if (!merchantRaw || NON_TRANSACTION_LABELS.test(merchantRaw)) { descStartY = null; continue }
@@ -448,6 +452,7 @@ function parseSection(lines, columns, anchorDate, pageNumber, balanceMarkers, xR
       const padBelow = 4
       const top = descStartY != null ? descStartY : line.y
       rows.push({
+        sectionKey,
         sourceRowIndex: rows.length,
         pageNumber,
         rawRowText: line.text,
@@ -505,7 +510,7 @@ function parseFallback(lines) {
     if (!dateMatch) continue
     const rest = text.slice(dateMatch[0].length).trim()
     const amounts = [...rest.matchAll(MONEY_TRAILING)].map(m => parseMoneyText(m[0])).filter(Boolean)
-    if (!amounts.length) continue
+    if (!amounts.length || amounts[0].amount === 0) continue
     const firstAmountIdx = rest.search(MONEY_TRAILING)
     const merchantRaw = rest.slice(0, firstAmountIdx === -1 ? rest.length : firstAmountIdx).trim()
     if (!merchantRaw || NON_TRANSACTION_LABELS.test(merchantRaw)) continue
@@ -561,7 +566,7 @@ export async function parsePdfStatement(file, options = {}) {
   const lineCount = allLines.length
   const pageCount = pages.length
   if (!options.allowOcr && pages.some(page => page.weakTextLayer)) {
-    return { rows: [], lineCount, pageCount, openingBalance: null, closingBalance: null, aiFallbackError: null, parseWarnings: [], needsOcr: true }
+    return { rows: [], sections: [], lineCount, pageCount, openingBalance: null, closingBalance: null, aiFallbackError: null, parseWarnings: [], needsOcr: true }
   }
   const anchorDate = findStatementAnchorDate(allLines.map(l => l.text).join(' '))
   if (!anchorDate && !allLines.some(line => DATE_START.test(line.text))) {
@@ -580,6 +585,8 @@ export async function parsePdfStatement(file, options = {}) {
   const MASK_MARGIN = 20
 
   const rows = []
+  const sectionsByKey = new Map()
+  let activeSectionKey = null
   let aiFallbackError = null
   let pageNum = 0
   for (const page of pages) {
@@ -602,12 +609,26 @@ export async function parsePdfStatement(file, options = {}) {
         // continuation) always has an item flush against one of the
         // resolved column positions; sidebar/footer text doesn't.
         const tableLines = sectionLines.filter(l => l.items.some(it => columns.some(c => Math.abs(it.x - c.x) <= 15)))
-        rows.push(...parseSection(tableLines, columns, anchorDate, pageNum, balanceMarkers, xRange))
+        rows.push(...parseSection(tableLines, columns, anchorDate, pageNum, balanceMarkers, xRange, activeSectionKey))
       }
       sectionLines = []
     }
 
-    for (const line of pageLines) {
+    for (let lineIndex = 0; lineIndex < pageLines.length; lineIndex++) {
+      const line = pageLines[lineIndex]
+      // A heading only starts an account ledger when a transaction header
+      // follows it nearby. Account names in a portfolio summary or footer
+      // must not silently change the attribution of later rows.
+      const heading = pageLines.slice(lineIndex + 1, lineIndex + 5).some(detectHeader) ? accountHeading(line.text) : null
+      if (heading) {
+        flushSection()
+        currentHeader = null
+        if (sectionsByKey.has(heading.key) && activeSectionKey !== heading.key) sectionsByKey.get(heading.key).ambiguous = true
+        activeSectionKey = heading.key
+        if (!sectionsByKey.has(heading.key)) sectionsByKey.set(heading.key, heading)
+        continue
+      }
+      if (activeSectionKey) balanceMarkers.push(...extractBalanceMarkersFromRawLines([line]).map(marker => ({ ...marker, sectionKey: activeSectionKey, pageNumber: pageNum })))
       const header = detectHeader(line)
       if (header) { flushSection(); currentHeader = header; continue }
       sectionLines.push(line)
@@ -619,6 +640,12 @@ export async function parsePdfStatement(file, options = {}) {
     // No table with a recognizable header anywhere — try the simpler
     // single-line fallback in case this is a plainer statement format.
     pages.forEach((page, index) => rows.push(...parseFallback(page.lines).map(row => ({ ...row, pageNumber: index + 1 }))))
+  }
+  // When an account heading was recognized, rows without a heading must
+  // remain visible for review, never be silently assigned to the last one.
+  if (sectionsByKey.size && rows.some(row => !row.sectionKey)) {
+    sectionsByKey.set('unidentified', { key: 'unidentified', label: 'Unidentified account section', currency: null, accountType: null })
+    rows.forEach(row => { if (!row.sectionKey) row.sectionKey = 'unidentified' })
   }
   rows.forEach(r => { if (!r.extractionMethod) r.extractionMethod = 'column_parser' })
 
@@ -633,16 +660,24 @@ export async function parsePdfStatement(file, options = {}) {
   const closingMarkers = balanceMarkers.filter(m => m.type === 'closing')
   const openingBalance = openingMarkers.length ? openingMarkers[0].amount : null
   const closingBalance = closingMarkers.length ? closingMarkers[closingMarkers.length - 1].amount : null
-  const localTotals = validateStatementTotals({ openingBalance, closingBalance, rows })
-  const missingPages = pages.map((page, index) => page.lines.length && !rows.some(row => row.pageNumber === index + 1) ? index + 1 : null).filter(Boolean)
+  const sections = [...sectionsByKey.values()].map(section => {
+    const markers = balanceMarkers.filter(marker => marker.sectionKey === section.key)
+    const opening = markers.find(marker => marker.type === 'opening')
+    const closing = markers.filter(marker => marker.type === 'closing').at(-1)
+    const lastPrintedBalance = rows.filter(row => row.sectionKey === section.key && row.balanceAfter != null).at(-1)?.balanceAfter
+    return { ...section, openingBalance: opening?.amount ?? null, closingBalance: closing?.amount ?? lastPrintedBalance ?? null }
+  })
+  const multiAccount = sections.length > 1
+  const localTotals = multiAccount ? null : validateStatementTotals({ openingBalance, closingBalance, rows })
+  const missingPages = pages.map((page, index) => page.lines.some(detectHeader) && !rows.some(row => row.pageNumber === index + 1) ? index + 1 : null).filter(Boolean)
   const suspiciousPages = pages.map((page, index) => {
     const apparentRows = page.lines.filter(line => DATE_TOKEN.test(line.text) && AMOUNT_TOKEN.test(line.text) && !NON_TRANSACTION_LABELS.test(line.text)).length
     return apparentRows > rows.filter(row => row.pageNumber === index + 1).length + 1 ? index + 1 : null
   }).filter(Boolean)
-  const badBalanceSequence = annotateBalanceSequence(rows).some(row => row.balanceSequenceValid === false)
+  const badBalanceSequence = (multiAccount ? checkAccountSections(sections, rows).some(section => section.balanceBreaks > 0) : annotateBalanceSequence(rows).some(row => row.balanceSequenceValid === false))
   const needsSecondRead = lineCount > 0 && (!rows.length || missingPages.length || suspiciousPages.length || localTotals?.consistent === false || badBalanceSequence || pages.some(page => page.source === 'ocr'))
   const parseWarnings = []
-  if (needsSecondRead && anchorDate) {
+  if (needsSecondRead && anchorDate && !multiAccount) {
     const candidateRows = []
     for (let index = 0; index < pages.length; index++) {
       const page = pages[index]
@@ -664,6 +699,9 @@ export async function parsePdfStatement(file, options = {}) {
         candidateRows.push(...localPageRows)
       }
     }
+    // The AI fallback may read a page containing several ledgers. Its rows
+    // do not yet carry a verified section identity, so never substitute them
+    // into a multi-account import automatically.
     const candidateTotals = validateStatementTotals({ openingBalance, closingBalance, rows: candidateRows })
     const improvedTotals = localTotals?.consistent === false && candidateTotals?.consistent === true
     if (candidateRows.length && (rows.length === 0 || improvedTotals || (candidateRows.length > rows.length && candidateTotals?.consistent !== false))) {
@@ -673,10 +711,10 @@ export async function parsePdfStatement(file, options = {}) {
       parseWarnings.push('Two reading methods found different row counts; check the statement carefully.')
     }
   }
-  const finalTotals = validateStatementTotals({ openingBalance, closingBalance, rows })
+  const finalTotals = multiAccount ? null : validateStatementTotals({ openingBalance, closingBalance, rows })
   if (finalTotals?.consistent === false) parseWarnings.push('The transaction rows do not match the printed opening and closing balances.')
-  if (annotateBalanceSequence(rows).some(row => row.balanceSequenceValid === false)) parseWarnings.push('Some running balances do not match the transaction rows.')
-  if (pages.some((page, index) => page.lines.length && !rows.some(row => row.pageNumber === index + 1))) parseWarnings.push('At least one page with text has no recognized transactions; check it for missing rows.')
+  if ((multiAccount ? checkAccountSections(sections, rows).some(section => section.balanceBreaks > 0) : annotateBalanceSequence(rows).some(row => row.balanceSequenceValid === false))) parseWarnings.push('Some running balances do not match the transaction rows.')
+  if (pages.some((page, index) => page.lines.some(detectHeader) && !rows.some(row => row.pageNumber === index + 1))) parseWarnings.push('At least one transaction page has no recognized rows; check it for missing rows.')
   if (pages.some((page, index) => page.lines.filter(line => DATE_TOKEN.test(line.text) && AMOUNT_TOKEN.test(line.text) && !NON_TRANSACTION_LABELS.test(line.text)).length > rows.filter(row => row.pageNumber === index + 1).length + 1)) {
     parseWarnings.push('Some pages show more transaction-like lines than parsed rows; check for omissions.')
   }
@@ -691,6 +729,7 @@ export async function parsePdfStatement(file, options = {}) {
 
   return {
     rows,
+    sections: checkAccountSections(sections, rows),
     lineCount,
     pageCount,
     openingBalance,

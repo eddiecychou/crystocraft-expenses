@@ -12,7 +12,7 @@ export function sortStatementImports(imports) {
 export function filterStatementImports(imports, accountId, from, to) {
   if (from && to && from > to) return []
   return imports.filter(imp => {
-    if (accountId && imp.paymentAccountId !== accountId) return false
+    if (accountId && imp.paymentAccountId !== accountId && !imp.accountSections?.some(section => section.paymentAccountId === accountId)) return false
     if (!from && !to) return true
     const start = imp.periodStart || imp.periodEnd
     const end = imp.periodEnd || imp.periodStart

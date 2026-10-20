@@ -318,6 +318,8 @@ re-read an already-stored file (statements, receipts) must go through
 
 ## PDF statement parsing is fragile — verify against real files
 
+**Combined business statements:** The HSBC Business Direct February 2025 PDF has Current and Savings activity tables under one account number. A single global `paymentAccountId` and first-opening/last-closing check silently blends their ledgers. Keep the PDF as one source but attach a section key and reviewed account mapping to each row. In this sample the Current table has six movements (HK$44,746 opening to HK$41,386 closing) and Savings has one HK$5 credit (HK$5 DR opening to zero). A `DR` suffix is negative, zero is a valid printed balance, and the last transaction's printed running balance can close a section even without a C/F line. Never compare balances across sections or across an intervening row with no printed balance. Do not auto-replace saved multi-account rows or treat a legacy sectionless import as Checked.
+
 **Long histories:** A page-wide re-check can sequentially re-read hundreds
 of PDFs and appear stuck. Keep the action per statement and disable other
 checks while one is running; retain the normal review gate for any repair.

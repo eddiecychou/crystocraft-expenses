@@ -8,6 +8,7 @@ import { CURRENCIES } from '../constants'
 import { parseCSV, mapCsvRecords, normalizeMerchant, classifyTransactionType, computeFingerprints } from '../lib/paymentMatching'
 import { isXTransferCsv, mapXTransferRecords } from '../lib/xtransferImport'
 import { parsePdfStatement } from '../lib/pdfStatementParser'
+import { annotateAccountSections, checkAccountSections, compareSavedAccountSections, validateSectionLayout, validateSectionMappings } from '../lib/statementAccountSections'
 import { sortStatementImports, filterStatementImports } from '../lib/statementImportOrder'
 import { uploadStatementFile, deleteStatementFile } from '../statementStorage'
 import { annotateBalanceSequence, classifyFingerprintCollision, validateStatementTotals, diffTransactionSets, reviewedExclusionsMatch, DUPLICATE_STATUS_LABELS } from '../lib/duplicateDetection'
@@ -25,6 +26,7 @@ const SOURCE_TYPES = [
 const MAX_PDF_FILES_PER_BATCH = 3
 
 const reviewedRow = row => ({
+  ...(row.sectionKey ? { sectionKey: row.sectionKey } : {}),
   transactionDate: row.transactionDate,
   merchantRaw: row.merchantRaw,
   settlementAmount: Number(row.settlementAmount),
@@ -74,6 +76,7 @@ export default function PaymentSources() {
   // CSV — they're held here for the user to review/exclude before anything
   // is written to Firestore.
   const [pdfPreview, setPdfPreview] = useState(null) // { fileName, rows: [{...row, include}] }
+  const [sectionAccountDraft, setSectionAccountDraft] = useState(null)
   // Remaining PDFs from a batch selection, reviewed one at a time — each
   // PDF's rows are heuristically parsed and must be checked before write,
   // so a batch can't just import every PDF's rows unattended.
@@ -110,7 +113,9 @@ export default function PaymentSources() {
   }, [activeProject?.id])
 
   const pdfReviewSummary = pdfPreview && (() => {
-    const sequencedRows = annotateBalanceSequence(pdfPreview.rows)
+    const sequencedRows = pdfPreview.sections?.length > 1
+      ? pdfPreview.sections.flatMap(section => annotateBalanceSequence(pdfPreview.rows.filter(row => row.sectionKey === section.key)))
+      : annotateBalanceSequence(pdfPreview.rows)
     const balanceChecks = sequencedRows.filter(r => r.balanceSequenceValid != null)
     return {
       includedRows: pdfPreview.rows.filter(r => r.include).length,
@@ -118,6 +123,22 @@ export default function PaymentSources() {
       balanceChecks: balanceChecks.length,
       balanceBreaks: balanceChecks.filter(r => r.balanceSequenceValid === false).length,
     }
+  })()
+  const sectionMappingError = pdfPreview && (() => {
+    const sections = pdfPreview.sections || []
+    const layoutError = validateSectionLayout(sections)
+    if (layoutError) return layoutError
+    if (sections.length > 1) return validateSectionMappings(sections, pdfPreview.sectionMappings || {}, accounts) ||
+      (!pdfPreview.companyOnlyConfirmed ? 'Confirm that this PDF contains company accounts only.' : null)
+    if (sections.length === 1) {
+      const account = accounts.find(a => a.id === pdfPreview.accountId)
+      if (account && (sections[0].currency !== account.settlementCurrency ||
+        (sections[0].accountType === 'credit_card' ? account.sourceType !== 'credit_card' : account.sourceType !== 'bank') ||
+        (account.ledgerType && account.ledgerType !== sections[0].accountType))) {
+        return 'The selected upload account does not match the PDF account type or currency. Cancel and choose the correct account.'
+      }
+    }
+    return null
   })()
 
   useEffect(() => {
@@ -301,7 +322,13 @@ export default function PaymentSources() {
   // re-upload from their computer, this replaces the existing import's
   // transactions in place: same import record, same stored file, freshly
   // parsed rows.
-  async function commitRows(mapped, account, file, sourceType, statementTotals, reprocessImportId, existingAttemptId, reviewedExclusions = []) {
+  async function commitRows(mapped, account, file, sourceType, statementTotals, reprocessImportId, existingAttemptId, reviewedExclusions = [], accountSections = []) {
+    if (reprocessImportId && accountSections.length > 1) throw new Error('Multi-account statements cannot be replaced automatically. They need a guarded account repair.')
+    const accountBySection = new Map(accountSections.map(section => [section.key, accounts.find(a => a.id === section.paymentAccountId)]))
+    if (accountSections.length > 1 && mapped.some(row => !accountBySection.get(row.sectionKey))) throw new Error('Every row needs a valid account mapping.')
+    const importAccounts = accountSections.length > 1 ? [...new Set(accountBySection.values())] : [account]
+    if (importAccounts.some(a => !a || a.active === false)) throw new Error('An account is no longer available. Review account choices again.')
+    if (accountSections.length > 1 && importAccounts.some(a => a.ownershipType === 'personal')) throw new Error('Multi-account PDFs containing personal accounts cannot be imported safely.')
     let importRef
     let sourceFileError = null
     if (reprocessImportId) {
@@ -318,6 +345,7 @@ export default function PaymentSources() {
         await batch.commit()
       }
       await updateDoc(importRef, {
+        ...(accountSections.length > 1 ? { paymentAccountId: accountSections[0].paymentAccountId } : {}),
         periodStart: mapped.reduce((min, t) => !min || (t.transactionDate && t.transactionDate < min) ? t.transactionDate : min, null),
         periodEnd: mapped.reduce((max, t) => !max || (t.transactionDate && t.transactionDate > max) ? t.transactionDate : max, null),
         importStatus: 'processing',
@@ -328,10 +356,12 @@ export default function PaymentSources() {
         closingBalance: statementTotals?.closingBalance ?? null,
         totalsCheck: null,
         verification: null,
+        accountSections,
       })
     } else if (existingAttemptId) {
       importRef = doc(db, 'paymentImports', existingAttemptId)
       await updateDoc(importRef, {
+        ...(accountSections.length > 1 ? { paymentAccountId: accountSections[0].paymentAccountId } : {}),
         periodStart: mapped.reduce((min, t) => !min || (t.transactionDate && t.transactionDate < min) ? t.transactionDate : min, null),
         periodEnd: mapped.reduce((max, t) => !max || (t.transactionDate && t.transactionDate > max) ? t.transactionDate : max, null),
         importStatus: 'processing',
@@ -342,6 +372,7 @@ export default function PaymentSources() {
         closingBalance: statementTotals?.closingBalance ?? null,
         totalsCheck: null,
         verification: null,
+        accountSections,
       })
       // Attempts are created before PDF review. Save the original here too,
       // otherwise the later "Check saved PDF" action has no source to read.
@@ -359,7 +390,7 @@ export default function PaymentSources() {
       importRef = await addDoc(collection(db, 'paymentImports'), {
         userId: auth.currentUser.uid,
         projectId: activeProject.id,
-        paymentAccountId: account.id,
+        paymentAccountId: accountSections.length > 1 ? accountSections[0].paymentAccountId : account.id,
         sourceType,
         sourceFileName: file.name,
         sourceFileUrl: null,
@@ -375,6 +406,7 @@ export default function PaymentSources() {
         closingBalance: statementTotals?.closingBalance ?? null,
         totalsCheck: null,
         verification: null,
+        accountSections,
       })
 
       // Keep the original statement file — the transaction rows are derived
@@ -399,23 +431,25 @@ export default function PaymentSources() {
     // which fingerprints identically) can be told apart per the accounting
     // rule: same date + same amount alone is never enough evidence to call
     // something a confirmed duplicate. See src/lib/duplicateDetection.js.
-    const existingSnap = await getDocs(query(
-      collection(db, 'paymentTransactions'),
-      where('projectId', '==', activeProject.id),
-      where('paymentAccountId', '==', account.id)
-    ))
     const existingByFingerprint = new Map()
-    for (const d of existingSnap.docs) {
-      const data = d.data()
-      const list = existingByFingerprint.get(data.fingerprintExact) || []
-      list.push({ id: d.id, importId: data.importId, rawRowText: data.rawRowText, balanceAfter: data.balanceAfter, merchantRaw: data.merchantRaw })
-      existingByFingerprint.set(data.fingerprintExact, list)
+    for (const importAccount of importAccounts) {
+      const existingSnap = await getDocs(query(
+        collection(db, 'paymentTransactions'),
+        where('projectId', '==', activeProject.id),
+        where('paymentAccountId', '==', importAccount.id)
+      ))
+      for (const d of existingSnap.docs) {
+        const data = d.data()
+        const list = existingByFingerprint.get(data.fingerprintExact) || []
+        list.push({ id: d.id, importId: data.importId, rawRowText: data.rawRowText, balanceAfter: data.balanceAfter, merchantRaw: data.merchantRaw })
+        existingByFingerprint.set(data.fingerprintExact, list)
+      }
     }
 
     // Merchant rules only apply to personal accounts (company accounts have
     // no classification at all) — skip the read entirely otherwise.
     const rulesByMerchant = new Map()
-    if (account.ownershipType === 'personal') {
+    if (importAccounts[0].ownershipType === 'personal') {
       const rulesSnap = await getDocs(query(
         collection(db, 'merchantRules'),
         where('projectId', '==', activeProject.id)
@@ -436,21 +470,22 @@ export default function PaymentSources() {
     // balance plus this row's own credit/debit, in the statement's own
     // original order — never re-sorted by date, since two same-day rows
     // must keep their printed sequence to be checked correctly.
-    const sequenced = annotateBalanceSequence(mapped)
+    const sequenced = accountSections.length > 1 ? annotateAccountSections(mapped) : annotateBalanceSequence(mapped)
 
     const rowsToWrite = []
     const counts = { verified_separate: 0, possible_duplicate: 0, confirmed_duplicate: 0, needs_review: 0 }
     for (const t of sequenced) {
+      const rowAccount = accountBySection.get(t.sectionKey) || account
       const merchantNormalized = normalizeMerchant(t.merchantRaw)
       const transactionType = classifyTransactionType(t.merchantRaw, t.direction)
       const { fingerprintExact, fingerprintLoose } = await computeFingerprints({
         projectId: activeProject.id,
-        accountId: account.id,
+        accountId: rowAccount.id,
         transactionDate: t.transactionDate,
         merchantNormalized,
         settlementAmount: t.settlementAmount,
         direction: t.direction,
-        settlementCurrency: account.settlementCurrency,
+        settlementCurrency: rowAccount.settlementCurrency,
       })
 
       // Collision rows = anything already on this account, or an earlier
@@ -460,7 +495,7 @@ export default function PaymentSources() {
       const collisionRows = existingByFingerprint.get(fingerprintExact) || []
       let duplicateStatus = null, duplicateReason = null, duplicateEvidence = null, duplicateOfTransactionId = null
       if (collisionRows.length) {
-        const result = classifyFingerprintCollision(t, collisionRows, account.sourceType, importRef.id)
+        const result = classifyFingerprintCollision(t, collisionRows, rowAccount.sourceType, importRef.id)
         duplicateStatus = result.status
         duplicateReason = result.reason
         duplicateEvidence = result.evidence
@@ -476,7 +511,7 @@ export default function PaymentSources() {
       // existing company accounts assume every transaction is inherently
       // company-related already, exactly as before this feature existed.
       const matchedRule = rulesByMerchant.get(merchantNormalized) || null
-      const classification = account.ownershipType === 'personal'
+      const classification = rowAccount.ownershipType === 'personal'
         ? classifyTransaction(t, { matchedExpenseId: null, rule: matchedRule })
         : null
 
@@ -506,14 +541,15 @@ export default function PaymentSources() {
         userId: auth.currentUser.uid,
         projectId: activeProject.id,
         importId: importRef.id,
-        paymentAccountId: account.id,
+        paymentAccountId: rowAccount.id,
+        ...(accountSections.length > 1 ? { statementSectionKey: t.sectionKey } : {}),
         transactionDate: t.transactionDate,
         postDate: t.postDate,
         rawDateText: t.rawDateText,
         merchantRaw: t.merchantRaw,
         merchantNormalized,
         settlementAmount: t.settlementAmount,
-        settlementCurrency: account.settlementCurrency,
+        settlementCurrency: rowAccount.settlementCurrency,
         direction: t.direction,
         transactionType,
         // Company-account rows are always visible to project collaborators
@@ -579,7 +615,7 @@ export default function PaymentSources() {
             date: t.transactionDate || t.postDate || '',
             vendor: merchantNormalized ? merchantNormalized.replace(/\b\w/g, c => c.toUpperCase()) : t.merchantRaw,
             amount: t.settlementAmount,
-            currency: account.settlementCurrency,
+            currency: rowAccount.settlementCurrency,
             category: matchedRule.autoCreateCategory || 'Other',
             notes: `Auto-created from merchant rule for "${matchedRule.merchantLabel || merchantNormalized}". Statement description: "${t.merchantRaw}".`,
             paymentMethod: '',
@@ -591,10 +627,10 @@ export default function PaymentSources() {
             sourceStatementImportId: importRef.id,
             sourceStatementRowText: t.rawRowText || null,
             settlementAmount: t.settlementAmount,
-            settlementCurrency: account.settlementCurrency,
+            settlementCurrency: rowAccount.settlementCurrency,
             settlementStatus: 'confirmed',
             matchedPaymentTransactionId: txnRef.id,
-            matchedPaymentAccountId: account.id,
+            matchedPaymentAccountId: rowAccount.id,
             createdAt: serverTimestamp(),
           },
         })
@@ -615,7 +651,9 @@ export default function PaymentSources() {
     // written row equal the statement's own printed closing balance? This
     // exists to catch OUR parsing mistakes, not the bank's figures — see
     // validateStatementTotals in duplicateDetection.js.
-    const totalsCheck = statementTotals
+    const totalsCheck = statementTotals?.sections?.length > 1
+      ? null
+      : statementTotals
       ? validateStatementTotals({ openingBalance: statementTotals.openingBalance, closingBalance: statementTotals.closingBalance, rows: rowsToWrite })
       : null
 
@@ -749,13 +787,15 @@ export default function PaymentSources() {
       })
       if (!resp.ok) throw new Error(`could not re-fetch the stored file (HTTP ${resp.status})`)
       const blob = await resp.blob()
-      const { rows: reparsedRows, openingBalance, closingBalance, needsOcr } = await parsePdfStatement(blob, { allowOcr })
+      const { rows: reparsedRows, sections, openingBalance, closingBalance, needsOcr } = await parsePdfStatement(blob, { allowOcr })
       if (needsOcr) {
         const verification = { verifiedAt: serverTimestamp(), needsOcr: true, consistent: false }
         await updateDoc(doc(db, 'paymentImports', imp.id), { verification })
         return { ...verification, fileName: imp.sourceFileName }
       }
       if (!reparsedRows.length) throw new Error('No transactions could be read from the original PDF')
+      const layoutError = validateSectionLayout(sections)
+      if (layoutError) throw new Error(layoutError)
 
       const storedSnap = await getDocs(query(
         collection(db, 'paymentTransactions'),
@@ -763,6 +803,24 @@ export default function PaymentSources() {
         where('importId', '==', imp.id)
       ))
       const storedRows = storedSnap.docs.map(d => d.data())
+
+      if (sections.length > 1 && !imp.accountSections?.length) {
+        throw new Error('This older PDF contains multiple accounts, but its saved rows have no account assignments. It needs a guarded account repair; no records were changed.')
+      }
+      if (imp.accountSections?.length > 1 && sections.length <= 1) throw new Error('The account sections could not be read again. Saved records were not changed.')
+
+      if (sections.length > 1) {
+        const compared = compareSavedAccountSections(sections, reparsedRows, storedRows, imp.accountSections, imp.reviewedExclusions)
+        const verification = {
+          verifiedAt: serverTimestamp(), reparsedCount: reparsedRows.length, storedCount: storedRows.length,
+          ...compared, sectionChecks: sections.map(section => ({ key: section.key, label: section.label, totalsCheck: section.totalsCheck })),
+          accountAware: true,
+          reviewedExclusionCount: compared.reviewedConsistent ? imp.reviewedExclusions?.length || 0 : 0,
+          ocrUsed: allowOcr,
+        }
+        await updateDoc(doc(db, 'paymentImports', imp.id), { verification })
+        return { ...verification, fileName: imp.sourceFileName }
+      }
 
       const { missingFromRecords, extraInRecords, missingRows, extraRows } = diffTransactionSets(reparsedRows, storedRows)
       const totalsCheck = validateStatementTotals({ openingBalance, closingBalance, rows: reparsedRows })
@@ -772,6 +830,7 @@ export default function PaymentSources() {
 
       const verification = {
         verifiedAt: serverTimestamp(),
+        accountAware: true,
         reparsedCount: reparsedRows.length,
         storedCount: storedRows.length,
         missingFromRecords,
@@ -987,7 +1046,7 @@ export default function PaymentSources() {
     })
     setImporting(true)
     try {
-      const { rows, lineCount, pageCount, openingBalance, closingBalance, aiFallbackError, parseWarnings, needsOcr } = await parsePdfStatement(file, {
+      const { rows, sections, lineCount, pageCount, openingBalance, closingBalance, aiFallbackError, parseWarnings, needsOcr } = await parsePdfStatement(file, {
         allowOcr,
         onProgress: progress => setPdfBatchProgress(prev => prev && { ...prev, part: null, totalParts: null, ...progress }),
       })
@@ -1016,16 +1075,16 @@ export default function PaymentSources() {
       // Checked against the FULL parsed set, before the user excludes
       // anything — this is a signal of whether OUR extraction of this PDF
       // is correct, independent of what gets committed.
-      const totalsCheck = validateStatementTotals({ openingBalance, closingBalance, rows })
+      const totalsCheck = sections.length > 1 ? null : validateStatementTotals({ openingBalance, closingBalance, rows })
       await updateDoc(doc(db, 'paymentImports', attemptId), {
         importStatus: 'needs_review',
         lineCount: rows.length,
-        openingBalance: openingBalance ?? null,
-        closingBalance: closingBalance ?? null,
+        openingBalance: sections.length > 1 ? null : openingBalance ?? null,
+        closingBalance: sections.length > 1 ? null : closingBalance ?? null,
         ocrUsed: allowOcr,
         updatedAt: serverTimestamp(),
       }).catch(() => {})
-      setPdfPreview({ file, fileName: file.name, accountId, attemptId, openingBalance, closingBalance, totalsCheck, parseWarnings, aiFallbackError, rows: rows.map(r => ({ ...r, include: true })) })
+      setPdfPreview({ file, fileName: file.name, accountId, attemptId, openingBalance, closingBalance, totalsCheck, sections, sectionMappings: {}, companyOnlyConfirmed: false, parseWarnings, aiFallbackError, rows: rows.map(r => ({ ...r, include: true })) })
       setPdfQueue(remainingQueue)
       setPdfBatchProgress(prev => prev && { ...prev, stage: 'review' })
     } catch (err) {
@@ -1154,7 +1213,34 @@ export default function PaymentSources() {
     setPdfPreview(prev => ({ ...prev, rows: prev.rows.map((r, idx) => idx === i ? { ...r, include: !r.include } : r) }))
   }
 
+  async function createSectionAccount(section) {
+    if (!sectionAccountDraft?.label.trim()) return
+    setSaving(true)
+    try {
+      const ref = await addDoc(collection(db, 'paymentAccounts'), {
+        label: sectionAccountDraft.label.trim(),
+        sourceType: section.accountType === 'credit_card' ? 'credit_card' : 'bank',
+        ledgerType: section.accountType,
+        settlementCurrency: section.currency,
+        ownershipType: 'company',
+        accountTail: null,
+        institutionName: null,
+        userId: auth.currentUser.uid,
+        projectId: activeProject.id,
+        active: true,
+        createdAt: serverTimestamp(),
+      })
+      setPdfPreview(prev => ({ ...prev, sectionMappings: { ...prev.sectionMappings, [section.key]: ref.id } }))
+      setSectionAccountDraft(null)
+    } catch (err) {
+      setImportMsg(`Could not add account: ${err.message || 'unknown error'}`)
+    } finally {
+      setSaving(false)
+    }
+  }
+
   async function confirmPdfImport() {
+    if (sectionMappingError) { setImportMsg(sectionMappingError); return }
     const account = accounts.find(a => a.id === pdfPreview.accountId)
     const toImport = pdfPreview.rows.filter(r => r.include)
     const accountId = pdfPreview.accountId
@@ -1164,10 +1250,18 @@ export default function PaymentSources() {
     if (!reprocessImportId) setPdfBatchProgress(prev => prev && { ...prev, stage: 'saving' })
     setImporting(true)
     try {
+      const accountSections = pdfPreview.sections?.length > 1
+        ? checkAccountSections(pdfPreview.sections, pdfPreview.rows).map(section => ({
+          key: section.key, label: section.label, currency: section.currency, accountType: section.accountType,
+          openingBalance: section.openingBalance, closingBalance: section.closingBalance,
+          paymentAccountId: pdfPreview.sectionMappings[section.key],
+        }))
+        : []
       const { written, flagged, sourceFileError } = await commitRows(toImport, account, pdfPreview.file, 'pdf', {
-        openingBalance: pdfPreview.openingBalance,
-        closingBalance: pdfPreview.closingBalance,
-      }, reprocessImportId, existingAttemptId, pdfPreview.rows.filter(r => !r.include).map(reviewedRow))
+        openingBalance: accountSections.length > 1 ? null : pdfPreview.openingBalance,
+        closingBalance: accountSections.length > 1 ? null : pdfPreview.closingBalance,
+        sections: accountSections,
+      }, reprocessImportId, existingAttemptId, pdfPreview.rows.filter(r => !r.include).map(reviewedRow), accountSections)
       let recheckNote = ''
       // Re-verify immediately so the Mismatch badge clears (or shows what,
       // if anything, is still off) without a separate manual step — and say
@@ -1236,13 +1330,16 @@ export default function PaymentSources() {
       if (!resp.ok) throw new Error(`could not re-fetch the stored file (HTTP ${resp.status})`)
       const blob = await resp.blob()
       const file = new File([blob], imp.sourceFileName || 'statement.pdf', { type: blob.type })
-      const { rows, lineCount, pageCount, openingBalance, closingBalance, parseWarnings, aiFallbackError } = await parsePdfStatement(file, { allowOcr: imp.ocrUsed === true || imp.verification?.ocrUsed === true })
+      const { rows, sections, lineCount, pageCount, openingBalance, closingBalance, parseWarnings, aiFallbackError } = await parsePdfStatement(file, { allowOcr: imp.ocrUsed === true || imp.verification?.ocrUsed === true })
       if (!rows.length) {
         setImportMsg(`${imp.sourceFileName}: re-parsing the stored PDF found ${lineCount === 0 ? 'no text' : `${lineCount} lines across ${pageCount} page(s) but no recognizable transaction rows`} — this can't be auto-fixed. Try Delete and a manual re-upload instead.`)
         setImporting(false)
         setReprocessingImportId(null)
         return
       }
+      const layoutError = validateSectionLayout(sections)
+      if (layoutError) throw new Error(layoutError)
+      if (sections.length > 1) throw new Error('This PDF contains multiple accounts. Automatic replacement is not safe; it needs a guarded account repair.')
       const totalsCheck = validateStatementTotals({ openingBalance, closingBalance, rows })
       setPdfPreview({
         file, fileName: imp.sourceFileName, accountId: imp.paymentAccountId,
@@ -1479,14 +1576,51 @@ export default function PaymentSources() {
               Check the rows before importing. You can re-check the saved PDF afterward.
               {pdfQueue.length > 0 && ` ${pdfQueue.length} more PDF${pdfQueue.length === 1 ? '' : 's'} queued after this one.`}
             </p>
+            {pdfPreview.sections?.length > 1 && (
+              <div className="statement-section-list">
+                <strong>{pdfPreview.sections.length} account sections found — choose where each belongs</strong>
+                <p className="hint">The PDF stays as one original file. Each row is saved to the account shown for its section. Check the bank's account names before importing.</p>
+                {pdfPreview.sections.map(section => {
+                  const checked = checkAccountSections([section], pdfPreview.rows)[0]
+                  return (
+                    <div className="statement-section-card" key={section.key}>
+                      <label className="statement-filter-field">{section.label} · {checked.rowCount} row{checked.rowCount === 1 ? '' : 's'}
+                        <select value={pdfPreview.sectionMappings?.[section.key] || ''} onChange={e => setPdfPreview(prev => ({ ...prev, sectionMappings: { ...prev.sectionMappings, [section.key]: e.target.value } }))}>
+                          <option value="">Choose account…</option>
+                          {accounts.filter(a => a.active !== false && a.settlementCurrency === section.currency && a.sourceType === (section.accountType === 'credit_card' ? 'credit_card' : 'bank') && (!a.ledgerType || a.ledgerType === section.accountType)).map(a => <option key={a.id} value={a.id}>{a.label}</option>)}
+                        </select>
+                      </label>
+                      <span className={checked.totalsCheck?.consistent === false || checked.balanceBreaks ? 'error-msg' : 'hint'}>
+                        {checked.totalsCheck ? checked.totalsCheck.consistent ? 'Opening and closing balances match.' : 'Balance totals need attention.' : 'No opening/closing balance pair to check.'}
+                        {checked.balanceBreaks ? ` ${checked.balanceBreaks} running-balance difference(s).` : ''}
+                      </span>
+                      {section.supportedCurrency && <button className="btn-small" onClick={() => setSectionAccountDraft({ key: section.key, label: section.label })}>Add {section.currency} account</button>}
+                      {sectionAccountDraft?.key === section.key && (
+                        <div className="action-row">
+                          <input aria-label="New account name" value={sectionAccountDraft.label} onChange={e => setSectionAccountDraft({ ...sectionAccountDraft, label: e.target.value })} />
+                          <button className="btn-primary btn-small" disabled={saving || !sectionAccountDraft.label.trim()} onClick={() => createSectionAccount(section)}>Create account</button>
+                          <button className="btn-ghost btn-small" onClick={() => setSectionAccountDraft(null)}>Cancel</button>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+                <label className="checkbox-row">
+                  <input type="checkbox" checked={!!pdfPreview.companyOnlyConfirmed} onChange={e => setPdfPreview(prev => ({ ...prev, companyOnlyConfirmed: e.target.checked }))} />
+                  I checked the PDF: every account section belongs to the company.
+                </label>
+                {sectionMappingError && <p className="error-msg" role="alert">{sectionMappingError}</p>}
+              </div>
+            )}
+            {pdfPreview.sections?.length <= 1 && sectionMappingError && <p className="error-msg" role="alert">{sectionMappingError}</p>}
             <div className={`statement-review-summary ${!pdfPreview.totalsCheck || pdfPreview.totalsCheck.consistent ? '' : 'statement-review-summary-warning'}`}>
               <strong>{pdfReviewSummary.includedRows} rows ready to import</strong>
               {pdfPreview.rows.length > pdfReviewSummary.includedRows && <span>{pdfPreview.rows.length - pdfReviewSummary.includedRows} excluded row(s) will be recorded as your review decision.</span>}
-              <span>
+              {(!pdfPreview.sections || pdfPreview.sections.length <= 1) && <span>
                 {pdfPreview.totalsCheck
                   ? pdfPreview.totalsCheck.consistent ? 'Totals match the statement.' : 'Totals need attention.'
                   : 'No opening/closing totals found to check.'}
-              </span>
+              </span>}
               {pdfReviewSummary.balanceChecks > 0 && (
                 <span>{pdfReviewSummary.balanceBreaks ? `${pdfReviewSummary.balanceBreaks} running-balance check${pdfReviewSummary.balanceBreaks === 1 ? '' : 's'} need attention.` : `${pdfReviewSummary.balanceChecks} running-balance checks passed.`}</span>
               )}
@@ -1520,13 +1654,16 @@ export default function PaymentSources() {
                 </thead>
                 <tbody>
                   {pdfPreview.rows.map((r, i) => (
-                    <tr key={i} style={{ opacity: r.include ? 1 : 0.4 }}>
+                    <Fragment key={i}>
+                    {pdfPreview.sections?.length > 1 && (i === 0 || pdfPreview.rows[i - 1].sectionKey !== r.sectionKey) && <tr className="statement-review-section-row"><th colSpan={5}>{pdfPreview.sections.find(section => section.key === r.sectionKey)?.label || 'Unidentified section'}</th></tr>}
+                    <tr style={{ opacity: r.include ? 1 : 0.4 }}>
                       <td><input type="checkbox" checked={r.include} onChange={() => togglePreviewRow(i)} /></td>
                       <td>{r.transactionDate}</td>
                       <td>{r.merchantRaw}{r.extractionMethod === 'ai_assisted' && <span className="hint"> (AI{r.evidenceWarning ? ' — check source' : ''})</span>}{r.evidenceWarning && <div className="hint">Printed line: {r.rawRowText}</div>}</td>
                       <td data-amount="true">{r.direction === 'debit' ? '-' : '+'}{r.settlementAmount.toFixed(2)}</td>
                       <td data-amount="true">{r.balanceAfter != null ? r.balanceAfter.toFixed(2) : '—'}</td>
                     </tr>
+                    </Fragment>
                   ))}
                 </tbody>
               </table>
@@ -1536,7 +1673,7 @@ export default function PaymentSources() {
                 reviewing rows before writing them is defeated if finding
                 the confirm button needs its own scrolling. */}
             <div className="action-row" style={{ marginTop: 12 }}>
-              <button className="btn-primary" disabled={importing || !pdfPreview.rows.some(r => r.include)} onClick={confirmPdfImport}>
+              <button className="btn-primary" disabled={importing || !!sectionMappingError || !pdfPreview.rows.some(r => r.include)} onClick={confirmPdfImport}>
                 {importing ? 'Importing…' : `Import ${pdfPreview.rows.filter(r => r.include).length} Row(s)`}
               </button>
               <button className="btn-ghost" disabled={importing} onClick={skipPdfPreview}>{pdfQueue.length > 0 ? 'Skip' : 'Cancel'}</button>
@@ -1580,7 +1717,9 @@ export default function PaymentSources() {
                   <Fragment key={imp.id}>
                     <tr className="statement-record-row" id={`import-row-${imp.id}`} style={imp.lineCount === 0 ? { opacity: 0.55 } : undefined}>
                       <td><span className="mobile-only statement-mobile-label">File</span>{imp.sourceFileName}{imp.lineCount === 0 && <span className="hint"> (empty — safe to delete)</span>}</td>
-                      <td><span className="mobile-only statement-mobile-label">Account</span>{accounts.find(a => a.id === imp.paymentAccountId)?.label || '—'}</td>
+                      <td><span className="mobile-only statement-mobile-label">Account</span>{imp.accountSections?.length > 1
+                        ? imp.accountSections.map(section => accounts.find(a => a.id === section.paymentAccountId)?.label || section.label).join(' · ')
+                        : accounts.find(a => a.id === imp.paymentAccountId)?.label || '—'}</td>
                       <td><span className="mobile-only statement-mobile-label">Period</span>{imp.periodStart && imp.periodEnd ? `${imp.periodStart} – ${imp.periodEnd}` : '—'}</td>
                       <td><span className="mobile-only statement-mobile-label">Rows</span>{imp.lineCount}</td>
                       <td>
@@ -1613,13 +1752,18 @@ export default function PaymentSources() {
                             </>
                           ) : imp.verification.error ? (
                             <>
-                              <span className="badge badge-warning"><WarningIcon size={12} strokeWidth={ICON_STROKE_WIDTH} aria-hidden="true" /> Couldn't re-check</span>
+                              <span className="badge badge-warning"><WarningIcon size={12} strokeWidth={ICON_STROKE_WIDTH} aria-hidden="true" /> {imp.verification.error.includes('guarded account repair') ? 'Account review needed' : "Couldn't re-check"}</span>
                               <div className="hint" style={{ maxWidth: 220 }}>{imp.verification.error}</div>
                             </>
                           ) : imp.verification.reparsedCount === 0 && imp.verification.storedCount > 0 ? (
                             <>
                               <span className="badge badge-warning"><WarningIcon size={12} strokeWidth={ICON_STROKE_WIDTH} aria-hidden="true" /> Couldn't re-check</span>
                               <div className="hint" style={{ maxWidth: 220 }}>This PDF could not be read again. The saved transactions were not changed.</div>
+                            </>
+                          ) : imp.verification.consistent && !imp.verification.accountAware ? (
+                            <>
+                              <span className="badge badge-office" title="The old check compared rows but did not check account sections."><MatchedIcon size={12} strokeWidth={ICON_STROKE_WIDTH} aria-hidden="true" /> Rows checked</span>
+                              <div className="hint" style={{ maxWidth: 220 }}>Older checks did not confirm which account each row belongs to. Re-check if this PDF combines accounts.</div>
                             </>
                           ) : imp.verification.consistent ? (
                             <span className="badge badge-office" title="A fresh PDF reading matches the saved transactions and totals."><MatchedIcon size={12} strokeWidth={ICON_STROKE_WIDTH} aria-hidden="true" /> Checked</span>
@@ -1638,6 +1782,8 @@ export default function PaymentSources() {
                                   imp.verification.totalsCheck && !imp.verification.totalsCheck.consistent
                                     ? `Totals mismatch: expected closing ${imp.verification.totalsCheck.expectedClosingBalance.toFixed(2)}, statement shows ${imp.verification.totalsCheck.closingBalance.toFixed(2)}`
                                     : null,
+                                  imp.verification.mappingMatches === false ? 'Account assignment differs from the saved PDF' : null,
+                                  imp.verification.totalsMatch === false ? 'An account section balance does not match' : null,
                                 ].filter(Boolean).join(' · ')}
                               </div>
                               {(imp.verification.missingRows?.length > 0 || imp.verification.extraRows?.length > 0) && (
@@ -1661,10 +1807,10 @@ export default function PaymentSources() {
                                   )}
                                 </details>
                               )}
-                              {imp.verification.missingFromRecords > 0 && imp.verification.extraInRecords === 0 && imp.verification.missingRows?.length === imp.verification.missingFromRecords && imp.verification.totalsCheck?.consistent !== false && (
+                              {imp.verification.missingFromRecords > 0 && imp.verification.extraInRecords === 0 && imp.verification.missingRows?.length === imp.verification.missingFromRecords && imp.verification.totalsCheck?.consistent !== false && imp.verification.mappingMatches !== false && imp.verification.totalsMatch !== false && (
                                 <button className="btn-small" style={{ marginTop: 4 }} disabled={importing || !!pdfPreview || !!verifyingImportId} onClick={() => reviewMissingPdfRows(imp)}>Review excluded row(s)</button>
                               )}
-                              <button className="btn-small" style={{ marginTop: 4, minWidth: 140 }} disabled={importing || !!pdfPreview || !!verifyingImportId} onClick={() => reprocessFromStoredPdf(imp)}>
+                              <button className="btn-small" style={{ marginTop: 4, minWidth: 140 }} disabled={importing || !!pdfPreview || !!verifyingImportId || imp.accountSections?.length > 1} title={imp.accountSections?.length > 1 ? 'Multi-account imports require a guarded account repair.' : undefined} onClick={() => reprocessFromStoredPdf(imp)}>
                                 {reprocessingImportId === imp.id ? 'Reading PDF…' : 'Fix from Stored PDF'}
                               </button>
                               {reprocessingImportId === imp.id && (
