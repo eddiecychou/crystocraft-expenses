@@ -866,3 +866,7 @@ The importer treats the first CSV row as headings, not data. A two-column file i
 # Document upload navigation (2026-10-12)
 
 A generic “Upload” menu item that opens only receipt extraction can send a bank statement PDF to the wrong parser: both accept PDF, but only the statement flow creates an import attempt and transaction-row review. Lead desktop and mobile users through the same explicit receipt-or-statement choice. Call the destination “Statements & Accounts,” and when there is no account, offer account setup directly in that page instead of leaving an unavailable import action. Invoice/PO PDF options remain outside this choice until their extraction has been validated separately.
+
+# A Savings balance is not a Savings transaction (2026-10-21)
+
+A combined statement can list a Savings account in its balance summary and even show an empty Savings activity table. Do not reassign the statement's Current-account rows merely because Savings appears in the PDF. Compare the original activity tables with stored rows and account IDs first; migrate only rows supported by a Savings transaction. Tiffany's January 2025 PDF showed a HKD 5 debit balance with zero Savings movements, February showed one HKD 5 Savings deposit, and March–December showed no Savings section. Only February's row needed a Savings mapping; it had already been repaired before this audit.
