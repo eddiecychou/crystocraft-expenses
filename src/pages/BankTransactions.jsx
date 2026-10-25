@@ -14,7 +14,7 @@ import { paymentTransactionsQuery } from '../lib/projectAccess'
 import { resolveMatchedRecord } from '../lib/financeRecords'
 import { reconciliationStatusLabel } from '../lib/paymentMatching'
 import { CLASSIFICATION_LABELS } from '../lib/expenseClassification'
-import { STATEMENT_EXPORT_COLUMNS, statementExportRow } from '../lib/statementTransactionExport'
+import { STATEMENT_EXPORT_COLUMNS, sortStatementRowsByDate, statementExportRow } from '../lib/statementTransactionExport'
 
 function isoDate(d) { return d.toISOString().slice(0, 10) }
 function firstOfMonth() {
@@ -59,6 +59,7 @@ export default function BankTransactions() {
   const [directionFilter, setDirectionFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState('all')
   const [sourceFilter, setSourceFilter] = useState('all')
+  const [dateOrder, setDateOrder] = useState('desc')
 
   useEffect(() => {
     if (!activeProject) return
@@ -129,7 +130,7 @@ export default function BankTransactions() {
   }, [transactions, expenses, invoices, purchaseOrders, income])
 
   const filteredRows = useMemo(() => {
-    return rows.filter(({ txn, status }) => {
+    return sortStatementRowsByDate(rows.filter(({ txn, status }) => {
       if (from && (txn.transactionDate || '') < from) return false
       if (to && (txn.transactionDate || '') > to) return false
       if (accountFilter !== 'all' && txn.paymentAccountId !== accountFilter) return false
@@ -137,9 +138,9 @@ export default function BankTransactions() {
       if (statusFilter !== 'all' && status !== statusFilter) return false
       if (sourceFilter !== 'all' && accountOf(txn.paymentAccountId)?.sourceType !== sourceFilter) return false
       return true
-    }).sort((a, b) => (b.txn.transactionDate || '').localeCompare(a.txn.transactionDate || ''))
+    }), dateOrder)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, from, to, accountFilter, directionFilter, statusFilter, sourceFilter, accounts])
+  }, [rows, from, to, accountFilter, directionFilter, statusFilter, sourceFilter, dateOrder, accounts])
 
   const exportReady = loadedSources.projectId === activeProject?.id &&
     ['transactions', 'accounts', 'imports', 'expenses', 'invoices', 'purchaseOrders', 'income'].every(key => loadedSources[key])
@@ -217,13 +218,17 @@ export default function BankTransactions() {
           <option value="bank">Bank</option>
           <option value="credit_card">Credit Card</option>
         </select>
+        <select aria-label="Date order" value={dateOrder} onChange={e => setDateOrder(e.target.value)}>
+          <option value="desc">Newest first</option>
+          <option value="asc">Oldest first</option>
+        </select>
       </div>
 
       <div className="filter-row" style={{ marginBottom: 12 }}>
         <button className="btn-small btn-ghost" onClick={downloadExcel} disabled={!exportReady || !filteredRows.length || exporting}>
           {exporting ? 'Preparing Excel…' : `Download Excel (${filteredRows.length} rows)`}
         </button>
-        <span className="hint">Downloads the rows matching these filters. Personal-account transactions may be included; keep the file private.</span>
+        <span className="hint">Downloads matching rows in the order shown. Debits are negative; credits are positive. Personal-account transactions may be included; keep the file private.</span>
       </div>
       {exportError && <p className="error-msg">{exportError}</p>}
 

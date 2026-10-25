@@ -10,6 +10,10 @@ Each entry says what happened, why it matters, and how to apply it going forward
 
 The Imported Transactions Excel export uses the page's existing filtered rows. A collaborator's `paymentTransactionsQuery` already restricts personal-account rows that are not visible to members; a separate broad export query would bypass that UI constraint. Wait for all related subscriptions before exporting so account names and reconciliation statuses do not reflect a partially loaded page. Keep original-file token URLs out of the workbook; filenames and transaction IDs are enough to trace a row.
 
+The transaction model stores an unsigned amount plus debit/credit direction. For spreadsheet analysis, export one numeric Amount column with debits negative and credits positive, and use actual Excel date cells for valid ISO dates. The page's date-order control and download must share the same row array so the workbook arrives in the order the user chose; this also avoids relying on Excel's own sort when a client's Excel crashes. Preserve zero as zero and leave ambiguous date text unconverted.
+
+Audit the entire export schema, not just the transaction Amount: running balances need the same numeric display format, while account codes and transaction IDs must stay text so leading zeros survive. An absent financial number is blank, not zero; a malformed number must stop the export visibly rather than become a plausible-looking value.
+
 ---
 
 ## An optional migration must not gate an already-loaded project
