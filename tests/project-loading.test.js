@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import vm from 'node:vm'
 import { build } from 'esbuild'
 
-async function setup({ expenseRead, projectSnapshot, membershipAlreadyMigrated = true }) {
+async function setup({ expenseRead, projectSnapshot, membershipAlreadyMigrated = true, authUser }) {
   const state = []
   const saved = new Map(membershipAlreadyMigrated ? [['projects_membership_migrated_tiffany', '1']] : [])
   const calls = { addProject: 0 }
@@ -67,7 +67,7 @@ async function setup({ expenseRead, projectSnapshot, membershipAlreadyMigrated =
     return value
   }
   render()
-  await authChanged({ uid: 'tiffany', email: 'bookkeeper@example.test' })
+  await authChanged(authUser || { uid: 'tiffany', email: 'bookkeeper@example.test' })
   if (projectSnapshot) await snapshotChanged(projectSnapshot)
   return { render, snapshotChanged, snapshotFailed, calls, saved }
 }
@@ -98,6 +98,20 @@ test('a genuinely empty project list still creates the Default project', async (
   const app = await setup({ expenseRead: () => Promise.resolve({ docs: [] }) })
   await app.snapshotChanged({ docs: [] })
   assert.equal(app.calls.addProject, 1)
+})
+
+test('a new unverified password account does not start project setup', async () => {
+  const app = await setup({
+    expenseRead: () => Promise.resolve({ docs: [] }),
+    authUser: {
+      uid: 'pending', email: 'mistyped@example.test', emailVerified: false,
+      providerData: [{ providerId: 'password' }],
+      metadata: { creationTime: '2026-10-27T00:00:00Z' },
+    },
+  })
+  assert.equal(app.render().loading, false)
+  assert.equal(app.calls.addProject, 0)
+  assert.equal(app.snapshotChanged, undefined)
 })
 
 test('a failed project query is surfaced instead of looking like no project', async () => {

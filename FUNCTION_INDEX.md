@@ -12,6 +12,12 @@ some of these functions look the way they do, see [LESSONS_LEARNED.md](LESSONS_L
 
 ## `src/lib/` — pure logic modules (no React, no Firestore access)
 
+### [emailVerification.js](src/lib/emailVerification.js)
+
+| Function | Purpose |
+|---|---|
+| `requiresEmailVerification(user)` | Gates password accounts created after the fixed 2026-10-26 rollout boundary until the email is confirmed; keeps existing password accounts and Google sign-in available. Used by the route guard, project listener, and user-profile writer. |
+
 ### [accountCodes.js](src/lib/accountCodes.js) — Account Codes (Finance repositioning MVP-3)
 
 | Function | Purpose |

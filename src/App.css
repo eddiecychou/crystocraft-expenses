@@ -302,6 +302,11 @@ body {
   text-decoration: underline;
 }
 
+.login-verify-copy { color: #4a5568; font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; margin-bottom: 12px; }
+.login-verify-actions { display: flex; justify-content: space-between; gap: 12px; margin-top: 20px; }
+.login-verify-actions button { background: none; border: none; color: var(--t-btn); font-size: 13px; cursor: pointer; padding: 0; text-decoration: underline; }
+.login-verify-actions button:disabled { opacity: 0.6; cursor: not-allowed; }
+
 /* Despite the name (kept as-is so Login.jsx doesn't need a rename), this
    is a success confirmation (e.g. "password reset email sent"), not a
    blue "info" state — colored accordingly. */

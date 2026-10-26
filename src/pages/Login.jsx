@@ -1,10 +1,12 @@
 import { useState } from 'react'
 import {
   signInWithEmailAndPassword, createUserWithEmailAndPassword,
-  signInWithPopup, GoogleAuthProvider, sendPasswordResetEmail
+  signInWithPopup, GoogleAuthProvider, sendPasswordResetEmail,
+  sendEmailVerification
 } from 'firebase/auth'
 import { auth } from '../firebase'
 import { useNavigate } from 'react-router-dom'
+import { requiresEmailVerification } from '../lib/emailVerification'
 
 const googleProvider = new GoogleAuthProvider()
 
@@ -23,11 +25,17 @@ export default function Login() {
     setLoading(true)
     try {
       if (mode === 'signup') {
-        await createUserWithEmailAndPassword(auth, email, password)
+        const { user } = await createUserWithEmailAndPassword(auth, email.trim(), password)
+        try {
+          await sendEmailVerification(user)
+          navigate('/verify-email', { replace: true })
+        } catch {
+          navigate('/verify-email', { replace: true, state: { sendFailed: true } })
+        }
       } else {
-        await signInWithEmailAndPassword(auth, email, password)
+        const { user } = await signInWithEmailAndPassword(auth, email.trim(), password)
+        navigate(requiresEmailVerification(user) ? '/verify-email' : '/', { replace: true })
       }
-      navigate('/')
     } catch (err) {
       if (err.code === 'auth/email-already-in-use') setError('An account with this email already exists.')
       else if (err.code === 'auth/weak-password') setError('Password must be at least 6 characters.')

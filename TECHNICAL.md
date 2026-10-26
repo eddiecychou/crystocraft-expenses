@@ -130,6 +130,12 @@ The frontend is a pure SPA deployed to Netlify. All API calls stay within the sa
 | Firestore | `users`, `projects`, `expenses`, `paymentAccounts`, `paymentImports`, `paymentTransactions`, `reconciliationActions`, `merchantRules` collections |
 | Storage | Receipt images at `receipts/{uid}/{expenseId}/image{n}.{ext}`; original statement files at `statements/{uid}/{importId}/{filename}` |
 
+### Email/password registration
+
+The local 2026-10-26 verification change makes a new email/password signup send a Firebase verification link and stay on `/verify-email` until the email is confirmed. The route guard and project/profile listeners use `requiresEmailVerification()` so an unverified new signup does not create a Default project or an invite-searchable `users/{uid}` profile. The confirmation screen shows the full address, supports resend, and lets the user sign out to correct a typo. Existing password accounts created before the rollout boundary retain access to avoid a sudden customer lockout; Google sign-in is unchanged. The rollout boundary is fixed in `src/lib/emailVerification.js` and must not advance on later builds.
+
+This is an app-flow safeguard, **not** a Firebase Auth creation block or a server-side security boundary: Firebase still creates a pending Auth user before the mailbox is confirmed, and current Firestore/Storage rules do not require `email_verified`. A future backend enforcement/migration would need an inventory and safe grandfathering of existing unverified users before changing rules. Do not describe pending Auth users as verified or delete an existing UID simply because its address appears mistyped.
+
 ### Firestore Collections
 
 **`users/{uid}`** — a profile doc kept in sync on every sign-in (see `useAuthState.js`); exists solely so project sharing can resolve an invite email to a uid, since Firebase Auth has no client-safe email→uid lookup

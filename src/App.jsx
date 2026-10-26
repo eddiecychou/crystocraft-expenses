@@ -17,11 +17,14 @@ import Export from './pages/Export'
 import Settings from './pages/Settings'
 import Layout from './components/Layout'
 import LoadingBar from './components/LoadingBar'
+import VerifyEmail from './pages/VerifyEmail'
+import { requiresEmailVerification } from './lib/emailVerification'
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuthState()
   if (loading) return <div className="page"><LoadingBar label="Loading…" /></div>
   if (!user) return <Navigate to="/login" replace />
+  if (requiresEmailVerification(user)) return <Navigate to="/verify-email" replace />
   return children
 }
 
@@ -31,6 +34,7 @@ export default function App() {
     <ProjectProvider>
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/verify-email" element={<VerifyEmail />} />
         <Route
           path="/"
           element={

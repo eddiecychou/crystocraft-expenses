@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { onAuthStateChanged } from 'firebase/auth'
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore'
 import { auth, db } from '../firebase'
+import { requiresEmailVerification } from '../lib/emailVerification'
 
 export function useAuthState() {
   const [user, setUser] = useState(null)
@@ -16,7 +17,7 @@ export function useAuthState() {
       // email" to a uid. Merge so this is always current without clobbering
       // anything else ever added to the doc; cheap and idempotent on every
       // sign-in.
-      if (u) {
+      if (u && !requiresEmailVerification(u)) {
         setDoc(doc(db, 'users', u.uid), {
           email: u.email,
           displayName: u.displayName || null,

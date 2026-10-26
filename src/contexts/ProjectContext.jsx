@@ -2,6 +2,7 @@ import { createContext, useContext, useState, useEffect } from 'react'
 import { collection, query, where, getDocs, onSnapshot, addDoc, serverTimestamp, writeBatch } from 'firebase/firestore'
 import { onAuthStateChanged } from 'firebase/auth'
 import { db, auth } from '../firebase'
+import { requiresEmailVerification } from '../lib/emailVerification'
 
 // Client/project IDENTITY color only — a dot, a left-border accent, a
 // badge tint. It no longer drives the sidebar/button brand theme (see
@@ -62,7 +63,9 @@ export function ProjectProvider({ children }) {
       // Clean up previous project listener when user changes
       if (projectUnsub) { projectUnsub(); projectUnsub = null }
 
-      if (!user) { setProjects([]); setProjectError(false); setLoading(false); return }
+      if (!user || requiresEmailVerification(user)) {
+        setProjects([]); setProjectError(false); setLoading(false); return
+      }
 
       setLoading(true)
       setProjectError(false)
