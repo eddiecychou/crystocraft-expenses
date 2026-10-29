@@ -115,6 +115,7 @@ some of these functions look the way they do, see [LESSONS_LEARNED.md](LESSONS_L
 | [statementAiEvidence.js](src/lib/statementAiEvidence.js) | Grounds AI rows in cited printed amount lines and flags description/balance values that could not be confirmed nearby. |
 | [statementImportOrder.js](src/lib/statementImportOrder.js) | Sorts statement imports newest period first and filters by account and overlapping statement-date range; attempts without a period appear only with date filters cleared. |
 | [statementAccountSections.js](src/lib/statementAccountSections.js) | Detects account headings, validates distinct same-currency/type company mappings, checks balances per section, and compares saved rows plus reviewed exclusions within their original account sections. |
+| [bankTransactionFilters.js](src/lib/bankTransactionFilters.js) | Filters project-visible transaction rows by date, account ID/name/number, stored account type, direction, reconciliation status, and source, then sorts them for both display and Excel download. |
 
 ### [pdfRedaction.js](src/lib/pdfRedaction.js)
 
@@ -240,7 +241,7 @@ No functions — a pure dispatcher with receipt and bank/card-statement choices 
 
 ### [BankTransactions.jsx](src/pages/BankTransactions.jsx) — statement-row browsing view (Finance repositioning MVP-4)
 
-`setPreset`, `accountOf`, and `importOf` support the **read-only** table over project-visible `paymentTransactions`, filtered by date/account/direction/status/source and ordered newest/oldest first via `sortStatementRowsByDate()`. `downloadExcel()` exports those same filtered rows in the displayed order after all page subscriptions have loaded, using `statementExportRow()` from `src/lib/statementTransactionExport.js` for signed numeric amounts, numeric running balances, typed dates, and text identifiers; it does not include source-file URLs. The per-row link to `/reconciliation?txn=<id>` remains the only action that changes workflow; all match/confirm/ignore/link actions stay in `Reconciliation.jsx`.
+`setPreset`, `accountOf`, and `importOf` support the table over project-visible `paymentTransactions`. `filterBankTransactionRows()` filters by date, exact account, account name/number search, stored Current/Savings/Credit card type, direction, status, and source, then orders newest/oldest first. `downloadExcel()` exports those same filtered rows after all page subscriptions have loaded, using `statementExportRow()` for signed numeric amounts, typed dates, and text identifiers. `openReceipt()`/`saveReceipt()` provide a direct receipt action for eligible debits: create a linked expense with a new receipt, link an existing expense with a receipt, or append a receipt to the linked expense. Firestore transactions guard project membership, current links, and concurrent changes; each new upload uses a unique Storage path. Other actions stay in `Reconciliation.jsx`.
 
 ### [Upload.jsx](src/pages/Upload.jsx)
 
@@ -294,7 +295,7 @@ The statement-list Actions cell groups View/Edit, Original/Attach, Check, and De
 | Function | Line | Purpose |
 |---|---|---|
 | `fetchWithTimeout(url, options, timeoutMs)` | 25 | Module-level — `AbortController`-based fetch timeout (30s default), wraps every `/api/download-receipt` call so one stalled request can't hang a batch operation. |
-| `createAccount()` | 132 | Creates a new bank/credit-card account. |
+| `createAccount()` / `saveEditAccount()` | — | Creates or edits a bank/card account, including an explicit Current/Savings ledger type for bank accounts; older accounts keep an unset type until the user chooses one. |
 | `commitRows(mapped, account, file, sourceType, statementTotals, reprocessImportId, existingAttemptId, reviewedExclusions, accountSections)` | — | **Core import writer.** Keeps one original/import record; for multi-account PDFs, uses each row's reviewed section mapping for account, currency, fingerprints, duplicate query, and visibility. Rejects personal multi-account mapping and automatic multi-account replacement. Single-account CSV/PDF behavior stays compatible. |
 | `resolveDuplicate(txn, newStatus)` | 375 | Applies Keep as Separate / Confirm Duplicate to a flagged transaction; restores `status: 'unmatched'` if it was previously `ignored`. |
 | `dismissDuplicateWarning(txn)` | 391 | Marks a duplicate warning as reviewed without changing its verdict. |

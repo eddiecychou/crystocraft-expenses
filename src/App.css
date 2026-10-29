@@ -1098,6 +1098,7 @@ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
   overflow-y: auto;
   position: relative;
 }
+.receipt-dialog input[type="search"], .receipt-dialog input[type="file"] { width: 100%; max-width: 100%; box-sizing: border-box; margin: var(--space-2) 0; }
 .lightbox-title { font-size: var(--type-card-title-size); line-height: var(--type-card-title-line); font-weight: var(--type-card-title-weight); margin-bottom: 16px; color: var(--t-dark); }
 .lightbox-close {
   position: absolute;

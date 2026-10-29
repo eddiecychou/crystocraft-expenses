@@ -8,6 +8,8 @@ Each entry says what happened, why it matters, and how to apply it going forward
 
 ## Export the authorized view, not a second transaction query
 
+For account-type filtering, use the transaction's statement section where available and the account's stored ledger type otherwise. Older bank accounts without either are explicitly “Bank type not set”; guessing from a label could put a current-account row into a Savings-only download. Reset account-specific filters on project change so a selection from one company cannot hide another company's rows.
+
 The Imported Transactions Excel export uses the page's existing filtered rows. A collaborator's `paymentTransactionsQuery` already restricts personal-account rows that are not visible to members; a separate broad export query would bypass that UI constraint. Wait for all related subscriptions before exporting so account names and reconciliation statuses do not reflect a partially loaded page. Keep original-file token URLs out of the workbook; filenames and transaction IDs are enough to trace a row.
 
 The transaction model stores an unsigned amount plus debit/credit direction. For spreadsheet analysis, export one numeric Amount column with debits negative and credits positive, and use actual Excel date cells for valid ISO dates. The page's date-order control and download must share the same row array so the workbook arrives in the order the user chose; this also avoids relying on Excel's own sort when a client's Excel crashes. Preserve zero as zero and leave ambiguous date text unconverted.

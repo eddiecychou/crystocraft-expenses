@@ -40,7 +40,7 @@ async function compressForStorage(file) {
  * @param {File} file        - The file to upload
  * @param {string} userId    - Current user's UID
  * @param {string} expenseId - Firestore document ID of the expense
- * @param {number} index     - Position in the images array (0–4)
+ * @param {number|string} index - Position in the images array (0–4), optionally with a unique suffix for concurrent uploads
  */
 export async function uploadReceiptImage(file, userId, expenseId, index, onProgress) {
   const { blob, mimeType, ext } = await compressForStorage(file)

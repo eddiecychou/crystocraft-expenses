@@ -65,7 +65,7 @@ export default function PaymentSources() {
   const [statementPeriodFrom, setStatementPeriodFrom] = useState('')
   const [statementPeriodTo, setStatementPeriodTo] = useState('')
   const [creating, setCreating] = useState(false)
-  const [newAccount, setNewAccount] = useState({ label: '', sourceType: 'bank', accountTail: '', institutionName: '', settlementCurrency: 'HKD', ownershipType: 'company' })
+  const [newAccount, setNewAccount] = useState({ label: '', sourceType: 'bank', ledgerType: 'current', accountTail: '', institutionName: '', settlementCurrency: 'HKD', ownershipType: 'company' })
   const [editAccountId, setEditAccountId] = useState(null)
   const [editAccountData, setEditAccountData] = useState({})
   const [saving, setSaving] = useState(false)
@@ -209,7 +209,7 @@ export default function PaymentSources() {
       active: true,
       createdAt: serverTimestamp(),
     })
-    setNewAccount({ label: '', sourceType: 'bank', accountTail: '', institutionName: '', settlementCurrency: 'HKD', ownershipType: 'company' })
+    setNewAccount({ label: '', sourceType: 'bank', ledgerType: 'current', accountTail: '', institutionName: '', settlementCurrency: 'HKD', ownershipType: 'company' })
     setCreating(false)
     setSaving(false)
   }
@@ -219,6 +219,7 @@ export default function PaymentSources() {
     setEditAccountData({
       label: a.label || '',
       sourceType: a.sourceType || 'bank',
+      ledgerType: a.ledgerType || (a.sourceType === 'credit_card' ? 'credit_card' : ''),
       accountTail: a.accountTail || '',
       institutionName: a.institutionName || '',
       settlementCurrency: a.settlementCurrency || 'HKD',
@@ -1400,9 +1401,14 @@ export default function PaymentSources() {
                     autoFocus
                   />
                   <div className="filter-row" style={{ marginTop: 10 }}>
-                    <select value={editAccountData.sourceType} onChange={e => setEditAccountData({ ...editAccountData, sourceType: e.target.value })}>
+                    <select value={editAccountData.sourceType} onChange={e => setEditAccountData({ ...editAccountData, sourceType: e.target.value, ledgerType: e.target.value === 'credit_card' ? 'credit_card' : '' })}>
                       {SOURCE_TYPES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
                     </select>
+                    {editAccountData.sourceType === 'bank' && <select aria-label="Bank account type" value={editAccountData.ledgerType} onChange={e => setEditAccountData({ ...editAccountData, ledgerType: e.target.value })}>
+                      <option value="">Type not set</option>
+                      <option value="current">Current</option>
+                      <option value="savings">Savings</option>
+                    </select>}
                     <input
                       placeholder="Institution (optional)"
                       value={editAccountData.institutionName}
@@ -1437,7 +1443,7 @@ export default function PaymentSources() {
                     <span className="badge badge-office">{SOURCE_TYPES.find(s => s.value === a.sourceType)?.label}</span>
                     {a.ownershipType === 'personal' && <span className="badge badge-warning">Personal</span>}
                     <span className="project-card-name">{a.label}{a.accountTail ? ` ****${a.accountTail}` : ''}</span>
-                    <span className="hint">{a.settlementCurrency}</span>
+                    <span className="hint">{a.ledgerType === 'savings' ? 'Savings' : a.ledgerType === 'current' ? 'Current' : a.sourceType === 'bank' ? 'Type not set' : 'Credit card'} · {a.settlementCurrency}</span>
                   </div>
                   <div className="project-card-actions">
                     <button onClick={() => startEditAccount(a)} className="btn-small">Edit</button>
@@ -1458,9 +1464,14 @@ export default function PaymentSources() {
               autoFocus
             />
             <div className="filter-row" style={{ marginTop: 10 }}>
-              <select value={newAccount.sourceType} onChange={e => setNewAccount({ ...newAccount, sourceType: e.target.value })}>
+              <select value={newAccount.sourceType} onChange={e => setNewAccount({ ...newAccount, sourceType: e.target.value, ledgerType: e.target.value === 'credit_card' ? 'credit_card' : 'current' })}>
                 {SOURCE_TYPES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
               </select>
+              {newAccount.sourceType === 'bank' && <select aria-label="Bank account type" value={newAccount.ledgerType} onChange={e => setNewAccount({ ...newAccount, ledgerType: e.target.value })}>
+                <option value="current">Current</option>
+                <option value="savings">Savings</option>
+                <option value="">Type not set</option>
+              </select>}
               <input
                 placeholder="Institution (optional)"
                 value={newAccount.institutionName}
