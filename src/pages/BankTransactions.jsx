@@ -299,7 +299,7 @@ export default function BankTransactions() {
       sheet.columns = STATEMENT_EXPORT_COLUMNS
       sheet.getRow(1).font = { bold: true }
       sheet.views = [{ state: 'frozen', ySplit: 1 }]
-      sheet.autoFilter = { from: 'A1', to: `Q${filteredRows.length + 1}` }
+      sheet.autoFilter = { from: 'A1', to: `R${filteredRows.length + 1}` }
       for (const row of filteredRows) {
         sheet.addRow(statementExportRow(row, accountOf(row.txn.paymentAccountId), importOf(row.txn.importId), CLASSIFICATION_LABELS))
       }
@@ -397,6 +397,7 @@ export default function BankTransactions() {
             <thead>
               <tr>
                 <th>Date</th>
+                <th>No.</th>
                 <th>Direction</th>
                 <th>Amount</th>
                 <th>Description</th>
@@ -419,6 +420,7 @@ export default function BankTransactions() {
                       {txn.transactionDate || txn.rawDateText || '—'}
                       {txn.postDate && txn.postDate !== txn.transactionDate && <div className="hint">Value: {txn.postDate}</div>}
                     </td>
+                    <td>{txn.transactionNumber || <span className="hint">Not numbered</span>}</td>
                     <td>{txn.direction || '—'}</td>
                     <td>
                       {txn.settlementCurrency} {txn.settlementAmount != null ? Number(txn.settlementAmount).toFixed(2) : '—'}
@@ -467,6 +469,7 @@ export default function BankTransactions() {
                   <span className="mob-card-date">{txn.transactionDate || txn.rawDateText || '—'} · {txn.direction || '—'}</span>
                   <span className="badge">{status}</span>
                 </div>
+                <div className="hint">No. {txn.transactionNumber || 'Not numbered'}</div>
                 <div className="hint">{titleCase(txn.merchantNormalized) || '—'}</div>
                 {txn.classification && <div className="hint">{CLASSIFICATION_LABELS[txn.classification] || txn.classification}</div>}
                 {record?.accountCode && <div className="hint">{record.accountCode} · {record.accountName || ''}</div>}

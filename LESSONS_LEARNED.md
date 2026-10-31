@@ -6,6 +6,14 @@ Each entry says what happened, why it matters, and how to apply it going forward
 
 ---
 
+## Issued transaction numbers must survive statement repair
+
+The Firestore document ID is an internal key; it is not a useful bookkeeping reference. A project/account prefix is suggested from names and only the account's last four digits, then confirmed by the user. Once a number is issued, changing the account label or sorting the page must not change it. Import rows and per-account counter advances are committed together so concurrent imports cannot issue the same sequence; historical rows need a separately confirmed owner-only backfill with progress and safe retries.
+
+The old “Fix from Stored PDF” path unlinked and deleted every old row before writing replacements. That would erase numbered references and could lose rows on a failed replacement. Numbered repairs now keep old rows, IDs and links; they add only clearly new rows and stop if any issued row cannot be matched by its printed evidence and financial fields. An ambiguous or edited old row must be corrected manually. A deleted row's sequence is never reused.
+
+---
+
 ## Export the authorized view, not a second transaction query
 
 For account-type filtering, use the transaction's statement section where available and the account's stored ledger type otherwise. Older bank accounts without either are explicitly “Bank type not set”; guessing from a label could put a current-account row into a Savings-only download. Reset account-specific filters on project change so a selection from one company cannot hide another company's rows.

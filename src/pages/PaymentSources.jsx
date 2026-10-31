@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, Fragment } from 'react'
-import { collection, query, where, onSnapshot, addDoc, doc, deleteDoc, updateDoc, writeBatch, serverTimestamp, getDocs } from 'firebase/firestore'
+import { collection, query, where, onSnapshot, addDoc, doc, deleteDoc, updateDoc, writeBatch, runTransaction, serverTimestamp, getDocs } from 'firebase/firestore'
 import { db, auth } from '../firebase'
 import { useProject } from '../contexts/ProjectContext'
 import ProjectBanner from '../components/ProjectBanner'
@@ -14,6 +14,7 @@ import { uploadStatementFile, deleteStatementFile } from '../statementStorage'
 import { annotateBalanceSequence, classifyFingerprintCollision, validateStatementTotals, diffTransactionSets, reviewedExclusionsMatch, DUPLICATE_STATUS_LABELS } from '../lib/duplicateDetection'
 import { classifyTransaction, computeVisibleToMembers } from '../lib/expenseClassification'
 import { paymentTransactionsQuery } from '../lib/projectAccess'
+import { normalizeTransactionPrefix, validateTransactionPrefix, suggestTransactionPrefix, transactionNumber, assignImportNumbers, preserveReprocessedNumbers, sortRowsForNumbering } from '../lib/transactionNumbering'
 import { MatchedIcon, WarningIcon, ICON_STROKE_WIDTH } from '../icons'
 
 const SOURCE_TYPES = [
@@ -65,9 +66,11 @@ export default function PaymentSources() {
   const [statementPeriodFrom, setStatementPeriodFrom] = useState('')
   const [statementPeriodTo, setStatementPeriodTo] = useState('')
   const [creating, setCreating] = useState(false)
-  const [newAccount, setNewAccount] = useState({ label: '', sourceType: 'bank', ledgerType: 'current', accountTail: '', institutionName: '', settlementCurrency: 'HKD', ownershipType: 'company' })
+  const [newAccount, setNewAccount] = useState({ label: '', sourceType: 'bank', ledgerType: 'current', accountTail: '', institutionName: '', settlementCurrency: 'HKD', ownershipType: 'company', transactionPrefix: '' })
   const [editAccountId, setEditAccountId] = useState(null)
   const [editAccountData, setEditAccountData] = useState({})
+  const [accountError, setAccountError] = useState('')
+  const [numberingProgress, setNumberingProgress] = useState(null)
   const [saving, setSaving] = useState(false)
   const [importAccountId, setImportAccountId] = useState('')
   const [importing, setImporting] = useState(false)
@@ -198,20 +201,26 @@ export default function PaymentSources() {
 
   async function createAccount() {
     if (!newAccount.label.trim()) return
+    const prefix = normalizeTransactionPrefix(newAccount.transactionPrefix || suggestTransactionPrefix({ ...newAccount, projectName: activeProject.name }, accounts))
+    const error = validateTransactionPrefix(prefix, accounts)
+    if (error) { setAccountError(error); return }
     setSaving(true)
-    await addDoc(collection(db, 'paymentAccounts'), {
-      ...newAccount,
-      label: newAccount.label.trim(),
-      accountTail: newAccount.accountTail.trim() || null,
-      institutionName: newAccount.institutionName.trim() || null,
-      userId: auth.currentUser.uid,
-      projectId: activeProject.id,
-      active: true,
-      createdAt: serverTimestamp(),
-    })
-    setNewAccount({ label: '', sourceType: 'bank', ledgerType: 'current', accountTail: '', institutionName: '', settlementCurrency: 'HKD', ownershipType: 'company' })
-    setCreating(false)
-    setSaving(false)
+    setAccountError('')
+    try {
+      await addDoc(collection(db, 'paymentAccounts'), {
+        ...newAccount, transactionPrefix: prefix, lastTransactionSequence: 0,
+        label: newAccount.label.trim(),
+        accountTail: newAccount.accountTail.trim() || null,
+        institutionName: newAccount.institutionName.trim() || null,
+        userId: auth.currentUser.uid,
+        projectId: activeProject.id,
+        active: true,
+        createdAt: serverTimestamp(),
+      })
+      setNewAccount({ label: '', sourceType: 'bank', ledgerType: 'current', accountTail: '', institutionName: '', settlementCurrency: 'HKD', ownershipType: 'company', transactionPrefix: '' })
+      setCreating(false)
+    } catch (err) { setAccountError(err.message || 'Could not create account.') }
+    finally { setSaving(false) }
   }
 
   function startEditAccount(a) {
@@ -224,18 +233,31 @@ export default function PaymentSources() {
       institutionName: a.institutionName || '',
       settlementCurrency: a.settlementCurrency || 'HKD',
       ownershipType: a.ownershipType || 'company',
+      transactionPrefix: a.transactionPrefix || suggestTransactionPrefix({ ...a, projectName: activeProject.name }, accounts, a.id),
     })
   }
 
   async function saveEditAccount() {
     if (!editAccountData.label.trim()) return
+    const prefix = normalizeTransactionPrefix(editAccountData.transactionPrefix)
+    const error = validateTransactionPrefix(prefix, accounts, editAccountId)
+    if (error) { setAccountError(error); return }
     setSaving(true)
+    setAccountError('')
     try {
-      await updateDoc(doc(db, 'paymentAccounts', editAccountId), {
-        ...editAccountData,
-        label: editAccountData.label.trim(),
-        accountTail: editAccountData.accountTail.trim() || null,
-        institutionName: editAccountData.institutionName.trim() || null,
+      await runTransaction(db, async transaction => {
+        const ref = doc(db, 'paymentAccounts', editAccountId)
+        const snapshot = await transaction.get(ref)
+        if (!snapshot.exists() || snapshot.data().projectId !== activeProject.id) throw new Error('This account changed. Reload and try again.')
+        if (snapshot.data().lastTransactionSequence > 0 && snapshot.data().transactionPrefix !== prefix) {
+          throw new Error('This prefix is locked because transaction numbers have already been issued.')
+        }
+        transaction.update(ref, {
+          ...editAccountData, transactionPrefix: prefix,
+          label: editAccountData.label.trim(),
+          accountTail: editAccountData.accountTail.trim() || null,
+          institutionName: editAccountData.institutionName.trim() || null,
+        })
       })
       // classifyTransaction only ever runs at import time (in commitRows) — an
       // account switched to personal AFTER its statements were already
@@ -255,6 +277,56 @@ export default function PaymentSources() {
       alert('Could not save account: ' + err.message)
     }
     setSaving(false)
+  }
+
+  async function numberExistingTransactions(account) {
+    if (activeProject.userId !== auth.currentUser.uid) { setAccountError('Only the project owner can number all past transactions.'); return }
+    if (!account.transactionPrefix) { setAccountError('Set this account’s transaction prefix first.'); return }
+    const prefixError = validateTransactionPrefix(account.transactionPrefix, accounts, account.id)
+    if (prefixError) { setAccountError(prefixError); return }
+    setAccountError('')
+    try {
+      const snapshot = await getDocs(query(collection(db, 'paymentTransactions'),
+        where('projectId', '==', activeProject.id), where('paymentAccountId', '==', account.id)))
+      const rows = sortRowsForNumbering(snapshot.docs.map(item => ({ id: item.id, ...item.data() })).filter(row => !row.transactionNumber), imports)
+      if (!rows.length) { setAccountError('Every saved transaction for this account already has a number.'); return }
+      setConfirmDialog({
+        message: `Assign permanent ${account.transactionPrefix} numbers to ${rows.length} existing transaction${rows.length === 1 ? '' : 's'}? Numbers will follow transaction date and printed row order and will not change later.`,
+        onConfirm: async () => {
+          setConfirmDialog(null)
+          setNumberingProgress({ accountId: account.id, done: 0, total: rows.length })
+          try {
+            // Small atomic chunks make an interrupted backfill resumable:
+            // completed rows keep their numbers, while the counter and each
+            // new chunk either commit together or do not move at all.
+            for (let i = 0; i < rows.length; i += 40) {
+              const chunk = rows.slice(i, i + 40)
+              await runTransaction(db, async transaction => {
+                const accountRef = doc(db, 'paymentAccounts', account.id)
+                const accountSnap = await transaction.get(accountRef)
+                if (!accountSnap.exists() || accountSnap.data().projectId !== activeProject.id || accountSnap.data().transactionPrefix !== account.transactionPrefix) {
+                  throw new Error('The account prefix changed. Reload and try again.')
+                }
+                const refs = chunk.map(row => doc(db, 'paymentTransactions', row.id))
+                const current = await Promise.all(refs.map(ref => transaction.get(ref)))
+                const pending = current.map((item, index) => ({ item, ref: refs[index] })).filter(({ item }) => {
+                  if (!item.exists() || item.data().projectId !== activeProject.id || item.data().paymentAccountId !== account.id) throw new Error('A transaction changed. Reload and try again.')
+                  return !item.data().transactionNumber
+                })
+                const start = Number(accountSnap.data().lastTransactionSequence || 0)
+                pending.forEach(({ ref }, index) => transaction.update(ref, {
+                  transactionSequence: start + index + 1,
+                  transactionNumber: transactionNumber(account.transactionPrefix, start + index + 1),
+                }))
+                if (pending.length) transaction.update(accountRef, { lastTransactionSequence: start + pending.length })
+              })
+              setNumberingProgress({ accountId: account.id, done: Math.min(i + chunk.length, rows.length), total: rows.length })
+            }
+          } catch (err) { setAccountError(`Numbering stopped: ${err.message}. Saved numbers are kept; you can retry.`) }
+          finally { setNumberingProgress(null) }
+        },
+      })
+    } catch (err) { setAccountError(`Could not load transactions: ${err.message}`) }
   }
 
   async function backfillClassification(accountId) {
@@ -330,8 +402,11 @@ export default function PaymentSources() {
     const importAccounts = accountSections.length > 1 ? [...new Set(accountBySection.values())] : [account]
     if (importAccounts.some(a => !a || a.active === false)) throw new Error('An account is no longer available. Review account choices again.')
     if (accountSections.length > 1 && importAccounts.some(a => a.ownershipType === 'personal')) throw new Error('Multi-account PDFs containing personal accounts cannot be imported safely.')
+    if (importAccounts.some(a => !a.transactionPrefix)) throw new Error('Set a transaction prefix for each account in Statements & Accounts before importing.')
+    if (importAccounts.some(a => validateTransactionPrefix(a.transactionPrefix, accounts, a.id))) throw new Error('Two accounts share a transaction prefix. Edit the account prefixes before importing.')
     let importRef
     let sourceFileError = null
+    let preservedNumbers = new Map()
     if (reprocessImportId) {
       importRef = doc(db, 'paymentImports', reprocessImportId)
       const oldSnap = await getDocs(query(
@@ -339,12 +414,8 @@ export default function PaymentSources() {
         where('projectId', '==', activeProject.id),
         where('importId', '==', reprocessImportId)
       ))
-      for (const d of oldSnap.docs) await unlinkTransaction({ id: d.id, ...d.data() })
-      for (let i = 0; i < oldSnap.docs.length; i += 400) {
-        const batch = writeBatch(db)
-        oldSnap.docs.slice(i, i + 400).forEach(d => batch.delete(d.ref))
-        await batch.commit()
-      }
+      if (oldSnap.docs.some(item => !item.data().transactionNumber)) throw new Error('Number the existing transactions for this account before re-reading this statement.')
+      preservedNumbers = preserveReprocessedNumbers(oldSnap.docs.map(item => ({ id: item.id, ...item.data() })), mapped)
       await updateDoc(importRef, {
         ...(accountSections.length > 1 ? { paymentAccountId: accountSections[0].paymentAccountId } : {}),
         periodStart: mapped.reduce((min, t) => !min || (t.transactionDate && t.transactionDate < min) ? t.transactionDate : min, null),
@@ -441,6 +512,7 @@ export default function PaymentSources() {
       ))
       for (const d of existingSnap.docs) {
         const data = d.data()
+        if (reprocessImportId && data.importId === reprocessImportId) continue
         const list = existingByFingerprint.get(data.fingerprintExact) || []
         list.push({ id: d.id, importId: data.importId, rawRowText: data.rawRowText, balanceAfter: data.balanceAfter, merchantRaw: data.merchantRaw })
         existingByFingerprint.set(data.fingerprintExact, list)
@@ -475,7 +547,8 @@ export default function PaymentSources() {
 
     const rowsToWrite = []
     const counts = { verified_separate: 0, possible_duplicate: 0, confirmed_duplicate: 0, needs_review: 0 }
-    for (const t of sequenced) {
+    for (const [rowIndex, t] of sequenced.entries()) {
+      const preserved = preservedNumbers.get(rowIndex)
       const rowAccount = accountBySection.get(t.sectionKey) || account
       const merchantNormalized = normalizeMerchant(t.merchantRaw)
       const transactionType = classifyTransactionType(t.merchantRaw, t.direction)
@@ -520,7 +593,7 @@ export default function PaymentSources() {
       // client-side) so an auto-created Expense below can reference this
       // row's id, and this row can reference the expense's, in the same
       // batch write.
-      const txnRef = doc(collection(db, 'paymentTransactions'))
+      const txnRef = preserved ? doc(db, 'paymentTransactions', preserved.id) : doc(collection(db, 'paymentTransactions'))
 
       // Auto-Approve classifies; a SEPARATE "Auto-Create Expense" opt-in
       // on the same rule (see expense-classification.md / CompanyReview.jsx)
@@ -532,6 +605,7 @@ export default function PaymentSources() {
       // "duplicates must surface, never silently skip/act" rule elsewhere
       // in this app.
       const shouldAutoCreateExpense =
+        !preserved &&
         classification?.classification === 'company_confirmed' &&
         classification.classificationSource === 'merchant_rule' &&
         matchedRule?.autoCreateExpense &&
@@ -587,6 +661,7 @@ export default function PaymentSources() {
         matchReasons: [],
         sourceRowIndex: t.sourceRowIndex,
         rawRowText: t.rawRowText,
+        ...(preserved ? { transactionNumber: preserved.transactionNumber, transactionSequence: preserved.transactionSequence } : {}),
         duplicateStatus,
         duplicateReason,
         duplicateEvidence,
@@ -600,7 +675,7 @@ export default function PaymentSources() {
       // Add this row itself to the collision pool so a later row in the
       // same batch sees it too (e.g. a third same-day repeat).
       existingByFingerprint.set(fingerprintExact, [...collisionRows, { importId: importRef.id, rawRowText: t.rawRowText, balanceAfter: t.balanceAfter, merchantRaw: t.merchantRaw }])
-      rowsToWrite.push({ ref: txnRef, data: rowDoc })
+      rowsToWrite.push({ ref: txnRef, data: rowDoc, skip: !!preserved })
 
       if (expenseRef) {
         // Mirrors CompanyReview.jsx's createExpenseFromTxn exactly, minus
@@ -638,14 +713,28 @@ export default function PaymentSources() {
       }
     }
 
-    // Chunked by WRITE COUNT, not row count — an auto-created row
-    // contributes 2 writes (transaction + expense), so chunking by row
-    // count alone could silently exceed Firestore's 400-write batch limit
-    // on a large statement with many auto-created merchants.
-    for (let i = 0; i < rowsToWrite.length; i += 400) {
-      const batch = writeBatch(db)
-      rowsToWrite.slice(i, i + 400).forEach(({ ref, data }) => batch.set(ref, data))
-      await batch.commit()
+    // Number assignment, account counter and row writes commit together.
+    // Keep an auto-created expense beside its source row in the same chunk.
+    const pendingWrites = rowsToWrite.filter(item => !item.skip)
+    for (let i = 0; i < pendingWrites.length;) {
+      let end = Math.min(i + 300, pendingWrites.length)
+      if (end < pendingWrites.length && pendingWrites[end].data.sourceTransactionId === pendingWrites[end - 1].ref.id) end--
+      const chunk = pendingWrites.slice(i, end)
+      const accountIds = [...new Set(chunk.filter(item => item.data.importId && !item.data.transactionNumber).map(item => item.data.paymentAccountId))]
+      await runTransaction(db, async transaction => {
+        const accountSnaps = await Promise.all(accountIds.map(id => transaction.get(doc(db, 'paymentAccounts', id))))
+        const next = new Map()
+        accountSnaps.forEach((snapshot, index) => {
+          if (!snapshot.exists() || snapshot.data().projectId !== activeProject.id || !snapshot.data().transactionPrefix) {
+            throw new Error('An account has no transaction prefix. Set it in Statements & Accounts and retry.')
+          }
+          next.set(accountIds[index], { prefix: snapshot.data().transactionPrefix, sequence: Number(snapshot.data().lastTransactionSequence || 0) })
+        })
+        const assigned = assignImportNumbers(chunk, next)
+        assigned.writes.forEach(({ ref, data }) => transaction.set(ref, data))
+        assigned.next.forEach((state, id) => transaction.update(doc(db, 'paymentAccounts', id), { lastTransactionSequence: state.sequence }))
+      })
+      i = end
     }
 
     // Independent whole-statement check: does opening balance + net of every
@@ -660,7 +749,7 @@ export default function PaymentSources() {
 
     await updateDoc(doc(db, 'paymentImports', importRef.id), {
       importStatus: 'ready',
-      lineCount: rowsToWrite.length,
+      lineCount: sequenced.length,
       totalsCheck,
       reviewedExclusions,
       reviewedExclusionsBy: reviewedExclusions.length ? auth.currentUser.uid : null,
@@ -1137,6 +1226,12 @@ export default function PaymentSources() {
     e.target.value = ''
     if (!files.length || !importAccountId) return
     const account = accounts.find(a => a.id === importAccountId)
+    if (!account?.transactionPrefix) {
+      setImportMsg('Set a transaction prefix for this account in Bank and Card Accounts before importing. You can edit it until its first number is issued.')
+      return
+    }
+    const prefixError = validateTransactionPrefix(account.transactionPrefix, accounts, account.id)
+    if (prefixError) { setImportMsg(prefixError); return }
     const pdfFiles = files.filter(f => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'))
     const csvFiles = files.filter(f => !pdfFiles.includes(f))
 
@@ -1216,10 +1311,15 @@ export default function PaymentSources() {
 
   async function createSectionAccount(section) {
     if (!sectionAccountDraft?.label.trim()) return
+    const prefix = normalizeTransactionPrefix(sectionAccountDraft.transactionPrefix)
+    const prefixError = validateTransactionPrefix(prefix, accounts)
+    if (prefixError) { setImportMsg(prefixError); return }
     setSaving(true)
     try {
       const ref = await addDoc(collection(db, 'paymentAccounts'), {
         label: sectionAccountDraft.label.trim(),
+        transactionPrefix: prefix,
+        lastTransactionSequence: 0,
         sourceType: section.accountType === 'credit_card' ? 'credit_card' : 'bank',
         ledgerType: section.accountType,
         settlementCurrency: section.currency,
@@ -1380,6 +1480,7 @@ export default function PaymentSources() {
           <h3>Bank &amp; Card Accounts</h3>
           {!creating && accounts.length > 0 && <button className="btn-ghost btn-small" onClick={() => setCreating(true)}>+ Add Account</button>}
         </div>
+        {accountError && <p className="hint" role="status">{accountError}</p>}
 
         {accounts.length === 0 && !creating && (
           <div className="empty">
@@ -1424,6 +1525,11 @@ export default function PaymentSources() {
                       {CURRENCIES.filter(c => c !== 'Other').map(c => <option key={c} value={c}>{c}</option>)}
                     </select>
                   </div>
+                  <label className="statement-filter-field" style={{ marginTop: 10 }}>Transaction prefix
+                    <input value={editAccountData.transactionPrefix || ''} maxLength={32} disabled={!!a.lastTransactionSequence} onChange={e => setEditAccountData({ ...editAccountData, transactionPrefix: e.target.value.toUpperCase() })} />
+                  </label>
+                  {!a.lastTransactionSequence && <button className="btn-small btn-ghost" type="button" onClick={() => setEditAccountData({ ...editAccountData, transactionPrefix: suggestTransactionPrefix({ ...editAccountData, projectName: activeProject.name }, accounts, a.id) })}>Use suggested prefix</button>}
+                  <p className="hint">{a.lastTransactionSequence ? `Locked after ${a.lastTransactionSequence} number(s) issued. Existing numbers never change.` : `Example: ${normalizeTransactionPrefix(editAccountData.transactionPrefix)}-000001. You can edit the prefix before numbering.`}</p>
                   <label className="checkbox-row" style={{ marginTop: 10 }}>
                     <input
                       type="checkbox"
@@ -1443,11 +1549,13 @@ export default function PaymentSources() {
                     <span className="badge badge-office">{SOURCE_TYPES.find(s => s.value === a.sourceType)?.label}</span>
                     {a.ownershipType === 'personal' && <span className="badge badge-warning">Personal</span>}
                     <span className="project-card-name">{a.label}{a.accountTail ? ` ****${a.accountTail}` : ''}</span>
-                    <span className="hint">{a.ledgerType === 'savings' ? 'Savings' : a.ledgerType === 'current' ? 'Current' : a.sourceType === 'bank' ? 'Type not set' : 'Credit card'} · {a.settlementCurrency}</span>
+                    <span className="hint">{a.ledgerType === 'savings' ? 'Savings' : a.ledgerType === 'current' ? 'Current' : a.sourceType === 'bank' ? 'Type not set' : 'Credit card'} · {a.settlementCurrency} · {a.transactionPrefix || 'Prefix needed'}</span>
                   </div>
                   <div className="project-card-actions">
                     <button onClick={() => startEditAccount(a)} className="btn-small">Edit</button>
+                    {a.transactionPrefix && activeProject.userId === auth.currentUser.uid && <button onClick={() => numberExistingTransactions(a)} disabled={!!numberingProgress} className="btn-small btn-ghost">Number existing transactions</button>}
                   </div>
+                  {numberingProgress?.accountId === a.id && <p className="hint" role="status">Numbering {numberingProgress.done} of {numberingProgress.total} transactions…</p>}
                 </>
               )}
             </div>
@@ -1487,6 +1595,10 @@ export default function PaymentSources() {
                 {CURRENCIES.filter(c => c !== 'Other').map(c => <option key={c} value={c}>{c}</option>)}
               </select>
             </div>
+            <label className="statement-filter-field" style={{ marginTop: 10 }}>Transaction prefix
+              <input maxLength={32} value={newAccount.transactionPrefix || suggestTransactionPrefix({ ...newAccount, projectName: activeProject.name }, accounts)} onChange={e => setNewAccount({ ...newAccount, transactionPrefix: e.target.value.toUpperCase() })} />
+            </label>
+            <p className="hint">Suggested from project, bank, account type and last 4 digits. Edit it before creating the account; numbers will look like PREFIX-000001.</p>
             <label className="checkbox-row" style={{ marginTop: 10 }}>
               <input
                 type="checkbox"
@@ -1605,10 +1717,11 @@ export default function PaymentSources() {
                         {checked.totalsCheck ? checked.totalsCheck.consistent ? 'Opening and closing balances match.' : 'Balance totals need attention.' : 'No opening/closing balance pair to check.'}
                         {checked.balanceBreaks ? ` ${checked.balanceBreaks} running-balance difference(s).` : ''}
                       </span>
-                      {section.supportedCurrency && <button className="btn-small" onClick={() => setSectionAccountDraft({ key: section.key, label: section.label })}>Add {section.currency} account</button>}
+                      {section.supportedCurrency && <button className="btn-small" onClick={() => setSectionAccountDraft({ key: section.key, label: section.label, transactionPrefix: suggestTransactionPrefix({ projectName: activeProject.name, label: section.label, ledgerType: section.accountType, sourceType: section.accountType === 'credit_card' ? 'credit_card' : 'bank' }, accounts) })}>Add {section.currency} account</button>}
                       {sectionAccountDraft?.key === section.key && (
                         <div className="action-row">
                           <input aria-label="New account name" value={sectionAccountDraft.label} onChange={e => setSectionAccountDraft({ ...sectionAccountDraft, label: e.target.value })} />
+                          <input aria-label="Transaction prefix" title="Editable transaction number prefix" value={sectionAccountDraft.transactionPrefix} onChange={e => setSectionAccountDraft({ ...sectionAccountDraft, transactionPrefix: e.target.value.toUpperCase() })} />
                           <button className="btn-primary btn-small" disabled={saving || !sectionAccountDraft.label.trim()} onClick={() => createSectionAccount(section)}>Create account</button>
                           <button className="btn-ghost btn-small" onClick={() => setSectionAccountDraft(null)}>Cancel</button>
                         </div>
@@ -1887,7 +2000,7 @@ export default function PaymentSources() {
                                   <tr key={txn.id}>
                                     {editTxnId === txn.id ? (
                                       <>
-                                        <td><input type="date" value={editTxnData.transactionDate} onChange={e => setEditTxnData({ ...editTxnData, transactionDate: e.target.value })} /></td>
+                                        <td><input type="date" value={editTxnData.transactionDate} onChange={e => setEditTxnData({ ...editTxnData, transactionDate: e.target.value })} /><div className="hint">No. {txn.transactionNumber || 'Not numbered'}</div></td>
                                         <td><input value={editTxnData.merchantRaw} onChange={e => setEditTxnData({ ...editTxnData, merchantRaw: e.target.value })} /></td>
                                         <td>
                                           <input type="number" inputMode="decimal" min="0" step="0.01" data-amount="true" value={editTxnData.settlementAmount} onChange={e => setEditTxnData({ ...editTxnData, settlementAmount: e.target.value })} style={{ marginBottom: 4 }} />
@@ -1905,7 +2018,7 @@ export default function PaymentSources() {
                                       </>
                                     ) : (
                                       <>
-                                        <td>{txn.transactionDate}</td>
+                                        <td>{txn.transactionDate}<div className="hint">No. {txn.transactionNumber || 'Not numbered'}</div></td>
                                         <td>{txn.merchantRaw}</td>
                                         <td data-amount="true">{txn.direction === 'debit' ? '-' : '+'}{txn.settlementAmount?.toFixed(2)}</td>
                                         <td>
@@ -1955,7 +2068,7 @@ export default function PaymentSources() {
                                         <span className="mob-card-amount" data-amount="true">{txn.direction === 'debit' ? '-' : '+'}{txn.settlementAmount?.toFixed(2)}</span>
                                       </div>
                                       <div className="mob-card-sub">
-                                        <span className="mob-card-date">{txn.transactionDate}</span>
+                                        <span className="mob-card-date">{txn.transactionDate} · No. {txn.transactionNumber || 'Not numbered'}</span>
                                         <span className="hint">{txn.transactionType}{txn.status === 'matched' && ' · matched'}{txn.settlementGroupId && ' · linked'}{txn.balanceAfter != null && ` · Bal ${txn.balanceAfter.toFixed(2)}`}</span>
                                       </div>
                                       {txn.duplicateStatus && <div style={{ marginTop: 6 }}>{renderDuplicateStatus(txn, imp)}</div>}

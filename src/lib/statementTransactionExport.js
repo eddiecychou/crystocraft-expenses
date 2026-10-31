@@ -16,6 +16,7 @@ export const STATEMENT_EXPORT_COLUMNS = [
   { header: 'Account Code', key: 'accountCode', width: 19, style: { numFmt: '@' } },
   { header: 'Statement File', key: 'statementFile', width: 36 },
   { header: 'Transaction ID', key: 'transactionId', width: 24, style: { numFmt: '@' } },
+  { header: 'Transaction No.', key: 'transactionNumber', width: 42, style: { numFmt: '@' } },
 ]
 
 function excelNumber(value, field, transactionId) {
@@ -59,5 +60,6 @@ export function statementExportRow({ txn, matched, status }, account, statement,
     accountCode: record?.accountCode == null ? '' : String(record.accountCode),
     statementFile: statement?.sourceFileName || '',
     transactionId: txn.id == null ? '' : String(txn.id),
+    transactionNumber: txn.transactionNumber || '',
   }
 }

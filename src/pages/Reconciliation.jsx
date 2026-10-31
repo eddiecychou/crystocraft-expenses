@@ -1041,6 +1041,7 @@ export default function Reconciliation() {
 
                 <div className="card-header">
                   <h3>{selected.merchantRaw || '(no description)'}</h3>
+                  <span className="hint">No. {selected.transactionNumber || 'Not numbered'}</span>
                   <span className="recon-detail-amount">{selected.settlementCurrency} {selected.settlementAmount?.toFixed(2)}</span>
                 </div>
 

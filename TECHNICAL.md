@@ -223,6 +223,8 @@ the project-list query ever runs against `memberUids`.
   ownershipType: string,   // 'company' | 'personal' — missing/undefined treated as 'company'.
                            // Only 'personal' accounts get per-transaction classification
                            // (see Company Review below) — company accounts are unaffected.
+  transactionPrefix: string | undefined, // editable until first number; suggested from project/bank/type/last four digits
+  lastTransactionSequence: number | undefined, // advanced atomically with numbered rows
   createdAt: Timestamp
 }
 ```
@@ -257,6 +259,8 @@ the project-list query ever runs against `memberUids`.
   projectId: string,
   paymentAccountId: string,
   importId: string,
+  transactionNumber: string | undefined,   // immutable human reference: account prefix + six-digit sequence
+  transactionSequence: number | undefined, // account-local monotonic sequence, never reused
   transactionDate: string,
   rawDateText: string,
   postDate: string | null,
@@ -629,6 +633,8 @@ Deliberately **header-level only** (number, counterparty, date, currency, amount
 A vendor/payer's confirmed code can be remembered via a "Remember this code for…" checkbox next to the picker (`useAccountCodes.js`'s `saveAccountCodeRule`, keyed by `normalizeMerchant()`) — always shown as an editable suggestion next time, never applied silently. `useAccountCodes(projectId)` (`src/hooks/`) is the shared `accountCodes`+`accountCodeRules` subscription all three consuming pages use, to avoid tripling the same two `onSnapshot` calls — the record write itself still happens directly in each page, per this app's usual no-service-layer convention.
 
 ### Bank Transactions & Unified Reconciliation Status (MVP-4)
+
+**Transaction numbers.** Each account has its own increasing sequence and a prefix checked against currently loaded accounts in that project (for example `CAN-HSBC-CUR-1234-000001`); the suggestion uses only the account's last four digits. New account prefixes are editable until `lastTransactionSequence` advances, then locked in the UI and guarded on account save. During import, `runTransaction` reads the current account counters and commits a chunk's row numbers, row documents, any auto-created expenses, and counter advances together. A failed chunk advances no counter; successful earlier chunks remain available if an import later fails. The project owner can assign numbers to unnumbered historical rows in date/printed-row order in resumable 40-row transactions. This is an explicit action, never an automatic migration. An old account needs a prefix before another import; the file picker reports this before reading the file. For a numbered stored-PDF repair, unchanged rows keep their IDs, numbers, links and review state; only genuinely new rows are inserted and numbered. If any issued row cannot be matched unambiguously from its printed evidence and financial fields, the repair stops before changing records and asks for manual row editing. Existing number fields are visible in Imported Transactions, statement detail, Reconciliation, and Excel; the internal Firestore ID remains separate. No Firebase rule change or new collection is needed.
 
 `BankTransactions.jsx` (Finance repositioning MVP-4, route `/bank-transactions`) is the browsing view of imported `paymentTransactions` rows, filterable by date range/preset, exact account, account name/number search, account type, direction, status, and source. Account type uses `statementSectionKey` first, then `paymentAccounts.ledgerType`, then credit-card source type; legacy bank accounts without type metadata appear under “Bank type not set” rather than being guessed from a label. Payment Sources account setup/editing writes `ledgerType` for confirmed Current/Savings types, without migrating old accounts by guessing. Account-specific filters reset when changing projects. An eligible debit can open “Add receipt” directly: create an expense from its bank details with a new receipt, link an already uploaded expense with a receipt, or add another receipt to its matched expense. The save path checks current Firestore state before changing the transaction and expense together and records reconciliation actions; new Storage filenames have unique suffixes to avoid overwriting a concurrent upload. Other matching, confirming, ignoring, and unlinking remain in Reconciliation (`/reconciliation?txn=<id>`).
 

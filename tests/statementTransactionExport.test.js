@@ -6,7 +6,7 @@ import { STATEMENT_EXPORT_COLUMNS, sortStatementRowsByDate, statementExportRow }
 test('exports statement row details without source-file access tokens', async () => {
   const row = statementExportRow({
     txn: {
-      id: 'txn-1', transactionDate: '2026-10-01', postDate: '2026-10-02',
+      id: 'txn-1', transactionNumber: 'CAN-HSBC-CUR-1234-000001', transactionDate: '2026-10-01', postDate: '2026-10-02',
       direction: 'debit', settlementAmount: 0, settlementCurrency: 'HKD', balanceAfter: 100,
       merchantRaw: '=HYPERLINK("https://example.test","Test payment")', transactionType: 'payment', classification: 'company',
     },
@@ -45,6 +45,8 @@ test('exports statement row details without source-file access tokens', async ()
   assert.equal(restored.getWorksheet(1).getCell('P2').value, 'October.pdf')
   assert.equal(restored.getWorksheet(1).getCell('Q2').value, 'txn-1')
   assert.equal(restored.getWorksheet(1).getCell('Q2').numFmt, '@')
+  assert.equal(restored.getWorksheet(1).getCell('R2').value, 'CAN-HSBC-CUR-1234-000001')
+  assert.equal(restored.getWorksheet(1).getCell('R2').numFmt, '@')
 })
 
 test('all export columns retain the intended Excel value types', async () => {
