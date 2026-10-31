@@ -99,6 +99,7 @@ export default function PaymentSources() {
   // Transactions for whichever import the user has expanded to review/edit.
   const [viewingImportId, setViewingImportId] = useState(null)
   const [importTxns, setImportTxns] = useState([])
+  const [importTxnsId, setImportTxnsId] = useState(null)
   const [editTxnId, setEditTxnId] = useState(null)
   const [editTxnData, setEditTxnData] = useState({})
   const fileRef = useRef()
@@ -158,14 +159,17 @@ export default function PaymentSources() {
   }, [activeProject?.id])
 
   useEffect(() => {
-    if (!viewingImportId) { setImportTxns([]); return }
+    if (!viewingImportId) { setImportTxns([]); setImportTxnsId(null); return }
     // projectId must be pinned by this query's own where() clause — see the
     // comment on backfillClassification below for why an unconstrained
     // cross-document get() in the security rule otherwise gets the whole
     // list request denied outright, not just filtered.
     const unsub = onSnapshot(
       paymentTransactionsQuery(query(collection(db, 'paymentTransactions'), where('projectId', '==', activeProject.id), where('importId', '==', viewingImportId)), activeProject, auth.currentUser.uid),
-      snap => setImportTxns(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (a.transactionDate || '').localeCompare(b.transactionDate || '')))
+      snap => {
+        setImportTxns(snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (a.transactionDate || '').localeCompare(b.transactionDate || '')))
+        setImportTxnsId(viewingImportId)
+      }
     )
     return unsub
   }, [viewingImportId, activeProject?.id])
@@ -1983,7 +1987,7 @@ export default function PaymentSources() {
                               <h3 style={{ marginBottom: 0, fontSize: 14 }}>Transactions — {imp.sourceFileName}</h3>
                               <button className="btn-small btn-ghost" onClick={() => setViewingImportId(null)}>Close</button>
                             </div>
-                          {importTxns.length === 0 ? <p className="empty" style={{ margin: '8px 0' }}>No transactions in this import.</p> : (
+                          {importTxnsId !== imp.id ? <p className="hint" style={{ margin: '8px 0' }}>Loading transactions…</p> : importTxns.length === 0 ? <p className="empty" style={{ margin: '8px 0' }}>No transactions in this import.</p> : (
                             <div className="txn-detail-scroll">
                             {/* Desktop: compact table. A 6-column table with per-row action
                                 buttons and duplicate-review content simply doesn't fit a phone
