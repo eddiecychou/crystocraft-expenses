@@ -14,7 +14,7 @@ import { uploadStatementFile, deleteStatementFile } from '../statementStorage'
 import { annotateBalanceSequence, classifyFingerprintCollision, validateStatementTotals, diffTransactionSets, reviewedExclusionsMatch, DUPLICATE_STATUS_LABELS } from '../lib/duplicateDetection'
 import { classifyTransaction, computeVisibleToMembers } from '../lib/expenseClassification'
 import { paymentTransactionsQuery } from '../lib/projectAccess'
-import { normalizeTransactionPrefix, validateTransactionPrefix, suggestTransactionPrefix, transactionNumber, assignImportNumbers, preserveReprocessedNumbers, sortRowsForNumbering } from '../lib/transactionNumbering'
+import { normalizeTransactionPrefix, validateTransactionPrefix, suggestTransactionPrefix, transactionNumber, assignImportNumbers, preserveReprocessedNumbers, sortRowsForNumbering, sortImportWritesForNumbering } from '../lib/transactionNumbering'
 import { MatchedIcon, WarningIcon, ICON_STROKE_WIDTH } from '../icons'
 
 const SOURCE_TYPES = [
@@ -719,7 +719,7 @@ export default function PaymentSources() {
 
     // Number assignment, account counter and row writes commit together.
     // Keep an auto-created expense beside its source row in the same chunk.
-    const pendingWrites = rowsToWrite.filter(item => !item.skip)
+    const pendingWrites = sortImportWritesForNumbering(rowsToWrite.filter(item => !item.skip))
     for (let i = 0; i < pendingWrites.length;) {
       let end = Math.min(i + 300, pendingWrites.length)
       if (end < pendingWrites.length && pendingWrites[end].data.sourceTransactionId === pendingWrites[end - 1].ref.id) end--

@@ -114,6 +114,14 @@ test('date order changes the worksheet row order without changing the input', as
     ['2026-10-03', '2026-10-02', '2026-10-01'])
 })
 
+test('same-date rows show account numbers in sequence in both date orders', () => {
+  const rows = [3, 1, 2].map(transactionSequence => ({ txn: {
+    id: `txn-${transactionSequence}`, paymentAccountId: 'current', transactionDate: '2026-10-01', transactionSequence,
+  } }))
+  assert.deepEqual(sortStatementRowsByDate(rows, 'asc').map(row => row.txn.transactionSequence), [1, 2, 3])
+  assert.deepEqual(sortStatementRowsByDate(rows, 'desc').map(row => row.txn.transactionSequence), [3, 2, 1])
+})
+
 test('unrecognized dates remain text rather than incorrect Excel dates', () => {
   const row = statementExportRow({ txn: { transactionDate: '2026-02-30', postDate: '01/03/26' } }, null, null)
   assert.equal(row.date, '2026-02-30')

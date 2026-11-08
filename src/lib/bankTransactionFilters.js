@@ -19,7 +19,7 @@ export function filterBankTransactionRows(rows, accounts, filters = {}) {
   const byId = new Map(accounts.map(account => [account.id, account]))
   const search = normalizeAccountSearch(accountSearch)
 
-  return sortStatementRowsByDate(rows.filter(({ txn, status: rowStatus }) => {
+  const matching = rows.filter(({ txn, status: rowStatus }) => {
     const account = byId.get(txn.paymentAccountId)
     if (from && (txn.transactionDate || '') < from) return false
     if (to && (txn.transactionDate || '') > to) return false
@@ -31,5 +31,9 @@ export function filterBankTransactionRows(rows, accounts, filters = {}) {
     if (status !== 'all' && rowStatus !== status) return false
     if (source !== 'all' && account?.sourceType !== source) return false
     return true
-  }), dateOrder)
+  })
+  const sorted = sortStatementRowsByDate(matching, dateOrder === 'account_asc' ? 'asc' : dateOrder)
+  if (dateOrder !== 'account_asc') return sorted
+  const label = txn => `${byId.get(txn.paymentAccountId)?.label || ''}|${txn.paymentAccountId || ''}`
+  return sorted.sort((a, b) => label(a.txn).localeCompare(label(b.txn)))
 }

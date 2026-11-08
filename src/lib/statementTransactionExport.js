@@ -33,8 +33,12 @@ function excelDate(value) {
 }
 
 export function sortStatementRowsByDate(rows, order) {
-  return [...rows].sort((a, b) => (order === 'asc' ? 1 : -1) *
-    (a.txn.transactionDate || '').localeCompare(b.txn.transactionDate || ''))
+  const direction = order === 'asc' ? 1 : -1
+  return [...rows].sort((a, b) =>
+    direction * (a.txn.transactionDate || '').localeCompare(b.txn.transactionDate || '') ||
+    (a.txn.paymentAccountId || '').localeCompare(b.txn.paymentAccountId || '') ||
+    direction * (Number(a.txn.transactionSequence || 0) - Number(b.txn.transactionSequence || 0)) ||
+    (a.txn.id || '').localeCompare(b.txn.id || ''))
 }
 
 export function statementExportRow({ txn, matched, status }, account, statement, classificationLabels = {}) {

@@ -79,3 +79,18 @@ export function sortRowsForNumbering(rows, imports) {
     (Number(a.sourceRowIndex ?? 0) - Number(b.sourceRowIndex ?? 0)) ||
     a.id.localeCompare(b.id))
 }
+
+// Keep an auto-created expense with its source transaction when sorting
+// imported rows before chunking; otherwise PDF print order sets the numbers.
+export function sortImportWritesForNumbering(writes) {
+  const groups = []
+  for (const write of writes) {
+    const previous = groups[groups.length - 1]
+    if (write.data.sourceTransactionId && previous?.[0].ref.id === write.data.sourceTransactionId) previous.push(write)
+    else groups.push([write])
+  }
+  return groups.sort((a, b) =>
+    (a[0].data.transactionDate || '').localeCompare(b[0].data.transactionDate || '') ||
+    (Number(a[0].data.sourceRowIndex ?? 0) - Number(b[0].data.sourceRowIndex ?? 0)) ||
+    a[0].ref.id.localeCompare(b[0].ref.id)).flat()
+}

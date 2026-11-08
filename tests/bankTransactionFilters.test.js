@@ -35,3 +35,13 @@ test('account type and exact account filters combine with existing date filters'
   assert.deepEqual(filterBankTransactionRows(rows, accounts, { accountType: 'unspecified' }).map(r => r.txn.id), ['d'])
   assert.deepEqual(filterBankTransactionRows(rows, accounts, { accountType: 'savings', from: '2026-10-01' }).map(r => r.txn.id), ['c'])
 })
+
+test('account order keeps each account together and dates oldest first', () => {
+  const ordered = filterBankTransactionRows([
+    { txn: { id: 's2', paymentAccountId: 'savings', transactionDate: '2026-09-02', transactionSequence: 2 } },
+    { txn: { id: 'c2', paymentAccountId: 'current', transactionDate: '2026-09-02', transactionSequence: 2 } },
+    { txn: { id: 's1', paymentAccountId: 'savings', transactionDate: '2026-09-01', transactionSequence: 1 } },
+    { txn: { id: 'c1', paymentAccountId: 'current', transactionDate: '2026-09-01', transactionSequence: 1 } },
+  ], accounts, { dateOrder: 'account_asc' })
+  assert.deepEqual(ordered.map(row => row.txn.id), ['c1', 'c2', 's1', 's2'])
+})

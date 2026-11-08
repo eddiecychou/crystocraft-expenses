@@ -71,7 +71,7 @@ export default function BankTransactions() {
   const [directionFilter, setDirectionFilter] = useState('all')
   const [statusFilter, setStatusFilter] = useState('all')
   const [sourceFilter, setSourceFilter] = useState('all')
-  const [dateOrder, setDateOrder] = useState('desc')
+  const [dateOrder, setDateOrder] = useState('account_asc')
 
   useEffect(() => {
     setAccountFilter('all')
@@ -370,11 +370,14 @@ export default function BankTransactions() {
           <option value="bank">Bank</option>
           <option value="credit_card">Credit Card</option>
         </select>
-        <select aria-label="Date order" value={dateOrder} onChange={e => setDateOrder(e.target.value)}>
+        <select aria-label="Transaction order" value={dateOrder} onChange={e => setDateOrder(e.target.value)}>
+          <option value="account_asc">By account, oldest first</option>
           <option value="desc">Newest first</option>
           <option value="asc">Oldest first</option>
         </select>
       </div>
+
+      <p className="hint">Each account has its own number sequence. Choose one account above to follow its numbers. An older statement uploaded later keeps its newly issued numbers.</p>
 
       <div className="filter-row" style={{ marginBottom: 12 }}>
         <button className="btn-small btn-ghost" onClick={downloadExcel} disabled={!exportReady || !filteredRows.length || exporting}>

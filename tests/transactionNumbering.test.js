@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { suggestTransactionPrefix, validateTransactionPrefix, transactionNumber, assignImportNumbers, preserveReprocessedNumbers, sortRowsForNumbering } from '../src/lib/transactionNumbering.js'
+import { suggestTransactionPrefix, validateTransactionPrefix, transactionNumber, assignImportNumbers, preserveReprocessedNumbers, sortRowsForNumbering, sortImportWritesForNumbering } from '../src/lib/transactionNumbering.js'
 
 test('suggests a project/account prefix without exposing a full account number', () => {
   const details = { projectName: 'Cankleen', institutionName: 'HSBC', label: 'Business Savings 123456789', accountTail: '6789', ledgerType: 'savings' }
@@ -37,4 +37,16 @@ test('one import chunk gives each account its own continuous sequence and leaves
   assert.deepEqual(writes.map(item => item.data.transactionNumber || null), ['CAN-CUR-000004', null, 'CAN-SAV-000009', 'CAN-CUR-000001', 'CAN-CUR-000005'])
   assert.equal(next.get('current').sequence, 5)
   assert.equal(next.get('savings').sequence, 9)
+})
+
+test('new statement rows are numbered by date even when the PDF prints newest first', () => {
+  const writes = [
+    { ref: { id: 'new' }, data: { importId: 'i', paymentAccountId: 'current', transactionDate: '2026-10-03', sourceRowIndex: 0 } },
+    { ref: { id: 'expense' }, data: { sourceTransactionId: 'new' } },
+    { ref: { id: 'old' }, data: { importId: 'i', paymentAccountId: 'current', transactionDate: '2026-10-01', sourceRowIndex: 1 } },
+  ]
+  const ordered = sortImportWritesForNumbering(writes)
+  assert.deepEqual(ordered.map(write => write.ref.id), ['old', 'new', 'expense'])
+  const { writes: numbered } = assignImportNumbers(ordered, new Map([['current', { prefix: 'CAN-CUR', sequence: 0 }]]))
+  assert.deepEqual(numbered.map(write => write.data.transactionNumber || null), ['CAN-CUR-000001', 'CAN-CUR-000002', null])
 })
